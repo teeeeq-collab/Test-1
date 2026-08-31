@@ -68,7 +68,11 @@ Writing the callouts. Category first, then its contents:
 2. **Edit enemies** — add an enemy by giving it a name, then add text boxes
    holding the macro text (`/p Prio kick <Piercing Hiss>`). Further boxes stack
    underneath.
-3. **Build pages** — compose a page from the enemies already defined
+3. **Edit page** — a second page under Edit, where enemies already defined are
+   added to a page as cards
+
+Composing pages is therefore not a third entry on the bar; it lives under Edit,
+alongside editing enemies. Both are prep-time, out-of-combat work.
 
 A text area at the top edits the currently selected line. Below it sits **every
 enemy in the category**, regardless of page, so a whole dungeon can be written
