@@ -69,7 +69,9 @@ Writing the callouts. Category first, then its contents:
    holding the macro text (`/p Prio kick <Piercing Hiss>`). Further boxes stack
    underneath.
 3. **Edit page** — a second page under Edit, where enemies already defined are
-   added to a page as cards
+   added to a page as cards, then removed or reordered. Cards show each enemy's
+   text boxes beneath its name, so the page is laid out as it will actually
+   appear rather than as a list of names
 
 Composing pages is therefore not a third entry on the bar; it lives under Edit,
 alongside editing enemies. Both are prep-time, out-of-combat work.
