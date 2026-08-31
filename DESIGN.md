@@ -62,9 +62,17 @@ on it can be misclicked into changing your text.
 
 ### Edit
 
-Writing the callouts. A text area at the top edits the currently selected line.
-Below it, **every enemy in the category** as cards, regardless of which page they
-sit on — so a whole dungeon's callouts can be written in one sitting.
+Writing the callouts. Category first, then its contents:
+
+1. pick a dungeon, or create a custom category
+2. **Edit enemies** — add an enemy by giving it a name, then add text boxes
+   holding the macro text (`/p Prio kick <Piercing Hiss>`). Further boxes stack
+   underneath.
+3. **Build pages** — compose a page from the enemies already defined
+
+A text area at the top edits the currently selected line. Below it sits **every
+enemy in the category**, regardless of page, so a whole dungeon can be written
+in one sitting.
 
 - selecting a line in a card loads it into the text area
 - `+` within a card adds a line to that enemy
@@ -75,6 +83,17 @@ sit on — so a whole dungeon's callouts can be written in one sitting.
 Composing pages. Enemies are added to the current page as cards laid out
 horizontally, drawn from those already defined in the category.
 
+## Design principle: isolation
+
+The addon reads as little from the game as it can get away with. No zone
+detection, no instance events, no combat log, no keystone state. It is a button
+grid that runs macros; the fewer game systems it touches, the fewer ways a patch
+can break it, and the maintainer cannot patch Lua themselves.
+
+The cost is accepted deliberately: **the category is selected by hand**, so
+nothing can auto-select wrongly and nothing resets after a death or a
+disconnect.
+
 ## Runtime model
 
 Constrained by Midnight's 12.0 addon rules (see README for the probe that
@@ -82,10 +101,14 @@ measures these).
 
 - Each line is backed by a real character macro, since the `macrotext` attribute
   is reported protected in 12.0.
-- Macros for a category are **materialised on zone-in** and released on exit.
-  Loading screens guarantee we are out of combat at that moment, which is
-  exactly when the write has to happen. One category resident at a time keeps
-  well inside the macro slot cap.
+- Macros for a category are **materialised when you select that category** under
+  Run, and released when another is selected. Selection is a deliberate act
+  taken before the key, so it is reliably out of combat — which is exactly when
+  the write has to happen. One category resident at a time keeps well inside the
+  macro slot cap.
+- The loaded category is named on the bar even when collapsed, so "did I load
+  it?" is answerable at a glance rather than by pressing a button and seeing
+  nothing happen.
 - **Play works in combat.** Pressing buttons and flipping pages are show/hide
   operations through secure handlers, not attribute writes.
 - **Edit and Build are out of combat only.** Writing macros and creating buttons
@@ -93,16 +116,30 @@ measures these).
 
 ## Open questions
 
-1. Is Build a third entry on the bar, or a sub-view inside Edit? The bar was
-   described as Run / Edit / Settings, with no Build.
-2. Where is a category chosen — on the bar, or inside Run?
-3. Does zoning into a dungeon auto-select its category, and jump to page 1 or
-   resume the last page used?
-4. How are pages created, renamed, reordered and deleted?
-5. Auto-wrap of enemy cards, or manual row placement?
+1. How are pages created, renamed, reordered and deleted?
+2. Auto-wrap of enemy cards, or manual row placement?
+3. Bosses — a distinct type, or just an enemy with more lines? Open; see below.
 
 ## Not yet settled
 
 The probe (`MythicMacrosProbe/`) has not been run. Its results decide the
 execution layer only: what a button does when pressed, and whether macros need
 materialising at all. Everything above is independent of it.
+
+## Bosses — undecided
+
+A boss needs more lines than a trash mob, and a card of six stacked lines is a
+tall thin column that makes the window an awkward shape.
+
+One option is a **boss flag** set when the enemy is created: flagged enemies lay
+their lines out in a grid rather than a column, and may not share a page with
+unflagged ones.
+
+The alternative avoids the type entirely: give **every** enemy a *lines per row*
+setting, default 1. A boss with six lines is then set to 2 or 3 per row and
+becomes a compact block. No boss concept, no rule about what may share a page,
+and the same control is available to a trash mob that happens to need four
+lines.
+
+Preferred: the second. A layout preference is being expressed as a type, and the
+mixing restriction only exists to protect the layout.
