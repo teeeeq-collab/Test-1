@@ -1,0 +1,7 @@
+## Interface: 120100
+## Title: MythicMacros Probe
+## Notes: Capability probe for Midnight macro / secure-button restrictions. Not the real addon.
+## Version: 0.1
+## SavedVariables: MMProbeDB
+
+MythicMacrosProbe.lua
