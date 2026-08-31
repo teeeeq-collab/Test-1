@@ -128,6 +128,62 @@ in one sitting.
 Composing pages. Enemies are added to the current page as cards laid out
 horizontally, drawn from those already defined in the category.
 
+## Profiles, export and data safety
+
+### What SavedVariables actually guarantees
+
+The game holds addon data in memory and writes it to disk at three moments
+only: clean logout, `/reload`, and a normal exit. Not continuously.
+
+So a client crash loses everything since the last logout or reload. The file is
+not corrupted; it was simply never written. Two lesser risks: a malformed
+SavedVariables file is silently discarded rather than repaired, and two clients
+logged in at once means the last to log out overwrites the other.
+
+SavedVariables is therefore a working store, not a backup. Export strings are
+the real safety net, which is why they are in from the start rather than bolted
+on later.
+
+Three mitigations:
+
+- **`/reload` is the flush.** No API can force a save, so the UI says this
+  rather than assuming it is remembered.
+- **Export-staleness marker.** Edits since the last export are counted, and a
+  quiet indicator appears in Edit once the count is meaningful.
+- **Rolling snapshots** of the last few states, kept alongside the live data.
+  These protect against user error — a category deleted by accident, a bad
+  import — and explicitly **not** against a crash or file loss, since they live
+  in the same file.
+
+### Profiles
+
+A profile is a named set of categories. Display settings stay global, since they
+describe the monitor rather than the content. Data is account-wide, so callouts
+follow every character, and profiles cover the cases where variants are wanted.
+
+Export covers either a whole profile or a single category, the latter being what
+gets passed to a teammate.
+
+### Format
+
+Plain readable text, no libraries. Compression via LibDeflate would produce
+strings roughly a quarter the size, but adds dependencies, and a corrupted
+compressed blob tells you nothing while a plain-text export can be opened in an
+editor and read. A dungeon lands around 5-15 KB, which is fine for a file and
+awkward for Discord's 2000-character limit; compression can be added later if
+sharing that way matters, since backup is the primary job.
+
+### Import safety
+
+Import uses a **strict parser, never `loadstring`**. Many addons evaluate import
+strings as Lua, which means a profile string from another person can execute
+arbitrary code. Since passing strings between teammates is the point, the parser
+reads data and refuses anything that is not data.
+
+Import never overwrites in place: the whole string is parsed and validated
+first, then lands as a new profile, or a new category with a suffix on a name
+clash. A bad paste cannot destroy existing work.
+
 ## Design principle: isolation
 
 The addon reads as little from the game as it can get away with. No zone
