@@ -166,19 +166,56 @@ gets passed to a teammate.
 
 ### Format
 
-Plain readable text, no libraries. Compression via LibDeflate would produce
-strings roughly a quarter the size, but adds dependencies, and a corrupted
-compressed blob tells you nothing while a plain-text export can be opened in an
-editor and read. A dungeon lands around 5-15 KB, which is fine for a file and
-awkward for Discord's 2000-character limit; compression can be added later if
-sharing that way matters, since backup is the primary job.
+Compressed and print-encoded, like a Plater profile or an MDT route: serialise
+with LibSerialize, compress with LibDeflate, encode with `EncodeForPrint`.
+
+The libraries are vendored under `Libs/` so the addon stays one folder to
+install. They do not weaken the isolation principle: all three are pure Lua
+doing string and arithmetic work, touching no game API, so no patch can break
+them. Isolation is about code that reads game state.
+
+Measured on generated data with no repeated text for deflate to exploit:
+
+| Export                       | Encoded length | |
+| ---------------------------- | -------------- | --- |
+| one dungeon, 18 enemies      | ~1,460 chars   | fits one Discord message |
+| large dungeon, 40 enemies    | ~2,480 chars   | needs a file |
+| full profile, 8 dungeons     | ~5,700 chars   | needs a file |
+| 12 dungeons x 25 enemies     | ~10,200 chars  | needs a file |
+
+The unit that gets shared — one dungeon — pastes into a chat message. The unit
+that gets backed up — a whole profile — goes to a file, which is where a backup
+belongs.
+
+### Envelope
+
+The payload is wrapped rather than exported bare:
+
+```
+!MM1!<encoded>
+```
+
+The prefix identifies format and version, so a future format change is detected
+rather than misparsed. Inside, the serialised table carries an Adler-32 of its
+own contents.
+
+This exists because a truncated paste — the commonest import failure, since
+people miss the last characters when selecting — does **not** reliably throw.
+Testing confirmed it can pass decode and decompress without an error. The
+checksum turns that into "this string looks truncated, check you copied all of
+it" instead of a confusing failure deeper in.
 
 ### Import safety
 
-Import uses a **strict parser, never `loadstring`**. Many addons evaluate import
-strings as Lua, which means a profile string from another person can execute
-arbitrary code. Since passing strings between teammates is the point, the parser
-reads data and refuses anything that is not data.
+LibSerialize deserialises a **binary format**; it never evaluates Lua. Many
+addons import by running the string as code, which lets a profile string from
+another person execute anything on the machine that imports it. Since passing
+strings between teammates is the point of the feature, that route is closed by
+construction.
+
+Beyond that, the decoded table is **shape-validated** before anything is
+applied — expected keys, expected types, sane sizes — because deserialising
+safely still says nothing about whether the contents make sense.
 
 Import never overwrites in place: the whole string is parsed and validated
 first, then lands as a new profile, or a new category with a suffix on a name
