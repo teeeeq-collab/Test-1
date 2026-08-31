@@ -1,0 +1,9 @@
+## Interface: 120100
+## Title: MythicMacros
+## Notes: Mythic+ callout panel. Pages of labelled buttons, each firing a macro.
+## Version: 0.1
+## SavedVariables: MythicMacrosDB
+
+Util.lua
+Core.lua
+Macros.lua
