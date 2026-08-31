@@ -24,10 +24,31 @@ page reflects it, and it consumes one macro slot rather than four.
 
 ## Windows
 
-One frame with a main menu and three views. The frame auto-sizes to its view, so
-Play stays compact enough to sit in a corner while Edit and Build get the room
-they need. Each view remembers its own size and position. Scale and opacity are
-user-set; the frame is drag-positioned.
+The root of the addon is a slim **collapsible bar**, not a main window. It holds
+the entries that lead everywhere else:
+
+- **Run** — into the key interface (the Play view)
+- **Edit** — writing callouts
+- **Settings**
+
+Collapsed, it is close to invisible; that is its resting state during a key.
+The `<` at the top left of the Play view returns here.
+
+Each view auto-sizes to its content, so Play stays compact enough to sit in a
+corner while Edit gets the room it needs. Each remembers its own size and
+position, and the frame is drag-positioned.
+
+## Settings
+
+- **Opacity**
+- **Overall scale** — grows and shrinks the whole addon by percentage
+- **Button scale** — independent, so buttons stay large enough to hit without
+  aiming carefully, which is the point of the addon during a pull
+- **Text scale** — independent again, so a bigger caption does not force a
+  bigger button
+
+Scale and opacity changes apply out of combat. Frame scaling is restricted on
+protected frames during combat, and settings are prep-time work anyway.
 
 ### Play
 
@@ -72,11 +93,13 @@ measures these).
 
 ## Open questions
 
-1. What sits on the main menu beyond category selection?
-2. Does zoning into a dungeon auto-select its category, and jump to page 1 or
+1. Is Build a third entry on the bar, or a sub-view inside Edit? The bar was
+   described as Run / Edit / Settings, with no Build.
+2. Where is a category chosen — on the bar, or inside Run?
+3. Does zoning into a dungeon auto-select its category, and jump to page 1 or
    resume the last page used?
-3. How are pages created, renamed, reordered and deleted — in Build?
-4. Auto-wrap of enemy cards, or manual row placement?
+4. How are pages created, renamed, reordered and deleted?
+5. Auto-wrap of enemy cards, or manual row placement?
 
 ## Not yet settled
 
