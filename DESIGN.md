@@ -50,15 +50,52 @@ position, and the frame is drag-positioned.
 Scale and opacity changes apply out of combat. Frame scaling is restricted on
 protected frames during combat, and settings are prep-time work anyway.
 
-### Play
+### Run
 
-The only view open during a key. It carries no edit affordances at all — nothing
-on it can be misclicked into changing your text.
+Selecting a category, then playing it. Pressing **Run** lists the categories,
+one button each. Choosing one opens its pages, starting at the first.
 
-- top left: back to main menu
+The view carries no edit affordances at all — nothing on it can be misclicked
+into changing your text.
+
+- top left: back to category selection, and the lock
 - top right: previous / next page
 - title: current page name
 - body: enemy cards, each a name header over its line buttons
+
+#### The lock
+
+Macros are written and deleted **only** on lock and unlock, and lock and unlock
+are possible **only** out of combat. Everything else — paging, pressing buttons,
+returning to selection — either does not touch the macro system or is gated
+behind unlocking first. No code path can attempt an operation combat forbids.
+
+That invariant exists because an unguarded back button had three failure modes:
+
+- releasing macros needs `DeleteMacro`, blocked in combat, so a mid-pull back
+  press could delete half the set
+- switching category repoints every button through `SetAttribute`, also blocked
+  in combat
+- macro indices shift when a macro is deleted, so anything caching an index goes
+  stale (everything looks up by name instead)
+
+Behaviour:
+
+- choosing a category shows its pages with buttons **inert** — nothing written
+- **Lock** materialises the macros; buttons go live
+- **Unlock** releases them; buttons go inert
+- while locked, back is disabled; paging stays available, being only show/hide
+
+Inert buttons render dimmed and live buttons full colour, so load state is seen
+rather than read. This replaces a text label naming the loaded category.
+
+Loading is all-or-nothing: if fewer slots are free than the category needs,
+locking fails with the shortfall named, rather than writing a partial set and
+leaving silent buttons.
+
+`/reload` mid-key is safe. The macros are real, persistent objects, so they
+survive; the addon restores its lock state on load. A crash leaves recoverable
+state rather than orphans — leftover macros are detected on next load.
 
 ### Edit
 
@@ -112,9 +149,9 @@ measures these).
   taken before the key, so it is reliably out of combat — which is exactly when
   the write has to happen. One category resident at a time keeps well inside the
   macro slot cap.
-- The loaded category is named on the bar even when collapsed, so "did I load
-  it?" is answerable at a glance rather than by pressing a button and seeing
-  nothing happen.
+- Load state is shown by dimming inert buttons, so "did I load it?" is
+  answerable at a glance rather than by pressing a button and seeing nothing
+  happen.
 - **Play works in combat.** Pressing buttons and flipping pages are show/hide
   operations through secure handlers, not attribute writes.
 - **Edit and Build are out of combat only.** Writing macros and creating buttons
