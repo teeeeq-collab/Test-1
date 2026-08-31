@@ -60,7 +60,9 @@ into changing your text.
 
 - top left: back to category selection, and the lock
 - top right: previous / next page
-- title: current page name
+- title: the category name at or just left of centre, with the page name
+  slightly smaller to its right — `Den of Nalorakk    Boss 1: Ra'Vi`. The
+  category name is edited under Edit, the page name under Edit page.
 - body: enemy cards, each a name header over its line buttons
 
 #### The lock
@@ -159,9 +161,11 @@ measures these).
 
 ## Open questions
 
-1. How are pages created, renamed, reordered and deleted?
-2. Auto-wrap of enemy cards, or manual row placement?
-3. Bosses — a distinct type, or just an enemy with more lines? Open; see below.
+1. Auto-wrap of enemy cards, or manual row placement? Recommended: auto-wrap,
+   which preserves left-to-right order and only chooses where to break.
+
+Assumed unless corrected: pages are created, deleted and reordered from controls
+at the top of **Edit page**, where they are also renamed.
 
 ## Not yet settled
 
@@ -169,20 +173,42 @@ The probe (`MythicMacrosProbe/`) has not been run. Its results decide the
 execution layer only: what a button does when pressed, and whether macros need
 materialising at all. Everything above is independent of it.
 
-## Bosses — undecided
+## Enemy layout
 
-A boss needs more lines than a trash mob, and a card of six stacked lines is a
-tall thin column that makes the window an awkward shape.
+Every enemy has a **buttons per row** setting, default 1, so its lines stack
+vertically like a trash card.
 
-One option is a **boss flag** set when the enemy is created: flagged enemies lay
-their lines out in a grid rather than a column, and may not share a page with
-unflagged ones.
+Raising it makes buttons fill horizontally first and then wrap, with the single
+name header sitting above the top-left button. That is the boss layout: a boss
+with six lines set to 3 per row becomes a compact 2x3 block instead of a tall
+thin column.
 
-The alternative avoids the type entirely: give **every** enemy a *lines per row*
-setting, default 1. A boss with six lines is then set to 2 or 3 per row and
-becomes a compact block. No boss concept, no rule about what may share a page,
-and the same control is available to a trash mob that happens to need four
-lines.
+There is no boss type and no rule about what may share a page. The layout itself
+shows that an enemy is a boss, and the same control is available to a trash mob
+that happens to need four lines.
 
-Preferred: the second. A layout preference is being expressed as a type, and the
-mixing restriction only exists to protect the layout.
+## Button labels
+
+A line has an optional short caption. When set, the button shows it (`Strat`,
+`Panic`). When empty, the button falls back to showing the macro text itself,
+with the leading chat command stripped, so `/p Prio kick <Piercing Hiss>` reads
+as `Prio kick <Piercing Hiss>`.
+
+## The 255 limit
+
+Macro bodies cap at **255 bytes**, not characters. `SetMaxLetters` counts
+characters, so a body of 255 characters containing an accented letter or a
+pasted smart quote is over 255 bytes and would be silently truncated by
+`CreateMacro` — the exact failure the counter is supposed to prevent, arriving
+in the form the counter called safe.
+
+Three layers, because this has to be foolproof:
+
+1. `SetMaxLetters(255)` — the client itself refuses further typing
+2. a byte-length check on every text change (`#text` is byte length in Lua);
+   a paste that lands over 255 bytes is trimmed to the last whole character,
+   cursor restored
+3. validation on save — a body over 255 bytes is refused, never written
+
+The counter displays **bytes** remaining, so it is accurate in every case. Under
+normal typing layers 2 and 3 never fire.
