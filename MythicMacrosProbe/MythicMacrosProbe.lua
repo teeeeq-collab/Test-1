@@ -167,8 +167,26 @@ local function testLimits()
     record("A.build", ("%s toc=%s"):format(tostring(version), tostring(toc)))
 
     local acct, char = GetNumMacros()
-    record("A.slots.account",   ("%s used of %s"):format(tostring(acct), tostring(MAX_ACCOUNT_MACROS)))
-    record("A.slots.character", ("%s used of %s"):format(tostring(char), tostring(MAX_CHARACTER_MACROS)))
+    record("A.slots.account",   ("%s used"):format(tostring(acct)))
+    record("A.slots.character", ("%s used"):format(tostring(char)))
+
+    -- MAX_ACCOUNT_MACROS came back nil on 12.1, so the cap has to come from
+    -- somewhere else. Report what this build actually exposes.
+    local found = {}
+    for _, name in ipairs({
+        "MAX_ACCOUNT_MACROS", "MAX_CHARACTER_MACROS",
+        "NUM_ACCOUNT_MACROS", "NUM_CHARACTER_MACROS",
+        "MAX_MACROS", "MACRO_ACCOUNT_LIMIT",
+    }) do
+        if _G[name] ~= nil then found[#found + 1] = name .. "=" .. tostring(_G[name]) end
+    end
+    if Constants and Constants.MacroConsts then
+        for k, v in pairs(Constants.MacroConsts) do
+            found[#found + 1] = "Constants.MacroConsts." .. tostring(k) .. "=" .. tostring(v)
+        end
+    end
+    record("A.slotConstants", (#found > 0) and table.concat(found, ", ") or "NONE FOUND",
+        "C_Macro namespace: " .. tostring(C_Macro ~= nil))
 
     -- How long may a macro NAME be? The addon wants short generated names, but
     -- needs to know the ceiling before assuming one.
@@ -430,30 +448,62 @@ label("C + D. Get into combat, then press both of these:", "|cffffcc44")
 
 --- The design assumes attribute writes and macro edits are refused in combat,
 --- and that page flipping therefore cannot go through them.
-plain("C. Combat ops", 14, 200, function()
-    record("C.lockdown", InCombatLockdown() and "IN COMBAT" or "out of combat",
-        "results below only mean something if this says IN COMBAT")
+--- Verify by effect, never by pcall.
+---
+--- D1 proved why: it recorded NO EFFECT with "pcall=no error". A blocked action
+--- in WoW usually does not throw, it simply fails to apply. The first version of
+--- these tests reported ALLOWED for all four operations purely because nothing
+--- raised, which is not evidence of anything. Each one now writes a value and
+--- reads it back.
+local function combatOps()
+    local inCombat = InCombatLockdown()
+    record("C.lockdown", inCombat and "IN COMBAT" or "out of combat",
+        inCombat and "results are meaningful" or "RE-RUN THIS IN COMBAT")
 
-    local ok, err = pcall(function()
-        btnMtRun:SetAttribute("macrotext", "/run MMProbeSignal('macrotext')")
-    end)
-    record("C.SetAttribute", ok and "ALLOWED" or "BLOCKED", not ok and err or nil)
+    -- SetAttribute: write a sentinel, read it back.
+    local sentinel = "MMPsent" .. math.random(100000, 999999)
+    pcall(function() btnMtRun:SetAttribute("macrotext", "/run MMProbeSignal('" .. sentinel .. "')") end)
+    local got = btnMtRun:GetAttribute("macrotext")
+    record("C.SetAttribute",
+        (got and got:find(sentinel, 1, true)) and "APPLIED" or "NO EFFECT",
+        "read back: " .. tostring(got and got:sub(1, 40)))
 
+    -- EditMacro: write a distinctive body, read it back.
     local idx = GetMacroIndexByName(RUN_MACRO)
     if idx and idx > 0 then
-        local okE, errE = pcall(EditMacro, idx, RUN_MACRO, nil, "/run MMProbeSignal('realmacro')")
-        record("C.EditMacro", okE and "ALLOWED" or "BLOCKED", not okE and errE or nil)
+        local marker = "/run MMProbeSignal('edited" .. math.random(1000, 9999) .. "')"
+        pcall(EditMacro, idx, RUN_MACRO, nil, marker)
+        local body = GetMacroBody(idx)
+        record("C.EditMacro", (body == marker) and "APPLIED" or "NO EFFECT",
+            "body now: " .. tostring(body and body:sub(1, 40)))
+        -- Put it back so the B buttons keep working.
+        pcall(EditMacro, idx, RUN_MACRO, nil, "/run MMProbeSignal('realmacro')")
     else
-        record("C.EditMacro", "SKIPPED", "create the macros first")
+        record("C.EditMacro", "SKIPPED", "probe macros not created")
     end
 
-    local okC, errC = pcall(CreateMacro, PREFIX .. "CBT", ICONS[1], "/run return", false)
-    record("C.CreateMacro", okC and "ALLOWED" or "BLOCKED", not okC and errC or nil)
-    if okC then deleteMacro(PREFIX .. "CBT") end
+    -- CreateMacro: create, then look it up by name.
+    local tmp = PREFIX .. "CBT"
+    pcall(CreateMacro, tmp, ICONS[1], "/run return", false)
+    local made = GetMacroIndexByName(tmp)
+    record("C.CreateMacro", (made and made > 0) and "APPLIED" or "NO EFFECT")
+    if made and made > 0 then
+        pcall(DeleteMacro, made)
+        record("C.DeleteMacro",
+            (GetMacroIndexByName(tmp) or 0) == 0 and "APPLIED" or "NO EFFECT")
+    end
 
-    local okS, errS = pcall(function() frame:SetScale(1.0) end)
-    record("C.SetScale", okS and "ALLOWED" or "BLOCKED", not okS and errS or nil)
-end)
+    -- SetScale: change it, read it back, restore.
+    local before = frame:GetScale()
+    local target = (before > 1.02) and 1.0 or 1.05
+    pcall(frame.SetScale, frame, target)
+    local after = frame:GetScale()
+    record("C.SetScale", (math.abs(after - target) < 0.001) and "APPLIED" or "NO EFFECT",
+        ("%.3f -> %.3f"):format(before, after))
+    pcall(frame.SetScale, frame, before)
+end
+
+plain("C. Combat ops", 14, 200, combatOps)
 y = y - 30
 
 --------------------------------------------------------------------------------
@@ -535,6 +585,34 @@ end)
 y = y - 34
 
 label(" ")
+--- Everything that matters inside a key, on one press. Nobody wants to work a
+--- six-button panel mid-pull.
+local function runAllInKey()
+    local iname, itype, _, diffName, _, _, _, instID = GetInstanceInfo()
+    record("K.instance", ("%s | %s | %s | id=%s"):format(
+        tostring(iname), tostring(itype), tostring(diffName), tostring(instID)))
+    record("K.combat", InCombatLockdown() and "IN COMBAT" or "out of combat")
+    record("K.group", ("party=%d"):format(GetNumSubgroupMembers()))
+
+    local okA, active = pcall(function() return C_ChallengeMode.IsChallengeModeActive() end)
+    record("K.keyActive", okA and tostring(active) or "API unavailable")
+    local okL, lvl = pcall(function() return C_ChallengeMode.GetActiveKeystoneInfo() end)
+    record("K.keyLevel", okL and tostring(lvl) or "API unavailable")
+
+    combatOps()
+
+    local wasShown = pagePlain:IsShown()
+    pcall(function() if wasShown then pagePlain:Hide() else pagePlain:Show() end end)
+    record("K.plainHide", (pagePlain:IsShown() ~= wasShown) and "WORKED" or "NO EFFECT")
+
+    local before = pageA:IsShown()
+    btnFlip:Click()
+    record("K.secureFlipByScript", (pageA:IsShown() ~= before) and "WORKED" or "NO EFFECT",
+        "script-driven click, not a hardware event")
+
+    out("|cffffff00now click the two chat buttons by hand, then Copy report.|r")
+end
+
 plain("Print report", 14, 140, function() MMProbeReport() end)
 plain("Remove macros", 166, 140, cleanupMacros)
 plain("Copy report", 318, 140, function() MMProbeShowCopy() end)

@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------------
--- Util: the 255-byte guard, and small shared helpers.
+-- Util: the macro length guard, and small shared helpers.
 --------------------------------------------------------------------------------
 
 local ADDON, MM = ...
@@ -7,49 +7,57 @@ local ADDON, MM = ...
 MM.Util = {}
 local Util = MM.Util
 
--- WoW caps a macro body at 255 BYTES, not characters. This distinction is the
--- whole reason this file exists: SetMaxLetters counts characters, so 255
--- characters containing one accented letter or a pasted smart quote is over the
--- byte cap and CreateMacro truncates it silently.
-Util.MAX_MACRO_BYTES = 255
+-- Measured on 12.1.0 rather than assumed:
+--
+--   300 ASCII characters (300 bytes)      -> stored as 256
+--   120 multi-byte characters (360 bytes) -> stored untouched
+--
+-- A byte cap would have cut the 360-byte body. It did not. So the cap counts
+-- CHARACTERS and sits at 256. An earlier version of this file counted bytes,
+-- which would have silently truncated a perfectly legal 200-character callout
+-- containing accented text down to about 85 characters. The probe caught it.
+--
+-- 255 rather than the observed 256, because one spare character costs nothing
+-- and being wrong at the boundary costs a corrupted macro.
+Util.MAX_MACRO_CHARS = 255
 
---- True if b is a UTF-8 continuation byte (10xxxxxx), i.e. the middle of a
---- multi-byte character rather than the start of one.
-local function isContinuation(b)
-    return b ~= nil and b >= 0x80 and b < 0xC0
-end
-
---- Byte length. In Lua 5.1 the # operator on a string is already bytes; this
---- exists so call sites read as a deliberate choice rather than an accident.
-function Util.ByteLen(text)
-    return #(text or "")
-end
-
---- Longest prefix of `text` that fits in maxBytes without splitting a
---- character. Walks back off any partial UTF-8 sequence at the cut point.
-function Util.TrimToBytes(text, maxBytes)
+--- Character count, not byte count. strlenutf8 is a WoW global; the fallback
+--- pattern counts anything that is not a UTF-8 continuation byte, which is the
+--- same thing for well-formed text.
+function Util.CharLen(text)
     text = text or ""
-    maxBytes = maxBytes or Util.MAX_MACRO_BYTES
+    if strlenutf8 then
+        return strlenutf8(text)
+    end
+    local _, count = text:gsub("[^\128-\191]", "")
+    return count
+end
 
-    if #text <= maxBytes then
+--- Longest prefix of `text` that fits in maxChars, never splitting a character.
+function Util.TrimToChars(text, maxChars)
+    text = text or ""
+    maxChars = maxChars or Util.MAX_MACRO_CHARS
+
+    if Util.CharLen(text) <= maxChars then
         return text
     end
 
-    local cut = maxBytes
-    while cut > 0 and isContinuation(text:byte(cut + 1)) do
-        cut = cut - 1
+    local chars, out = 0, {}
+    for char in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        chars = chars + 1
+        if chars > maxChars then break end
+        out[#out + 1] = char
     end
-
-    return text:sub(1, cut)
+    return table.concat(out)
 end
 
---- Bytes still available. Negative means over the cap.
-function Util.BytesRemaining(text)
-    return Util.MAX_MACRO_BYTES - Util.ByteLen(text)
+--- Characters still available. Negative means over the cap.
+function Util.CharsRemaining(text)
+    return Util.MAX_MACRO_CHARS - Util.CharLen(text)
 end
 
 function Util.FitsInMacro(text)
-    return Util.ByteLen(text) <= Util.MAX_MACRO_BYTES
+    return Util.CharLen(text) <= Util.MAX_MACRO_CHARS
 end
 
 --------------------------------------------------------------------------------
@@ -71,7 +79,6 @@ function Util.ButtonLabel(line)
     local body = line.body or ""
     local firstLine = body:match("^[^\n]*") or ""
 
-    -- Strip a leading slash command and the space after it.
     local stripped = firstLine:match("^/%a+%s+(.*)$")
     return stripped or firstLine
 end
@@ -82,8 +89,7 @@ end
 
 local idCounter = 0
 
---- Ids only need to be unique within one SavedVariables file. Time plus a
---- counter is enough, and stays stable once written.
+--- Ids only need to be unique within one SavedVariables file.
 function Util.NewId(prefix)
     idCounter = idCounter + 1
     return string.format("%s%d%03d", prefix or "id", time(), idCounter % 1000)
@@ -93,7 +99,6 @@ end
 -- Tables
 --------------------------------------------------------------------------------
 
---- Index of the first entry whose .id matches, or nil.
 function Util.IndexById(list, id)
     if not list then return nil end
     for i = 1, #list do
