@@ -254,15 +254,40 @@ itself read normally, which is how the echo checks worked at all. This cannot
 affect MythicMacros, which only sends chat, but it rules out any future feature
 needing to see what was said.
 
-### Still unverified
+### During a boss encounter, the chat echo stops
 
-Both in-combat runs were taken with `IsEncounterInProgress() == false` and no
-keystone active. Blizzard's 12.0 restrictions are reported to apply during an
-**active boss encounter or keystone**, and that state has not been sampled.
+A controlled comparison inside one raid, same buttons, same instance:
 
-Chat delivery is therefore confirmed in combat, and unconfirmed under the one
-condition the restriction targets. If it fails there, the fallback is the
-character-macro design below, and only the execution layer changes.
+| Run | combat | encounter | chat echo recorded |
+| --- | ------ | --------- | ------------------ |
+| K3  | true   | false     | RECEIVED |
+| K4  | true   | **true**  | none |
+| K5  | true   | **true**  | none |
+
+The clicks landed in every run, so the buttons were working. The only variable
+that changed is `IsEncounterInProgress()`.
+
+**This does not yet distinguish two very different situations**, and the
+difference decides whether the addon is viable:
+
+1. **The message was not sent.** Chat from a macro is suppressed during an
+   encounter. The addon cannot do its job on bosses.
+2. **The message was sent, and the addon simply could not observe it.** Chat
+   received inside an instance is already known to arrive as a Secret Value, and
+   an encounter may extend that to the addon's own messages. Teammates would see
+   the callout; only the probe's bookkeeping is blind.
+
+The probe cannot tell these apart, because both look identical from inside Lua:
+no readable message arrives either way.
+
+**The test is human.** Press the chat buttons during a boss and look at your own
+chat frame. If `MMProbe-RM check` appears on screen, it was sent, and case 2
+holds. If nothing appears, case 1 holds.
+
+Until that is answered, the execution layer stays undecided. Note the fallback
+does not help here: both `macrotext` and a real character macro failed
+identically in K4 and K5, so this is not something the character-macro design
+would rescue.
 
 ## Design principle: isolation
 
