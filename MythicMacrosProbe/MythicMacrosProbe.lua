@@ -126,6 +126,8 @@ SlashCmdList.MMPROBE = function(arg)
 
     if arg == "report" then
         MMProbeReport()
+    elseif arg == "copy" then
+        MMProbeShowCopy()
     elseif arg == "clean" then
         cleanupMacros()
     elseif arg == "reset" then
@@ -146,7 +148,7 @@ SlashCmdList.MMPROBE = function(arg)
         out("|cffff4444the panel failed to build - /mmprobe report still works.|r")
     else
         if frame:IsShown() then frame:Hide() else frame:Show() end
-        out("commands: report | clean | reset | say | party")
+        out("commands: report | copy | clean | reset | say | party")
     end
 end
 
@@ -535,23 +537,94 @@ y = y - 34
 label(" ")
 plain("Print report", 14, 140, function() MMProbeReport() end)
 plain("Remove macros", 166, 140, cleanupMacros)
+plain("Copy report", 318, 140, function() MMProbeShowCopy() end)
 
 --------------------------------------------------------------------------------
 -- Reporting
 --------------------------------------------------------------------------------
 
-function MMProbeReport()
-    out("|cffffff00========== PROBE REPORT ==========|r")
+--- The report as plain text. WoW's chat frame cannot be selected with the
+--- mouse, so printing a report is not the same as being able to send it to
+--- anyone. This is the form that actually leaves the game.
+local function reportText()
+    local lines = {
+        "MythicMacros Probe report",
+        ("client %s  toc %s  recorded %s"):format(
+            tostring((GetBuildInfo())), tostring(select(4, GetBuildInfo())),
+            date("%Y-%m-%d %H:%M:%S")),
+        "",
+    }
+
     local keys = {}
     for k in pairs(db().results) do keys[#keys + 1] = k end
     table.sort(keys)
+
     for _, k in ipairs(keys) do
         local r = db().results[k]
-        print(("  %s = %s%s"):format(k, r.value, r.note and ("   -- " .. r.note) or ""))
+        lines[#lines + 1] = ("%-26s = %s%s"):format(
+            k, r.value, r.note and ("   -- " .. r.note) or "")
     end
-    if #keys == 0 then print("  (nothing recorded yet)") end
-    out("|cffffff00========== END REPORT ==========|r")
+
+    if #keys == 0 then
+        lines[#lines + 1] = "(nothing recorded yet)"
+    end
+
+    return table.concat(lines, "\n")
 end
+
+function MMProbeReport()
+    out("|cffffff00========== PROBE REPORT ==========|r")
+    for line in reportText():gmatch("[^\n]+") do print("  " .. line) end
+    out("|cffffff00===== END =====|r  use |cffffff00Copy report|r to get it out")
+end
+
+--------------------------------------------------------------------------------
+-- Copy window: a selectable edit box, pre-highlighted, so the report can be
+-- lifted with one keystroke.
+--------------------------------------------------------------------------------
+
+local copyFrame
+
+local function showCopyWindow()
+    if not copyFrame then
+        copyFrame = CreateFrame("Frame", "MMProbeCopyFrame", UIParent,
+            "BasicFrameTemplateWithInset")
+        copyFrame:SetSize(640, 460)
+        copyFrame:SetPoint("CENTER")
+        copyFrame:SetFrameStrata("FULLSCREEN_DIALOG")
+        copyFrame:SetMovable(true)
+        copyFrame:EnableMouse(true)
+        copyFrame:RegisterForDrag("LeftButton")
+        copyFrame:SetScript("OnDragStart", copyFrame.StartMoving)
+        copyFrame:SetScript("OnDragStop", copyFrame.StopMovingOrSizing)
+
+        local title = copyFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        title:SetPoint("TOP", copyFrame.TitleBg, "TOP", 0, -5)
+        title:SetText("Probe report - already selected, press Cmd-C / Ctrl-C")
+
+        local scroll = CreateFrame("ScrollFrame", "MMProbeCopyScroll", copyFrame,
+            "UIPanelScrollFrameTemplate")
+        scroll:SetPoint("TOPLEFT", 14, -32)
+        scroll:SetPoint("BOTTOMRIGHT", -34, 14)
+
+        local eb = CreateFrame("EditBox", nil, scroll)
+        eb:SetMultiLine(true)
+        eb:SetMaxLetters(0)
+        eb:SetAutoFocus(false)
+        eb:SetFontObject(ChatFontNormal)
+        eb:SetWidth(580)
+        eb:SetScript("OnEscapePressed", function() copyFrame:Hide() end)
+        scroll:SetScrollChild(eb)
+        copyFrame.editBox = eb
+    end
+
+    copyFrame.editBox:SetText(reportText())
+    copyFrame:Show()
+    copyFrame.editBox:SetFocus()
+    copyFrame.editBox:HighlightText()
+end
+
+function MMProbeShowCopy() showCopyWindow() end
 
 --------------------------------------------------------------------------------
 -- Chat echo detection
