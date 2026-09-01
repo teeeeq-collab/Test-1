@@ -89,10 +89,14 @@ end
 
 local idCounter = 0
 
+-- WoW exposes `time`; plain Lua has os.time. Resolving both keeps this file
+-- runnable outside the game, which is the only way it gets tested at all.
+local now = _G.time or os.time
+
 --- Ids only need to be unique within one SavedVariables file.
 function Util.NewId(prefix)
     idCounter = idCounter + 1
-    return string.format("%s%d%03d", prefix or "id", time(), idCounter % 1000)
+    return string.format("%s%d%03d", prefix or "id", now(), idCounter % 1000)
 end
 
 --------------------------------------------------------------------------------

@@ -9,3 +9,4 @@ Libs/LibDeflate/LibDeflate.lua
 Libs/LibSerialize/LibSerialize.lua
 
 Util.lua
+Core.lua
