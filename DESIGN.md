@@ -254,40 +254,44 @@ itself read normally, which is how the echo checks worked at all. This cannot
 affect MythicMacros, which only sends chat, but it rules out any future feature
 needing to see what was said.
 
-### During a boss encounter, the chat echo stops
+### During a boss encounter: sending works, observing does not
 
 A controlled comparison inside one raid, same buttons, same instance:
 
-| Run | combat | encounter | chat echo recorded |
-| --- | ------ | --------- | ------------------ |
-| K3  | true   | false     | RECEIVED |
-| K4  | true   | **true**  | none |
-| K5  | true   | **true**  | none |
+| Run | combat | encounter | echo recorded | message visible on screen |
+| --- | ------ | --------- | ------------- | ------------------------- |
+| K3  | true   | false     | RECEIVED      | yes |
+| K4  | true   | **true**  | none          | — |
+| K5  | true   | **true**  | none          | **yes** |
 
-The clicks landed in every run, so the buttons were working. The only variable
-that changed is `IsEncounterInProgress()`.
+The missing echo in K4 and K5 looked like the restriction biting. It was not.
+A screenshot of the chat frame during the encounter shows both messages
+delivered to instance chat, interleaved with the run-5 click records:
 
-**This does not yet distinguish two very different situations**, and the
-difference decides whether the addon is viable:
+```
+MMProbe B.click.macrotext.chat.5 = CLICKED (in combat)
+08:36 [Instance] [Inomrah]: MMProbe-MT check
+MMProbe B.click.realmacro.chat.5 = CLICKED (in combat)
+08:36 [Instance] [Inomrah]: MMProbe-RM check
+```
 
-1. **The message was not sent.** Chat from a macro is suppressed during an
-   encounter. The addon cannot do its job on bosses.
-2. **The message was sent, and the addon simply could not observe it.** Chat
-   received inside an instance is already known to arrive as a Secret Value, and
-   an encounter may extend that to the addon's own messages. Teammates would see
-   the callout; only the probe's bookkeeping is blind.
+So during an active boss encounter, in combat: **chat from a macro is sent and
+seen by the group.** What an addon loses is the ability to *observe* chat —
+either the event stops being delivered or its contents become a Secret Value.
 
-The probe cannot tell these apart, because both look identical from inside Lua:
-no readable message arrives either way.
+That distinction matters because the two are indistinguishable from inside Lua,
+and reading the absent echo as a block would have condemned the whole design on
+the strength of missing bookkeeping.
 
-**The test is human.** Press the chat buttons during a boss and look at your own
-chat frame. If `MMProbe-RM check` appears on screen, it was sent, and case 2
-holds. If nothing appears, case 1 holds.
+MythicMacros only ever sends. It never reads chat. So the restriction that does
+exist is one it never touches.
 
-Until that is answered, the execution layer stays undecided. Note the fallback
-does not help here: both `macrotext` and a real character macro failed
-identically in K4 and K5, so this is not something the character-macro design
-would rescue.
+### Still strictly untested
+
+An active keystone was never sampled: every run had `keyActive=false`. The
+encounter case is the stricter of the two conditions Blizzard's restriction is
+reported to cover, and it passed, so the risk is low — but it is inference, not
+measurement.
 
 ## Design principle: isolation
 
