@@ -54,6 +54,10 @@ local function record(key, value, note)
         key, tostring(value), note and (" |cffaaaaaa(" .. tostring(note) .. ")|r") or ""))
 end
 
+-- Forward declarations. The slash command is registered before the UI is built
+-- (see below), so it needs these names to exist beforehand.
+local frame, btnMtChat
+
 --------------------------------------------------------------------------------
 -- Signal target, called by macros via /run.
 --------------------------------------------------------------------------------
@@ -105,6 +109,47 @@ local function cleanupMacros()
     end
     out(("removed %d probe macro(s)."):format(removed))
 end
+
+--------------------------------------------------------------------------------
+-- Slash command
+--
+-- Registered here, before any UI is built, deliberately. A Lua error aborts the
+-- rest of the file, so anything registered after the failure never exists. The
+-- first version of this probe put the command last, and a single bad call left
+-- the whole addon silent with no way to ask it what went wrong. A diagnostic
+-- tool has to survive its own bugs.
+--------------------------------------------------------------------------------
+
+SLASH_MMPROBE1 = "/mmprobe"
+SlashCmdList.MMPROBE = function(arg)
+    arg = (arg or ""):lower():match("^%s*(.-)%s*$")
+
+    if arg == "report" then
+        MMProbeReport()
+    elseif arg == "clean" then
+        cleanupMacros()
+    elseif arg == "reset" then
+        MMProbeDB.results = {}
+        out("results cleared.")
+    elseif arg == "say" or arg == "party" then
+        if InCombatLockdown() then out("|cffff4444not in combat.|r") return end
+        db().chatVerb = (arg == "say") and "/say" or "/p"
+        if btnMtChat then
+            btnMtChat:SetAttribute("macrotext", ("%s %s check"):format(db().chatVerb, TOKEN_MT))
+        end
+        local idx = GetMacroIndexByName(CHAT_MACRO)
+        if idx and idx > 0 then
+            pcall(EditMacro, idx, CHAT_MACRO, nil, ("%s %s check"):format(db().chatVerb, TOKEN_RM))
+        end
+        out("chat tests now use |cffffff00" .. db().chatVerb .. "|r")
+    elseif not frame then
+        out("|cffff4444the panel failed to build - /mmprobe report still works.|r")
+    else
+        if frame:IsShown() then frame:Hide() else frame:Show() end
+        out("commands: report | clean | reset | say | party")
+    end
+end
+
 
 --------------------------------------------------------------------------------
 -- A. Limits
@@ -224,7 +269,7 @@ end
 -- UI
 --------------------------------------------------------------------------------
 
-local frame = CreateFrame("Frame", "MMProbeFrame", UIParent, "BasicFrameTemplateWithInset")
+frame = CreateFrame("Frame", "MMProbeFrame", UIParent, "BasicFrameTemplateWithInset")
 frame:SetSize(470, 560)
 frame:SetPoint("CENTER")
 frame:SetMovable(true)
@@ -259,13 +304,42 @@ local function plain(text, x, w, onClick)
     return b
 end
 
+--- Style a button by hand instead of inheriting UIPanelButtonTemplate.
+---
+--- Mixing a secure template with UIPanelButtonTemplate is what broke the first
+--- version of this probe: the button template's OnLoad replaced the secure
+--- one's, so the frame never gained its secure methods. Worse for a probe, that
+--- interaction could have silently disabled the very behaviour under test and
+--- produced a confident wrong answer. Secure frames here inherit the secure
+--- template and nothing else.
+local function skin(b, text)
+    local bg = b:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.13, 0.13, 0.18, 0.95)
+
+    local edge = b:CreateTexture(nil, "BORDER")
+    edge:SetPoint("TOPLEFT", -1, 1)
+    edge:SetPoint("BOTTOMRIGHT", 1, -1)
+    edge:SetColorTexture(0.35, 0.35, 0.45, 1)
+    edge:SetDrawLayer("BORDER", -1)
+
+    local fs = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    fs:SetAllPoints()
+    fs:SetText(text)
+    b.label = fs
+
+    b:SetScript("OnEnter", function() bg:SetColorTexture(0.22, 0.22, 0.30, 0.95) end)
+    b:SetScript("OnLeave", function() bg:SetColorTexture(0.13, 0.13, 0.18, 0.95) end)
+    return b
+end
+
 local function secure(text, x, setup)
-    local b = CreateFrame("Button", nil, frame, "SecureActionButtonTemplate,UIPanelButtonTemplate")
+    local b = CreateFrame("Button", nil, frame, "SecureActionButtonTemplate")
     b:SetSize(212, 24)
     b:SetPoint("TOPLEFT", x, y)
-    b:SetText(text)
     b:RegisterForClicks("AnyUp")
     b:SetAttribute("type", "macro")
+    skin(b, text)
     setup(b)
     return b
 end
@@ -291,7 +365,7 @@ y = y - 30
 local btnMtRun = secure("macrotext + /run", 14, function(b)
     b:SetAttribute("macrotext", "/run MMProbeSignal('macrotext')")
 end)
-local btnMtChat = secure("macrotext + chat", 240, function(b)
+btnMtChat = secure("macrotext + chat", 240, function(b)
     b:SetAttribute("macrotext", ("%s %s check"):format(db().chatVerb, TOKEN_MT))
 end)
 y = y - 28
@@ -340,11 +414,11 @@ local pagePlain = CreateFrame("Frame", "MMProbePagePlain", frame)
 pagePlain:SetSize(212, 24)
 pagePlain:SetPoint("TOPLEFT", 240, y)
 local pagePlainBtn = CreateFrame("Button", "MMProbePlainChild", pagePlain,
-    "SecureActionButtonTemplate,UIPanelButtonTemplate")
+    "SecureActionButtonTemplate")
 pagePlainBtn:SetAllPoints()
-pagePlainBtn:SetText("plain frame + secure child")
 pagePlainBtn:SetAttribute("type", "macro")
 pagePlainBtn:SetAttribute("macrotext", "/run return")
+skin(pagePlainBtn, "plain frame + secure child")
 
 --- Can insecure code hide a plain frame that contains a protected button, once
 --- combat has started? If yes, paging needs no secure handlers at all.
@@ -380,19 +454,29 @@ pageB.text:SetAllPoints()
 pageB.text:SetText("|cffff8844PAGE B|r")
 pageB:Hide()
 
-local btnFlip = CreateFrame("Button", "MMProbeFlip", frame,
-    "SecureHandlerClickTemplate,UIPanelButtonTemplate")
+local btnFlip = CreateFrame("Button", "MMProbeFlip", frame, "SecureHandlerClickTemplate")
 btnFlip:SetSize(200, 24)
 btnFlip:SetPoint("TOPLEFT", 14, y)
-btnFlip:SetText("D2. Secure flip")
 btnFlip:RegisterForClicks("AnyUp")
-btnFlip:SetFrameRef("pageA", pageA)
-btnFlip:SetFrameRef("pageB", pageB)
-btnFlip:SetAttribute("_onclick", [[
-    local a = self:GetFrameRef("pageA")
-    local b = self:GetFrameRef("pageB")
-    if a:IsShown() then a:Hide(); b:Show() else b:Hide(); a:Show() end
-]])
+skin(btnFlip, "D2. Secure flip")
+
+-- Whether the secure handler machinery is even present is itself a result worth
+-- recording, not a reason to stop loading.
+if type(btnFlip.SetFrameRef) == "function" then
+    btnFlip:SetFrameRef("pageA", pageA)
+    btnFlip:SetFrameRef("pageB", pageB)
+    btnFlip:SetAttribute("_onclick", [[
+        local a = self:GetFrameRef("pageA")
+        local b = self:GetFrameRef("pageB")
+        if a:IsShown() then a:Hide(); b:Show() else b:Hide(); a:Show() end
+    ]])
+    record("D2.setup", "OK", "secure handler methods present")
+else
+    record("D2.setup", "UNAVAILABLE",
+        "SetFrameRef missing - secure handler paging is not usable")
+    btnFlip.label:SetText("D2. unavailable")
+end
+
 btnFlip:HookScript("OnClick", function()
     record("D2.secureFlip", pageA:IsShown() and "showing A" or "showing B",
         "combat=" .. tostring(InCombatLockdown()))
@@ -446,31 +530,5 @@ end)
 --------------------------------------------------------------------------------
 -- Slash command
 --------------------------------------------------------------------------------
-
-SLASH_MMPROBE1 = "/mmprobe"
-SlashCmdList.MMPROBE = function(arg)
-    arg = (arg or ""):lower():match("^%s*(.-)%s*$")
-
-    if arg == "report" then
-        MMProbeReport()
-    elseif arg == "clean" then
-        cleanupMacros()
-    elseif arg == "reset" then
-        MMProbeDB.results = {}
-        out("results cleared.")
-    elseif arg == "say" or arg == "party" then
-        if InCombatLockdown() then out("|cffff4444not in combat.|r") return end
-        db().chatVerb = (arg == "say") and "/say" or "/p"
-        btnMtChat:SetAttribute("macrotext", ("%s %s check"):format(db().chatVerb, TOKEN_MT))
-        local idx = GetMacroIndexByName(CHAT_MACRO)
-        if idx and idx > 0 then
-            pcall(EditMacro, idx, CHAT_MACRO, nil, ("%s %s check"):format(db().chatVerb, TOKEN_RM))
-        end
-        out("chat tests now use |cffffff00" .. db().chatVerb .. "|r")
-    else
-        if frame:IsShown() then frame:Hide() else frame:Show() end
-        out("commands: report | clean | reset | say | party")
-    end
-end
 
 out("loaded. |cffffff00/mmprobe|r opens the panel.")
