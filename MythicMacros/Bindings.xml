@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="MYTHICMACROS_ADDTARGET" header="MYTHICMACROS" category="MYTHICMACROS">
+        MythicMacros_AddTarget()
+    </Binding>
+</Bindings>

@@ -14,4 +14,6 @@ Runtime.lua
 UI.lua
 Edit.lua
 Export.lua
+Starter.lua
+Capture.lua
 Main.lua

@@ -9,3 +9,4 @@ echo "syntax ok"
 lua5.1 tests/util_test.lua
 lua5.1 tests/core_test.lua
 lua5.1 tests/export_test.lua
+lua5.1 tests/starter_test.lua

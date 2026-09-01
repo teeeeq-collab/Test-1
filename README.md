@@ -23,9 +23,28 @@ Fully restart the client — WoW only scans for new addon folders at startup.
 `/mm` opens the panel. The bar carries **Run**, **Edit** and **Settings**, and
 collapses with the `-` button to a strip.
 
-**Try it immediately:** `/mm demo` creates a sample dungeon covering the shapes
-that matter — a one-line enemy, a two-line one, a boss laid out three across,
-and one enemy shared between two pages. Open Run and select it.
+**Start here:** `/mm starter` creates the eight Season 2 dungeons with a page
+skeleton each. `/mm demo` instead creates one sample dungeon with content in it,
+covering the shapes that matter — a one-line enemy, a two-line one, a boss laid
+out three across, and one enemy shared between two pages.
+
+### Filling in the enemies
+
+The starter dungeons arrive empty of trash, deliberately. Trash names for the
+five Midnight dungeons are past this addon's knowledge, and shipping an invented
+list would be worse than shipping none: you would write callouts for mobs that
+do not exist and miss the ones that do.
+
+So collect them from the game instead. Bind **Add target as enemy** under Key
+Bindings → MythicMacros. Then open Edit, select the dungeon, walk it, and press
+the key on each pack. Names come out exact and correctly localised, duplicates
+are refused, and each new enemy arrives with an empty line ready to write.
+
+`/mm add` and the **Add target** button in Edit do the same thing.
+
+Boss names for the three returning dungeons — Kings' Rest, Temple of Sethraliss
+and Ruby Life Pools — are filled in already. Worth checking: they are old
+content and unlikely to have changed, but unlikely is not verified.
 
 ### Run
 
@@ -70,6 +89,8 @@ changed, Edit shows how many edits are unbacked.
 | | |
 | ------------- | -------------------------------- |
 | `/mm`         | toggle the panel |
+| `/mm starter` | create the eight Season 2 dungeons |
+| `/mm add`     | add your current target as an enemy |
 | `/mm demo`    | create the sample dungeon |
 | `/mm edit`    | open Edit |
 | `/mm settings`| open Settings |

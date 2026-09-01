@@ -354,6 +354,7 @@ end
 
 local function selectCategory(id)
     state.categoryId = id
+    MM.Capture.SetCategory(id)   -- the keybind adds to whatever Edit is showing
     state.enemyId, state.lineId, state.pageId = nil, nil, nil
     refreshCategoryLabel()
     loadLine(nil, nil)
@@ -443,6 +444,17 @@ function Edit.Build(parent)
         MM.UI.ShowExport("Backup of every category", str)
     end)
     exportAll:SetPoint("LEFT", exportCat, "RIGHT", 4, 0)
+
+    local addTarget = button(parent, "Add target", 84, 20, function()
+        local name, why = MM.Capture.AddTarget("target")
+        if name then
+            Util.Print(("added |cffffff00%s|r to %s."):format(name, why))
+            Edit.RefreshEnemies()
+        else
+            Util.Print("|cffff4444" .. (why or "could not add") .. "|r")
+        end
+    end)
+    addTarget:SetPoint("TOPLEFT", tabEnemies, "TOPLEFT", 300, 0)
 
     local importBtn = button(parent, "Import", 60, 20, function()
         MM.UI.ShowImport("Import", function(text)

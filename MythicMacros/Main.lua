@@ -70,6 +70,27 @@ local function createDemo()
 end
 
 --------------------------------------------------------------------------------
+-- Keybinding target
+--
+-- Global because Bindings.xml calls it by name. Walking a dungeon and pressing
+-- one key on each pack is the practical way to build an enemy list; clicking a
+-- panel button while hovering a mob is not possible.
+--------------------------------------------------------------------------------
+
+BINDING_HEADER_MYTHICMACROS = "MythicMacros"
+BINDING_NAME_MYTHICMACROS_ADDTARGET = "Add target as enemy"
+
+function MythicMacros_AddTarget()
+    local name, why = MM.Capture.AddTarget("target")
+    if name then
+        Util.Print(("added |cffffff00%s|r to %s."):format(name, why))
+        if MM.Edit and MM.Edit.RefreshEnemies then MM.Edit.RefreshEnemies() end
+    else
+        Util.Print("|cffff4444" .. (why or "could not add") .. "|r")
+    end
+end
+
+--------------------------------------------------------------------------------
 -- Slash command
 --------------------------------------------------------------------------------
 
@@ -85,6 +106,22 @@ SlashCmdList.MYTHICMACROS = function(arg)
         local cat = createDemo()
         UI.RefreshCategories()
         Util.Print(("added |cffffff00%s|r - open Run and select it."):format(cat.name))
+
+    elseif arg == "starter" then
+        if InCombatLockdown() then
+            Util.Print("|cffff4444not in combat.|r")
+            return
+        end
+        local made, skipped = MM.Starter.Create()
+        UI.RefreshCategories()
+        if MM.Edit and MM.Edit.Refresh then MM.Edit.Refresh() end
+        Util.Print(("created %d dungeon(s)%s."):format(#made,
+            (#skipped > 0) and (", skipped %d already there"):format(#skipped) or ""))
+        Util.Print("|cffaaaaaaTrash is empty by design - target a mob and press the "
+            .. "Add target keybind, or the button in Edit.|r")
+
+    elseif arg == "add" then
+        MythicMacros_AddTarget()
 
     elseif arg == "settings" then
         UI.Show("settings")
@@ -103,6 +140,6 @@ SlashCmdList.MYTHICMACROS = function(arg)
 
     else
         UI.Toggle()
-        Util.Print("commands: demo | edit | settings | wipe")
+        Util.Print("commands: starter | add | demo | edit | settings | wipe")
     end
 end
