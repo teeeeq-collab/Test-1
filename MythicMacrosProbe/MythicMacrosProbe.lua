@@ -328,19 +328,41 @@ local function skin(b, text)
     fs:SetText(text)
     b.label = fs
 
-    b:SetScript("OnEnter", function() bg:SetColorTexture(0.22, 0.22, 0.30, 0.95) end)
-    b:SetScript("OnLeave", function() bg:SetColorTexture(0.13, 0.13, 0.18, 0.95) end)
+    b:EnableMouse(true)
+    b.bg = bg
+
+    local function idle()  bg:SetColorTexture(0.13, 0.13, 0.18, 0.95) end
+    local function hover() bg:SetColorTexture(0.22, 0.22, 0.30, 0.95) end
+    local function press() bg:SetColorTexture(0.45, 0.40, 0.15, 1.00) end
+
+    b:SetScript("OnEnter",     hover)
+    b:SetScript("OnLeave",     idle)
+    b:SetScript("OnMouseDown", press)
+    b:SetScript("OnMouseUp",   hover)
     return b
 end
 
-local function secure(text, x, setup)
+--- `key` names the test so the click can be recorded against it.
+---
+--- An insecure OnClick hook fires whether or not the secure action behind it is
+--- allowed to run. That separation is the point: "B.click.X = CLICKED" with no
+--- matching "B.exec.X = FIRED" means the button works and the path is blocked,
+--- while no CLICKED at all means the button never received the click and the
+--- fault is mine. Without both, a silent button proves nothing.
+local function secure(text, x, key, setup)
     local b = CreateFrame("Button", nil, frame, "SecureActionButtonTemplate")
     b:SetSize(212, 24)
     b:SetPoint("TOPLEFT", x, y)
-    b:RegisterForClicks("AnyUp")
+    b:RegisterForClicks("AnyUp", "AnyDown")
     b:SetAttribute("type", "macro")
     skin(b, text)
     setup(b)
+
+    b:HookScript("OnClick", function()
+        record("B.click." .. key, "CLICKED",
+            InCombatLockdown() and "in combat" or "out of combat")
+        b.label:SetTextColor(1, 0.85, 0.2)
+    end)
     return b
 end
 
@@ -352,26 +374,53 @@ y = y - 32
 
 label(" ")
 label("B. Execution matrix. 'Create macros' first, then all four:")
+--- Idempotent: pressing this twice must not report a failure, or a harmless
+--- no-op would read as a broken macro system. Each macro is also read back
+--- after writing, because "CreateMacro returned an index" and "a usable macro
+--- exists under that name" are not the same claim.
+local function ensureProbeMacro(name, body, key)
+    local idx = GetMacroIndexByName(name)
+
+    if idx and idx > 0 then
+        db().created[name] = true
+        local ok = pcall(EditMacro, idx, name, nil, body)
+        record(key, ("exists idx=%d"):format(idx),
+            ok and "body refreshed" or "body could not be refreshed")
+    else
+        local newIdx, err = createMacro(name, body)
+        if not newIdx then
+            record(key, "CREATE FAILED", err or "no reason given")
+            return
+        end
+        record(key, ("created idx=%d"):format(newIdx))
+    end
+
+    -- Read back. This is what the secure button will actually resolve.
+    local check = GetMacroIndexByName(name)
+    local storedName, _, storedBody = GetMacroInfo(check or 0)
+    record(key .. ".verify",
+        (check and check > 0) and "RESOLVES BY NAME" or "NOT FOUND BY NAME",
+        storedBody and ("body is %d bytes"):format(#storedBody) or "no body read")
+end
+
 plain("Create macros", 14, 140, function()
     if InCombatLockdown() then out("|cffff4444not in combat.|r") return end
-    local runIdx, runErr = createMacro(RUN_MACRO, "/run MMProbeSignal('realmacro')")
-    record("B.macro.run", runIdx and ("created idx=" .. runIdx) or "FAILED", runErr)
-    local chatIdx, chatErr = createMacro(CHAT_MACRO,
-        ("%s %s check"):format(db().chatVerb, TOKEN_RM))
-    record("B.macro.chat", chatIdx and ("created idx=" .. chatIdx) or "FAILED", chatErr)
+    ensureProbeMacro(RUN_MACRO, "/run MMProbeSignal('realmacro')", "B.macro.run")
+    ensureProbeMacro(CHAT_MACRO, ("%s %s check"):format(db().chatVerb, TOKEN_RM), "B.macro.chat")
+    out("now click the four buttons below, one press each.")
 end)
 y = y - 30
 
-local btnMtRun = secure("macrotext + /run", 14, function(b)
+local btnMtRun = secure("macrotext + /run", 14, "macrotext.run", function(b)
     b:SetAttribute("macrotext", "/run MMProbeSignal('macrotext')")
 end)
-btnMtChat = secure("macrotext + chat", 240, function(b)
+btnMtChat = secure("macrotext + chat", 240, "macrotext.chat", function(b)
     b:SetAttribute("macrotext", ("%s %s check"):format(db().chatVerb, TOKEN_MT))
 end)
 y = y - 28
 
-secure("real macro + /run", 14, function(b) b:SetAttribute("macro", RUN_MACRO) end)
-secure("real macro + chat", 240, function(b) b:SetAttribute("macro", CHAT_MACRO) end)
+secure("real macro + /run", 14, "realmacro.run", function(b) b:SetAttribute("macro", RUN_MACRO) end)
+secure("real macro + chat", 240, "realmacro.chat", function(b) b:SetAttribute("macro", CHAT_MACRO) end)
 y = y - 32
 
 label(" ")
