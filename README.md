@@ -1,79 +1,85 @@
 # MythicMacros
 
-A personal Mythic+ callout addon for WoW Midnight (12.x): a movable, scalable
-panel of labelled buttons, each firing a real macro — typically one short
-instruction to the party. Organised into a page per dungeon section, so callouts
-are pressed by sight rather than recalled as numpad positions.
+A personal Mythic+ callout addon for WoW Midnight (12.1). A small panel of
+labelled buttons, each firing a macro — one short instruction to the party —
+organised into a page per dungeon section, so callouts are pressed by sight
+rather than recalled as numpad positions.
 
-See `DESIGN.md` for the full design.
-
-## Status
-
-`MythicMacros/` — the addon. In progress, not yet runnable.
-`MythicMacrosProbe/` — a capability probe. **Run this first.**
-
-Midnight's 12.0 lockdown changed what is possible here, and the public reporting
-on the details contradicts itself. The probe measures the actual behaviour on
-live so the addon is written against confirmed facts.
-
-## What the probe measures
-
-**A. Limits.** Macro slot caps, how long a macro name may be, and whether the
-macro body cap is really 255 *bytes*. It writes a body of 120 multi-byte
-characters — 360 bytes but only 120 characters — and reports what came back. The
-input guard in the addon depends on the answer.
-
-**B. Execution.** A 2x2 matrix:
-
-|                       | payload `/run` | payload chat line |
-| --------------------- | -------------- | ----------------- |
-| `macrotext` attribute | test           | test              |
-| real character macro  | test           | test              |
-
-Rows show whether `macrotext` still executes. Columns show whether `/run` is the
-blocked element rather than the delivery mechanism, so a dead cell cannot be
-misread as the wrong conclusion.
-
-**C. Combat.** Which of `SetAttribute`, `EditMacro`, `CreateMacro` and
-`SetScale` are refused once a pull starts. The lock design assumes all of them
-are.
-
-**D. Paging.** Two mechanisms. `D1` asks whether plain insecure `Hide()` works
-on a frame containing a protected button during combat; `D2` asks whether the
-secure-handler route works. If D1 passes, the addon avoids a large amount of
-machinery — which is why both are tested rather than assuming the harder one is
-needed.
-
-**E. EditBox.** Whether `SetMaxLetters` counts bytes or characters.
-
-**F. Batch.** Whether ~20 macros can be created in one go, and what happens at
-the cap.
+`DESIGN.md` records the design and, more usefully, the behaviour measured on the
+live client that shaped it.
 
 ## Installing
 
-Copy `MythicMacrosProbe` into:
+Copy the `MythicMacros` folder into:
 
 ```
 World of Warcraft/_retail_/Interface/AddOns/
 ```
 
-Then `/reload`.
+Fully restart the client — WoW only scans for new addon folders at startup.
 
-## Running it
+## Using it
 
-1. `/mmprobe` opens the panel.
-2. Out of combat, press **A. Limits**, **E. EditBox**, **F. Batch x20**.
-3. Press **Create macros**, then all four buttons of the execution matrix.
-4. Pull something. In combat, press **C. Combat ops**, **D1. Plain Hide()** and
-   **D2. Secure flip**. Watch whether the box on the right actually changes.
-5. In a group inside an active key, press the two chat buttons again.
-6. **Print report**, or `/mmprobe report`. Copy the output.
+`/mm` opens the panel. The bar carries **Run**, **Edit** and **Settings**, and
+collapses with the `-` button to a strip.
 
-Solo: chat tests need a group. `/mmprobe say` switches them to `/say` so they
-can be checked alone; `/mmprobe party` switches back.
+**Try it immediately:** `/mm demo` creates a sample dungeon covering the shapes
+that matter — a one-line enemy, a two-line one, a boss laid out three across,
+and one enemy shared between two pages. Open Run and select it.
 
-**Remove macros** deletes what the probe created. It only ever deletes macros it
-created itself, tracked by name in SavedVariables.
+### Run
 
-Results persist across `/reload`, so a key can be run first and the report read
-afterwards.
+Lists your dungeons. Selecting one writes every button and opens the pages.
+`<` returns to the list; `<` and `>` at the top right step through pages.
+
+Selecting a dungeon, and going back, are refused in combat. Everything you do
+*inside* a dungeon — pressing buttons, flipping pages — works in combat.
+
+### Edit
+
+**Enemies** — a text area over every enemy in the category. Click a line and it
+loads above; edit and save. The counter shows characters remaining out of 255.
+`+ line` adds a line to an enemy, `+ enemy` adds a new one. The small number
+button cycles how many lines sit per row: 1 stacks them, higher fills across,
+which is the boss layout.
+
+**Pages** — add enemies to the current page, reorder them, remove them. Removing
+is scoped to the page; the definition survives and stays on other pages.
+Deleting an enemy outright is on the Enemies tab.
+
+An enemy on several pages is **one definition**. Edit it anywhere and every page
+follows.
+
+### Settings
+
+Opacity, and three independent scales: overall, buttons, and text. All apply out
+of combat only.
+
+### Backing up
+
+**Export** copies one dungeon as a string, short enough to paste into a chat
+message. **Backup all** does the whole profile — that one belongs in a text
+file. **Import** never overwrites: it lands as a new category or profile.
+
+SavedVariables is only written on logout or `/reload`, so a crash loses
+everything since. After a real editing session, `/reload`. Once enough has
+changed, Edit shows how many edits are unbacked.
+
+## Commands
+
+| | |
+| ------------- | -------------------------------- |
+| `/mm`         | toggle the panel |
+| `/mm demo`    | create the sample dungeon |
+| `/mm edit`    | open Edit |
+| `/mm settings`| open Settings |
+| `/mm wipe`    | delete everything (no confirm) |
+
+## Tests
+
+`./tests/run.sh` syntax-checks every file and runs the pure-Lua suites: the data
+model, the length guard, and export/import round trips including the ways a
+paste goes wrong. Requires `lua5.1`.
+
+Everything touching the WoW API can only be verified in a live client, which is
+what `MythicMacrosProbe/` was for.
