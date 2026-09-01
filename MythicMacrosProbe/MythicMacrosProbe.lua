@@ -628,9 +628,23 @@ local function runAllInKey()
         :format(db().runCount, tostring(inCombat), okA and tostring(active) or "?"))
 end
 
+label("|cffffcc44IN A KEY: press this, then the two chat buttons above.|r")
+local btnInKey = plain("K. Run all in-key checks", 14, 300, function() runAllInKey() end)
+y = y - 32
+
+label("Report", "|cffaaaaaa")
 plain("Print report", 14, 140, function() MMProbeReport() end)
 plain("Remove macros", 166, 140, cleanupMacros)
 plain("Copy report", 318, 140, function() MMProbeShowCopy() end)
+y = y - 30
+
+-- Size the panel to whatever the layout actually consumed. Hardcoding a height
+-- is how a button ends up rendered off the bottom edge and reported missing.
+frame:SetHeight(math.abs(y) + 44)
+
+if not btnInKey then
+    out("|cffff4444the in-key button failed to build.|r")
+end
 
 --------------------------------------------------------------------------------
 -- Reporting
