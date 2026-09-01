@@ -809,8 +809,53 @@ end
 --- None of this touches MythicMacros itself, which only ever sends chat.
 local secretChatNoted = false
 
+--- Find whatever 12.x exposes for asking "is this value secret?" without
+--- touching it. pcall is the fallback, but relying on it alone assumes a taint
+--- error is catchable, and that is not something to assume in the handler that
+--- decides whether the whole experiment recorded anything.
+local secretTest, secretTestName
+for _, name in ipairs({ "issecret", "IsSecret", "issecretvalue", "IsSecretValue" }) do
+    if type(_G[name]) == "function" then
+        secretTest, secretTestName = _G[name], name
+        break
+    end
+end
+if not secretTest and type(C_Secrets) == "table" then
+    for _, name in ipairs({ "IsSecret", "IsSecretValue" }) do
+        if type(C_Secrets[name]) == "function" then
+            secretTest = function(v) return C_Secrets[name](v) end
+            secretTestName = "C_Secrets." .. name
+            break
+        end
+    end
+end
+record("G.secretApi", secretTestName or "NONE FOUND",
+    secretTestName and "used to skip secret values without touching them"
+                    or "falling back to pcall around every read")
+
+--- True when the value must not be touched. Errs towards "secret" if the test
+--- itself throws, since a false negative here means a Lua error every time
+--- somebody talks.
+local function isSecret(v)
+    if secretTest then
+        local ok, res = pcall(secretTest, v)
+        if ok then return res and true or false end
+        return true
+    end
+    return false
+end
+
 events:SetScript("OnEvent", function(_, event, msg)
     if msg == nil then return end
+
+    if isSecret(msg) then
+        if not secretChatNoted then
+            secretChatNoted = true
+            record("G.secretChat", "UNREADABLE",
+                event .. " - contents are a Secret Value, skipped without touching")
+        end
+        return
+    end
 
     local where = event .. " / " .. (InCombatLockdown() and "in combat" or "out of combat")
     local run = db().runCount and ("." .. db().runCount) or ""
