@@ -63,8 +63,8 @@ local frame, btnMtChat
 --------------------------------------------------------------------------------
 
 function MMProbeSignal(tag)
-    record("B.exec." .. tostring(tag), "FIRED",
-        InCombatLockdown() and "in combat" or "out of combat")
+    record("B.exec." .. tostring(tag) .. (db().runCount and ("." .. db().runCount) or ""),
+        "FIRED", InCombatLockdown() and "in combat" or "out of combat")
 end
 
 --------------------------------------------------------------------------------
@@ -379,7 +379,7 @@ local function secure(text, x, key, setup)
     setup(b)
 
     b:HookScript("OnClick", function()
-        record("B.click." .. key, "CLICKED",
+        record("B.click." .. key .. (db().runCount and ("." .. db().runCount) or ""), "CLICKED",
             InCombatLockdown() and "in combat" or "out of combat")
         b.label:SetTextColor(1, 0.85, 0.2)
     end)
@@ -455,16 +455,17 @@ label("C + D. Get into combat, then press both of these:", "|cffffcc44")
 --- these tests reported ALLOWED for all four operations purely because nothing
 --- raised, which is not evidence of anything. Each one now writes a value and
 --- reads it back.
-local function combatOps()
+local function combatOps(pfx)
+    pfx = pfx or "C"
     local inCombat = InCombatLockdown()
-    record("C.lockdown", inCombat and "IN COMBAT" or "out of combat",
+    record(pfx .. ".lockdown", inCombat and "IN COMBAT" or "out of combat",
         inCombat and "results are meaningful" or "RE-RUN THIS IN COMBAT")
 
     -- SetAttribute: write a sentinel, read it back.
     local sentinel = "MMPsent" .. math.random(100000, 999999)
     pcall(function() btnMtRun:SetAttribute("macrotext", "/run MMProbeSignal('" .. sentinel .. "')") end)
     local got = btnMtRun:GetAttribute("macrotext")
-    record("C.SetAttribute",
+    record(pfx .. ".SetAttribute",
         (got and got:find(sentinel, 1, true)) and "APPLIED" or "NO EFFECT",
         "read back: " .. tostring(got and got:sub(1, 40)))
 
@@ -474,22 +475,22 @@ local function combatOps()
         local marker = "/run MMProbeSignal('edited" .. math.random(1000, 9999) .. "')"
         pcall(EditMacro, idx, RUN_MACRO, nil, marker)
         local body = GetMacroBody(idx)
-        record("C.EditMacro", (body == marker) and "APPLIED" or "NO EFFECT",
+        record(pfx .. ".EditMacro", (body == marker) and "APPLIED" or "NO EFFECT",
             "body now: " .. tostring(body and body:sub(1, 40)))
         -- Put it back so the B buttons keep working.
         pcall(EditMacro, idx, RUN_MACRO, nil, "/run MMProbeSignal('realmacro')")
     else
-        record("C.EditMacro", "SKIPPED", "probe macros not created")
+        record(pfx .. ".EditMacro", "SKIPPED", "probe macros not created")
     end
 
     -- CreateMacro: create, then look it up by name.
     local tmp = PREFIX .. "CBT"
     pcall(CreateMacro, tmp, ICONS[1], "/run return", false)
     local made = GetMacroIndexByName(tmp)
-    record("C.CreateMacro", (made and made > 0) and "APPLIED" or "NO EFFECT")
+    record(pfx .. ".CreateMacro", (made and made > 0) and "APPLIED" or "NO EFFECT")
     if made and made > 0 then
         pcall(DeleteMacro, made)
-        record("C.DeleteMacro",
+        record(pfx .. ".DeleteMacro",
             (GetMacroIndexByName(tmp) or 0) == 0 and "APPLIED" or "NO EFFECT")
     end
 
@@ -498,12 +499,12 @@ local function combatOps()
     local target = (before > 1.02) and 1.0 or 1.05
     pcall(frame.SetScale, frame, target)
     local after = frame:GetScale()
-    record("C.SetScale", (math.abs(after - target) < 0.001) and "APPLIED" or "NO EFFECT",
+    record(pfx .. ".SetScale", (math.abs(after - target) < 0.001) and "APPLIED" or "NO EFFECT",
         ("%.3f -> %.3f"):format(before, after))
     pcall(frame.SetScale, frame, before)
 end
 
-plain("C. Combat ops", 14, 200, combatOps)
+plain("C. Combat ops", 14, 200, function() combatOps("C") end)
 y = y - 30
 
 --------------------------------------------------------------------------------
@@ -587,30 +588,44 @@ y = y - 34
 label(" ")
 --- Everything that matters inside a key, on one press. Nobody wants to work a
 --- six-button panel mid-pull.
+--- Combat and an active key are independent variables, so this is meant to be
+--- run more than once: between pulls, then mid-pull. Each run therefore writes
+--- under its own prefix. Overwriting a previous run would destroy the very
+--- comparison the second run exists to make.
 local function runAllInKey()
+    db().runCount = (db().runCount or 0) + 1
+    local pfx = "K" .. db().runCount
+
     local iname, itype, _, diffName, _, _, _, instID = GetInstanceInfo()
-    record("K.instance", ("%s | %s | %s | id=%s"):format(
-        tostring(iname), tostring(itype), tostring(diffName), tostring(instID)))
-    record("K.combat", InCombatLockdown() and "IN COMBAT" or "out of combat")
-    record("K.group", ("party=%d"):format(GetNumSubgroupMembers()))
+    local inCombat = InCombatLockdown()
 
     local okA, active = pcall(function() return C_ChallengeMode.IsChallengeModeActive() end)
-    record("K.keyActive", okA and tostring(active) or "API unavailable")
-    local okL, lvl = pcall(function() return C_ChallengeMode.GetActiveKeystoneInfo() end)
-    record("K.keyLevel", okL and tostring(lvl) or "API unavailable")
+    local okL, lvl    = pcall(function() return C_ChallengeMode.GetActiveKeystoneInfo() end)
 
-    combatOps()
+    record(pfx .. ".conditions",
+        ("combat=%s  keyActive=%s  keyLevel=%s  party=%d"):format(
+            tostring(inCombat),
+            okA and tostring(active) or "?",
+            okL and tostring(lvl) or "?",
+            GetNumSubgroupMembers()),
+        "the two variables this run was taken under")
+
+    record(pfx .. ".instance", ("%s | %s | %s | id=%s"):format(
+        tostring(iname), tostring(itype), tostring(diffName), tostring(instID)))
+
+    combatOps(pfx)
 
     local wasShown = pagePlain:IsShown()
     pcall(function() if wasShown then pagePlain:Hide() else pagePlain:Show() end end)
-    record("K.plainHide", (pagePlain:IsShown() ~= wasShown) and "WORKED" or "NO EFFECT")
+    record(pfx .. ".plainHide", (pagePlain:IsShown() ~= wasShown) and "WORKED" or "NO EFFECT")
 
     local before = pageA:IsShown()
     btnFlip:Click()
-    record("K.secureFlipByScript", (pageA:IsShown() ~= before) and "WORKED" or "NO EFFECT",
+    record(pfx .. ".secureFlipByScript", (pageA:IsShown() ~= before) and "WORKED" or "NO EFFECT",
         "script-driven click, not a hardware event")
 
-    out("|cffffff00now click the two chat buttons by hand, then Copy report.|r")
+    out(("|cffffff00run %d recorded (combat=%s, key=%s). Now click the two chat buttons.|r")
+        :format(db().runCount, tostring(inCombat), okA and tostring(active) or "?"))
 end
 
 plain("Print report", 14, 140, function() MMProbeReport() end)
@@ -720,10 +735,11 @@ end
 events:SetScript("OnEvent", function(_, event, msg)
     if type(msg) ~= "string" then return end
     local where = event .. " / " .. (InCombatLockdown() and "in combat" or "out of combat")
+    local run = db().runCount and ("." .. db().runCount) or ""
     if msg:find(TOKEN_MT, 1, true) then
-        record("B.chat.macrotext", "RECEIVED", where)
+        record("B.chat.macrotext" .. run, "RECEIVED", where)
     elseif msg:find(TOKEN_RM, 1, true) then
-        record("B.chat.realmacro", "RECEIVED", where)
+        record("B.chat.realmacro" .. run, "RECEIVED", where)
     end
 end)
 
