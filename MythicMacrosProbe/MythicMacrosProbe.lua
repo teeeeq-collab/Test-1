@@ -133,9 +133,12 @@ SlashCmdList.MMPROBE = function(arg)
     elseif arg == "reset" then
         MMProbeDB.results = {}
         out("results cleared.")
-    elseif arg == "say" or arg == "party" then
-        if InCombatLockdown() then out("|cffff4444not in combat.|r") return end
-        db().chatVerb = (arg == "say") and "/say" or "/p"
+    elseif arg == "say" or arg == "party" or arg == "raid" or arg == "instance" then
+        if InCombatLockdown() then
+            out("|cffff4444can't change this in combat.|r") return
+        end
+        local verbs = { say = "/say", party = "/p", raid = "/raid", instance = "/i" }
+        db().chatVerb = verbs[arg]
         if btnMtChat then
             btnMtChat:SetAttribute("macrotext", ("%s %s check"):format(db().chatVerb, TOKEN_MT))
         end
@@ -148,7 +151,7 @@ SlashCmdList.MMPROBE = function(arg)
         out("|cffff4444the panel failed to build - /mmprobe report still works.|r")
     else
         if frame:IsShown() then frame:Hide() else frame:Show() end
-        out("commands: report | copy | clean | reset | say | party")
+        out("commands: report | copy | clean | reset | say | party | raid | instance")
     end
 end
 
@@ -602,13 +605,18 @@ local function runAllInKey()
     local okA, active = pcall(function() return C_ChallengeMode.IsChallengeModeActive() end)
     local okL, lvl    = pcall(function() return C_ChallengeMode.GetActiveKeystoneInfo() end)
 
+    local okE, encounter = pcall(IsEncounterInProgress)
+
     record(pfx .. ".conditions",
-        ("combat=%s  keyActive=%s  keyLevel=%s  party=%d"):format(
+        ("combat=%s  keyActive=%s  keyLevel=%s  encounter=%s  raid=%s  group=%d  verb=%s"):format(
             tostring(inCombat),
             okA and tostring(active) or "?",
             okL and tostring(lvl) or "?",
-            GetNumSubgroupMembers()),
-        "the two variables this run was taken under")
+            okE and tostring(encounter) or "?",
+            tostring(IsInRaid()),
+            GetNumGroupMembers(),
+            db().chatVerb),
+        "every variable this run was taken under")
 
     record(pfx .. ".instance", ("%s | %s | %s | id=%s"):format(
         tostring(iname), tostring(itype), tostring(diffName), tostring(instID)))
@@ -741,6 +749,7 @@ local events = CreateFrame("Frame")
 for _, e in ipairs({
     "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER",
     "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER",
+    "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER", "CHAT_MSG_RAID_WARNING",
     "CHAT_MSG_SAY",
 }) do
     events:RegisterEvent(e)
