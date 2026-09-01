@@ -12,4 +12,6 @@ Util.lua
 Core.lua
 Runtime.lua
 UI.lua
+Edit.lua
+Export.lua
 Main.lua

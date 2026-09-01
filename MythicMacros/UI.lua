@@ -51,7 +51,10 @@ local function showView(name)
     for viewName, frame in pairs(views) do
         if viewName == name then frame:Show() else frame:Hide() end
     end
+    -- Secure buttons left showing under the editor would sit on top of it, and
+    -- cannot be hidden later if a pull starts.
     if name ~= "run" then Runtime.HideAll() end
+    if name == "edit" then MM.Edit.Refresh() end
     currentView = name
 end
 
@@ -221,8 +224,7 @@ function UI.Init()
     -- Edit and Settings ------------------------------------------------------
     views.edit = CreateFrame("Frame", nil, body)
     views.edit:SetAllPoints()
-    local editSoon = fontString(views.edit, "Edit is not built yet.")
-    editSoon:SetPoint("TOPLEFT", 10, -10)
+    MM.Edit.Build(views.edit)
 
     views.settings = CreateFrame("Frame", nil, body)
     views.settings:SetAllPoints()
@@ -290,6 +292,90 @@ end
 --------------------------------------------------------------------------------
 -- Entry points
 --------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+-- The string window
+--
+-- Used for both directions. WoW's chat frame cannot be selected with a mouse,
+-- so a string that only gets printed cannot leave the game.
+--------------------------------------------------------------------------------
+
+local stringWindow
+
+local function ensureStringWindow()
+    if stringWindow then return stringWindow end
+
+    local f = CreateFrame("Frame", "MythicMacrosStringWindow", UIParent,
+        "BasicFrameTemplateWithInset")
+    f:SetSize(560, 300)
+    f:SetPoint("CENTER")
+    f:SetFrameStrata("FULLSCREEN_DIALOG")
+    f:SetMovable(true)
+    f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving)
+    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    f.title:SetPoint("TOP", f.TitleBg, "TOP", 0, -5)
+
+    local scroll = CreateFrame("ScrollFrame", "MythicMacrosStringScroll", f,
+        "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", 14, -32)
+    scroll:SetPoint("BOTTOMRIGHT", -34, 44)
+
+    f.editBox = CreateFrame("EditBox", nil, scroll)
+    f.editBox:SetMultiLine(true)
+    f.editBox:SetMaxLetters(0)
+    f.editBox:SetAutoFocus(false)
+    f.editBox:SetFontObject(ChatFontNormal)
+    f.editBox:SetWidth(500)
+    f.editBox:SetScript("OnEscapePressed", function() f:Hide() end)
+    scroll:SetScrollChild(f.editBox)
+
+    f.action = button(f, "", 110, 22)
+    f.action:SetPoint("BOTTOMRIGHT", -16, 14)
+
+    f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    f.hint:SetPoint("BOTTOMLEFT", 18, 20)
+
+    stringWindow = f
+    return f
+end
+
+--- Show a string to be copied out. Pre-selected, so one keystroke takes it.
+function UI.ShowExport(title, text)
+    local f = ensureStringWindow()
+    f.title:SetText(title)
+    f.hint:SetText("Already selected - press Cmd-C / Ctrl-C")
+    f.editBox:SetText(text or "")
+    f.action:SetText("Close")
+    f.action:SetScript("OnClick", function() f:Hide() end)
+    f:Show()
+    f.editBox:SetFocus()
+    f.editBox:HighlightText()
+end
+
+--- Show an empty box to paste into. `onImport` receives the pasted text and
+--- returns a message, or nil plus a reason.
+function UI.ShowImport(title, onImport)
+    local f = ensureStringWindow()
+    f.title:SetText(title)
+    f.hint:SetText("Paste here, then Import. Nothing is overwritten.")
+    f.editBox:SetText("")
+    f.action:SetText("Import")
+    f.action:SetScript("OnClick", function()
+        local what, err = onImport(f.editBox:GetText())
+        if what then
+            Util.Print(("imported %s."):format(what))
+            f:Hide()
+        else
+            Util.Print("|cffff4444" .. (err or "import failed") .. "|r")
+        end
+    end)
+    f:Show()
+    f.editBox:SetFocus()
+end
 
 function UI.Toggle()
     if not root then return end
