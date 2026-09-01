@@ -84,6 +84,12 @@ local function ensureManager(parent)
     return manager
 end
 
+--- The manager must exist before the arrows are bound, and the arrows are built
+--- with the UI, well before any category is loaded.
+function Runtime.EnsureManager(parent)
+    return ensureManager(parent)
+end
+
 --- Wire an arrow to the manager. `delta` is -1 for back, 1 for forward.
 function Runtime.BindArrow(button, delta)
     button:RegisterForClicks("AnyUp")   -- one click type only: registering both
