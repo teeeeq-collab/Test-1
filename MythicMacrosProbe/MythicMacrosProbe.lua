@@ -449,6 +449,20 @@ y = y - 32
 label(" ")
 label("C + D. Get into combat, then press both of these:", "|cffffcc44")
 
+--- Run one step under pcall and record a throw as a result.
+---
+--- A probe that dies halfway through loses every check after the failure, and
+--- mid-key there is no second attempt. An error is also data: it names an API
+--- that is missing or refusing, which is exactly what this tool exists to find
+--- out. So nothing here is allowed to abort the run.
+local function step(pfx, name, fn)
+    local ok, err = pcall(fn)
+    if not ok then
+        record(pfx .. ".ERROR." .. name, "THREW", tostring(err))
+    end
+    return ok
+end
+
 --- The design assumes attribute writes and macro edits are refused in combat,
 --- and that page flipping therefore cannot go through them.
 --- Verify by effect, never by pcall.
@@ -465,46 +479,56 @@ local function combatOps(pfx)
         inCombat and "results are meaningful" or "RE-RUN THIS IN COMBAT")
 
     -- SetAttribute: write a sentinel, read it back.
-    local sentinel = "MMPsent" .. math.random(100000, 999999)
-    pcall(function() btnMtRun:SetAttribute("macrotext", "/run MMProbeSignal('" .. sentinel .. "')") end)
-    local got = btnMtRun:GetAttribute("macrotext")
-    record(pfx .. ".SetAttribute",
-        (got and got:find(sentinel, 1, true)) and "APPLIED" or "NO EFFECT",
-        "read back: " .. tostring(got and got:sub(1, 40)))
+    step(pfx, "SetAttribute", function()
+        local sentinel = "MMPsent" .. math.random(100000, 999999)
+        pcall(function()
+            btnMtRun:SetAttribute("macrotext", "/run MMProbeSignal('" .. sentinel .. "')")
+        end)
+        local got = btnMtRun:GetAttribute("macrotext")
+        record(pfx .. ".SetAttribute",
+            (type(got) == "string" and got:find(sentinel, 1, true)) and "APPLIED" or "NO EFFECT",
+            "read back: " .. tostring(got):sub(1, 40))
+    end)
 
     -- EditMacro: write a distinctive body, read it back.
-    local idx = GetMacroIndexByName(RUN_MACRO)
-    if idx and idx > 0 then
+    step(pfx, "EditMacro", function()
+        local idx = GetMacroIndexByName(RUN_MACRO)
+        if not idx or idx <= 0 then
+            record(pfx .. ".EditMacro", "SKIPPED", "probe macros not created")
+            return
+        end
         local marker = "/run MMProbeSignal('edited" .. math.random(1000, 9999) .. "')"
         pcall(EditMacro, idx, RUN_MACRO, nil, marker)
         local body = GetMacroBody(idx)
         record(pfx .. ".EditMacro", (body == marker) and "APPLIED" or "NO EFFECT",
-            "body now: " .. tostring(body and body:sub(1, 40)))
-        -- Put it back so the B buttons keep working.
+            "body now: " .. tostring(body):sub(1, 40))
         pcall(EditMacro, idx, RUN_MACRO, nil, "/run MMProbeSignal('realmacro')")
-    else
-        record(pfx .. ".EditMacro", "SKIPPED", "probe macros not created")
-    end
+    end)
 
-    -- CreateMacro: create, then look it up by name.
-    local tmp = PREFIX .. "CBT"
-    pcall(CreateMacro, tmp, ICONS[1], "/run return", false)
-    local made = GetMacroIndexByName(tmp)
-    record(pfx .. ".CreateMacro", (made and made > 0) and "APPLIED" or "NO EFFECT")
-    if made and made > 0 then
-        pcall(DeleteMacro, made)
-        record(pfx .. ".DeleteMacro",
-            (GetMacroIndexByName(tmp) or 0) == 0 and "APPLIED" or "NO EFFECT")
-    end
+    -- CreateMacro / DeleteMacro: act, then look up by name.
+    step(pfx, "CreateMacro", function()
+        local tmp = PREFIX .. "CBT"
+        pcall(CreateMacro, tmp, ICONS[1], "/run return", false)
+        local made = GetMacroIndexByName(tmp)
+        record(pfx .. ".CreateMacro", (made and made > 0) and "APPLIED" or "NO EFFECT")
+        if made and made > 0 then
+            pcall(DeleteMacro, made)
+            record(pfx .. ".DeleteMacro",
+                ((GetMacroIndexByName(tmp) or 0) == 0) and "APPLIED" or "NO EFFECT")
+        end
+    end)
 
     -- SetScale: change it, read it back, restore.
-    local before = frame:GetScale()
-    local target = (before > 1.02) and 1.0 or 1.05
-    pcall(frame.SetScale, frame, target)
-    local after = frame:GetScale()
-    record(pfx .. ".SetScale", (math.abs(after - target) < 0.001) and "APPLIED" or "NO EFFECT",
-        ("%.3f -> %.3f"):format(before, after))
-    pcall(frame.SetScale, frame, before)
+    step(pfx, "SetScale", function()
+        local before = frame:GetScale() or 1
+        local target = (before > 1.02) and 1.0 or 1.05
+        pcall(frame.SetScale, frame, target)
+        local after = frame:GetScale() or 1
+        record(pfx .. ".SetScale",
+            (math.abs(after - target) < 0.001) and "APPLIED" or "NO EFFECT",
+            ("%.3f -> %.3f"):format(before, after))
+        pcall(frame.SetScale, frame, before)
+    end)
 end
 
 plain("C. Combat ops", 14, 200, function() combatOps("C") end)
@@ -583,8 +607,11 @@ else
 end
 
 btnFlip:HookScript("OnClick", function()
-    record("D2.secureFlip", pageA:IsShown() and "showing A" or "showing B",
-        "combat=" .. tostring(InCombatLockdown()))
+    local run = db().runCount and ("." .. db().runCount) or ""
+    record("D2.secureFlipByHand" .. run,
+        pageA:IsShown() and "showing A" or "showing B",
+        ("combat=%s - a hardware click, which is what the addon's page arrows are")
+            :format(tostring(InCombatLockdown())))
 end)
 y = y - 34
 
@@ -599,44 +626,59 @@ local function runAllInKey()
     db().runCount = (db().runCount or 0) + 1
     local pfx = "K" .. db().runCount
 
-    local iname, itype, _, diffName, _, _, _, instID = GetInstanceInfo()
-    local inCombat = InCombatLockdown()
+    -- Conditions first, and guarded, so even a total failure still records the
+    -- circumstances the attempt was made under.
+    step(pfx, "conditions", function()
+        local okA, active    = pcall(function() return C_ChallengeMode.IsChallengeModeActive() end)
+        local okL, lvl       = pcall(function() return C_ChallengeMode.GetActiveKeystoneInfo() end)
+        local okE, encounter = pcall(IsEncounterInProgress)
+        local okG, members   = pcall(GetNumGroupMembers)
+        local okR, inRaid    = pcall(IsInRaid)
 
-    local okA, active = pcall(function() return C_ChallengeMode.IsChallengeModeActive() end)
-    local okL, lvl    = pcall(function() return C_ChallengeMode.GetActiveKeystoneInfo() end)
+        record(pfx .. ".conditions",
+            ("combat=%s  keyActive=%s  keyLevel=%s  encounter=%s  raid=%s  group=%s  verb=%s")
+            :format(
+                tostring(InCombatLockdown()),
+                okA and tostring(active) or "?",
+                okL and tostring(lvl) or "?",
+                okE and tostring(encounter) or "?",
+                okR and tostring(inRaid) or "?",
+                okG and tostring(members) or "?",
+                tostring(db().chatVerb)),
+            "every variable this run was taken under")
+    end)
 
-    local okE, encounter = pcall(IsEncounterInProgress)
+    step(pfx, "instance", function()
+        local iname, itype, _, diffName, _, _, _, instID = GetInstanceInfo()
+        record(pfx .. ".instance", ("%s | %s | %s | id=%s"):format(
+            tostring(iname), tostring(itype), tostring(diffName), tostring(instID)))
+    end)
 
-    record(pfx .. ".conditions",
-        ("combat=%s  keyActive=%s  keyLevel=%s  encounter=%s  raid=%s  group=%d  verb=%s"):format(
-            tostring(inCombat),
-            okA and tostring(active) or "?",
-            okL and tostring(lvl) or "?",
-            okE and tostring(encounter) or "?",
-            tostring(IsInRaid()),
-            GetNumGroupMembers(),
-            db().chatVerb),
-        "every variable this run was taken under")
+    step(pfx, "combatOps", function() combatOps(pfx) end)
 
-    record(pfx .. ".instance", ("%s | %s | %s | id=%s"):format(
-        tostring(iname), tostring(itype), tostring(diffName), tostring(instID)))
+    step(pfx, "plainHide", function()
+        local wasShown = pagePlain:IsShown()
+        pcall(function()
+            if wasShown then pagePlain:Hide() else pagePlain:Show() end
+        end)
+        record(pfx .. ".plainHide",
+            (pagePlain:IsShown() ~= wasShown) and "WORKED" or "NO EFFECT")
+    end)
 
-    combatOps(pfx)
+    -- Deliberately NOT automated. Driving the secure flip with :Click() throws
+    -- "Invalid 'self' frame handle" with selfHandle=nil: the restricted
+    -- environment refuses a scripted click, while the same button works when
+    -- clicked by hand, in combat. That distinction is a result, not a bug to
+    -- work around, and it is fine for the addon, whose page arrows are real
+    -- clicks.
+    record(pfx .. ".secureFlip", "CLICK IT BY HAND",
+        "scripted :Click() is refused by the restricted environment")
 
-    local wasShown = pagePlain:IsShown()
-    pcall(function() if wasShown then pagePlain:Hide() else pagePlain:Show() end end)
-    record(pfx .. ".plainHide", (pagePlain:IsShown() ~= wasShown) and "WORKED" or "NO EFFECT")
-
-    local before = pageA:IsShown()
-    btnFlip:Click()
-    record(pfx .. ".secureFlipByScript", (pageA:IsShown() ~= before) and "WORKED" or "NO EFFECT",
-        "script-driven click, not a hardware event")
-
-    out(("|cffffff00run %d recorded (combat=%s, key=%s). Now click the two chat buttons.|r")
-        :format(db().runCount, tostring(inCombat), okA and tostring(active) or "?"))
+    out(("|cffffff00run %d recorded. Now click, by hand: D2. Secure flip, then the two chat buttons.|r")
+        :format(db().runCount))
 end
 
-label("|cffffcc44IN A KEY: press this, then the two chat buttons above.|r")
+label("|cffffcc44IN A KEY: press this, then by hand: D2 flip + the two chat buttons.|r")
 local btnInKey = plain("K. Run all in-key checks", 14, 300, function() runAllInKey() end)
 y = y - 32
 
