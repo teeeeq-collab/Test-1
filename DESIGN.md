@@ -286,12 +286,18 @@ the strength of missing bookkeeping.
 MythicMacros only ever sends. It never reads chat. So the restriction that does
 exist is one it never touches.
 
-### Still strictly untested
+### In a live keystone
 
-An active keystone was never sampled: every run had `keyActive=false`. The
-encounter case is the stricter of the two conditions Blizzard's restriction is
-reported to cover, and it passed, so the risk is low — but it is inference, not
-measurement.
+Sampled at last, on a +9 in The Blinding Vale: `keyActive=true`, `keyLevel=9`,
+`combat=true`, party of five, `/p`.
+
+Both chat buttons clicked. No echo recorded — the same signature as the boss
+encounter, where a screenshot confirmed the messages were delivered regardless.
+Every combat restriction held identically inside the key.
+
+So all three conditions Blizzard's restriction is reported to cover — combat, an
+active boss encounter, and an active keystone — have now been sampled, and in
+each one a macro-driven button sends chat while the addon cannot observe it.
 
 ## Design principle: isolation
 
