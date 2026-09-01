@@ -797,13 +797,41 @@ for _, e in ipairs({
     events:RegisterEvent(e)
 end
 
+--- Chat received inside an instance can be a Secret Value: the message arrives,
+--- but its contents cannot be inspected, and touching one throws
+---   "attempt to index local 'msg' (a secret string value)".
+---
+--- Messages this addon sent itself come back readable, which is why the echo
+--- checks worked at all; other players' chat does not. So every read is guarded
+--- and an unreadable message is recorded once rather than raising an error each
+--- time somebody talks.
+---
+--- None of this touches MythicMacros itself, which only ever sends chat.
+local secretChatNoted = false
+
 events:SetScript("OnEvent", function(_, event, msg)
-    if type(msg) ~= "string" then return end
+    if msg == nil then return end
+
     local where = event .. " / " .. (InCombatLockdown() and "in combat" or "out of combat")
     local run = db().runCount and ("." .. db().runCount) or ""
-    if msg:find(TOKEN_MT, 1, true) then
+
+    local ok, isMT = pcall(function() return msg:find(TOKEN_MT, 1, true) ~= nil end)
+    if not ok then
+        if not secretChatNoted then
+            secretChatNoted = true
+            record("G.secretChat", "UNREADABLE",
+                event .. " - message contents are a Secret Value in this instance")
+        end
+        return
+    end
+
+    if isMT then
         record("B.chat.macrotext" .. run, "RECEIVED", where)
-    elseif msg:find(TOKEN_RM, 1, true) then
+        return
+    end
+
+    local okRM, isRM = pcall(function() return msg:find(TOKEN_RM, 1, true) ~= nil end)
+    if okRM and isRM then
         record("B.chat.realmacro" .. run, "RECEIVED", where)
     end
 end)
