@@ -145,7 +145,15 @@ local function acquireButton(pageIndex, page, buttonIndex)
     button = CreateFrame("Button", ("MythicMacrosBtn%d_%d"):format(pageIndex, buttonIndex),
         page, "SecureActionButtonTemplate")
     button:SetSize(BUTTON_W, BUTTON_H)
-    button:RegisterForClicks("AnyUp")
+    -- Both directions, matching the configuration the probe proved fires. An
+    -- earlier version registered only AnyUp, on the theory that both would
+    -- double-send. The probe data said otherwise: two click records, one
+    -- message. The theory lost to the measurement.
+    button:RegisterForClicks("AnyUp", "AnyDown")
+    -- Explicit, not assumed. The probe's working buttons enabled the mouse and
+    -- these did not, and a button that never receives the click is
+    -- indistinguishable from one whose action is refused.
+    button:EnableMouse(true)
     button:SetAttribute("type", "macro")
 
     local bg = button:CreateTexture(nil, "BACKGROUND")
@@ -342,6 +350,50 @@ end
 function Runtime.CurrentPage()
     if not manager then return 1 end
     return manager:GetAttribute("pageIndex") or 1
+end
+
+--- What is actually on the buttons, and whether clicks reach them.
+---
+--- "Nothing happened" has at least three causes that look identical from
+--- outside: the button never got its text, the click never landed, or the click
+--- landed and the game refused the action. This separates them, which is the
+--- same thing the probe had to do before any of this could be built.
+function Runtime.Debug()
+    Util.Print(("built category: %s, pages: %d"):format(
+        tostring(built.categoryId), built.pageCount))
+    Util.Print(("manager: %s, pageIndex: %s"):format(
+        manager and "yes" or "MISSING",
+        manager and tostring(manager:GetAttribute("pageIndex")) or "-"))
+
+    for pageIndex = 1, built.pageCount do
+        local page = frames.pages[pageIndex]
+        if page then
+            Util.Print(("page %d: shown=%s buttons=%d"):format(
+                pageIndex, tostring(page:IsShown()), #(frames.buttons[pageIndex] or {})))
+
+            for i, button in ipairs(frames.buttons[pageIndex] or {}) do
+                if button:IsShown() then
+                    Util.Print(("  [%d.%d] type=%s clicks=%s"):format(
+                        pageIndex, i,
+                        tostring(button:GetAttribute("type")),
+                        tostring(button:GetAttribute("macrotext")) ))
+
+                    -- One hook, once, reporting that the click arrived. If this
+                    -- prints and nothing is sent, the fault is the action being
+                    -- refused, not the button being dead.
+                    if not button.debugHooked then
+                        button.debugHooked = true
+                        button:HookScript("OnClick", function(self, mouseButton, down)
+                            Util.Print(("|cff33ff99click|r on [%d.%d] down=%s combat=%s"):format(
+                                pageIndex, i, tostring(down), tostring(InCombatLockdown())))
+                        end)
+                    end
+                end
+            end
+        end
+    end
+
+    Util.Print("now press a button. A 'click' line means it reached the button.")
 end
 
 --- Hide everything. Used when leaving Run for Edit, where stale secure buttons

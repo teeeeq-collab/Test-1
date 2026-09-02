@@ -127,6 +127,9 @@ SlashCmdList.MYTHICMACROS = function(arg)
     elseif arg == "add" then
         MythicMacros_AddTarget()
 
+    elseif arg == "debug" then
+        MM.Runtime.Debug()
+
     elseif arg == "settings" then
         UI.Show("settings")
 
@@ -144,6 +147,6 @@ SlashCmdList.MYTHICMACROS = function(arg)
 
     else
         UI.Toggle()
-        Util.Print("commands: starter | add | demo | edit | settings | wipe")
+        Util.Print("commands: starter | add | demo | debug | edit | settings | wipe")
     end
 end
