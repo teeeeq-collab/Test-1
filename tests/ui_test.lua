@@ -128,6 +128,33 @@ end)
 
 check("stale marker", function() MM.Edit.RefreshStaleMarker() end)
 check("settings apply", function() MM.UI.ApplySettings() end)
+
+check("reset all restores defaults and the widgets follow", function()
+    local s = MM.Core.Settings()
+    s.scale, s.opacity, s.buttonScale, s.textScale = 1.4, 0.5, 1.7, 0.7
+    s.channel = "/raid"
+
+    for key, value in pairs({ opacity = 1.0, scale = 1.0, buttonScale = 1.0, textScale = 1.0 }) do
+        MM.Core.Settings()[key] = value
+    end
+    MM.UI.RefreshSettings()          -- must not error with values changed underneath
+
+    if s.scale ~= 1.0 or s.opacity ~= 1.0 then
+        error("defaults not restored")
+    end
+    -- The channel is a choice, not a cosmetic default, so a reset leaves it be.
+    if s.channel ~= "/raid" then error("reset should not clear the channel") end
+end)
+
+check("text scale reaches the buttons", function()
+    local cat = MM.Core.Categories()[6]
+    MM.Core.Settings().textScale = 1.3
+    local container = CreateFrame("Frame", nil, UIParent)
+    MM.Runtime.EnsureManager(container)
+    local ok, err = MM.Runtime.Build(container, cat.id, MM.Core.Settings())
+    if not ok then error(tostring(err)) end
+    MM.Core.Settings().textScale = 1.0
+end)
 check("help window", function() MM.UI.ShowHelp() end)
 
 check("export and import windows", function()

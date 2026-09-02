@@ -412,44 +412,111 @@ end
 -- Settings
 --------------------------------------------------------------------------------
 
+local SETTING_DEFAULTS = {
+    opacity = 1.0, scale = 1.0, buttonScale = 1.0, textScale = 1.0,
+}
+
 function UI.BuildSettings(parent)
     local y = -8
+    local rows = {}
 
-    local function slider(labelText, key, minv, maxv)
+    --- One setting: a slider, a value you can type into, and a reset.
+    ---
+    --- `live` decides whether dragging applies as it goes. Overall scale must
+    --- not: scaling the window moves the slider out from under the cursor,
+    --- which makes it almost impossible to aim. It commits when released, while
+    --- the number updates as you drag so there is still feedback.
+    local function row(labelText, key, minv, maxv, live, note)
         local text = fontString(parent, labelText)
         text:SetPoint("TOPLEFT", 12, y)
 
-        local s = CreateFrame("Slider", nil, parent, "OptionsSliderTemplate")
-        s:SetPoint("TOPLEFT", 140, y + 4)
-        s:SetWidth(200)
-        s:SetMinMaxValues(minv, maxv)
-        s:SetValueStep(0.05)
-        s:SetObeyStepOnDrag(true)
-        s:SetValue(Core.Settings()[key] or 1)
+        local slider = CreateFrame("Slider", nil, parent, "OptionsSliderTemplate")
+        slider:SetPoint("TOPLEFT", 150, y + 4)
+        slider:SetWidth(190)
+        slider:SetMinMaxValues(minv, maxv)
+        slider:SetValueStep(0.01)
+        slider:SetObeyStepOnDrag(true)
 
-        local value = fontString(parent, ("%.2f"):format(Core.Settings()[key] or 1))
-        value:SetPoint("LEFT", s, "RIGHT", 12, 0)
+        local box = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+        box:SetSize(46, 20)
+        box:SetPoint("LEFT", slider, "RIGHT", 16, 0)
+        box:SetAutoFocus(false)
+        box:SetMaxLetters(5)
+        box:SetJustifyH("CENTER")
 
-        s:SetScript("OnValueChanged", function(_, v)
-            Core.Settings()[key] = v
-            value:SetText(("%.2f"):format(v))
+        local reset = panelButton(parent, "Reset", 52, 20)
+        reset:SetPoint("LEFT", box, "RIGHT", 8, 0)
+
+        local function apply(value)
+            Core.Settings()[key] = value
             if not UI.ApplySettings() then
                 Util.Print("|cffff4444settings apply out of combat.|r")
             end
+        end
+
+        local function show(value)
+            box:SetText(("%.2f"):format(value))
+        end
+
+        slider:SetScript("OnMouseDown", function(self) self.dragging = true end)
+        slider:SetScript("OnMouseUp", function(self)
+            self.dragging = false
+            apply(self:GetValue())
         end)
 
+        slider:SetScript("OnValueChanged", function(self, value)
+            show(value)
+            -- Applying mid-drag is what made the window squirm; for the one
+            -- setting that resizes the window, the number alone is feedback
+            -- enough until the mouse comes up.
+            if live then apply(value) end
+        end)
+
+        box:SetScript("OnEnterPressed", function(self)
+            local value = tonumber((self:GetText() or ""):gsub(",", "."))
+            if value then
+                value = math.max(minv, math.min(maxv, value))
+                slider:SetValue(value)
+                apply(value)
+            end
+            show(Core.Settings()[key] or SETTING_DEFAULTS[key])
+            self:ClearFocus()
+        end)
+        box:SetScript("OnEscapePressed", function(self)
+            show(Core.Settings()[key] or SETTING_DEFAULTS[key])
+            self:ClearFocus()
+        end)
+
+        reset:SetScript("OnClick", function()
+            local value = SETTING_DEFAULTS[key]
+            slider:SetValue(value)
+            show(value)
+            apply(value)
+        end)
+
+        if note then
+            local n = fontString(parent, "|cff888888" .. note .. "|r")
+            n:SetPoint("TOPLEFT", 14, y - 17)
+            y = y - 14
+        end
+
+        rows[#rows + 1] = function()
+            local value = Core.Settings()[key] or SETTING_DEFAULTS[key]
+            slider:SetValue(value)
+            show(value)
+        end
+
         y = y - 36
-        return s
+        return slider
     end
 
-    -- Where plain text goes. This is the setting that decides whether a line
-    -- reaches the group at all, so it sits above the cosmetic ones.
+    -- Where plain text goes. This decides whether a line reaches the group at
+    -- all, so it sits above the cosmetic settings.
     local chanLabel = fontString(parent, "Send plain text to")
     chanLabel:SetPoint("TOPLEFT", 12, y)
 
-    local chanBtn = panelButton(parent, Core.Settings().channel or Util.DEFAULT_CHANNEL,
-        80, 22, nil)
-    chanBtn:SetPoint("TOPLEFT", 140, y + 4)
+    local chanBtn = panelButton(parent, Core.Settings().channel or Util.DEFAULT_CHANNEL, 80, 22)
+    chanBtn:SetPoint("TOPLEFT", 150, y + 4)
     chanBtn:SetScript("OnClick", function(self)
         local current = Core.Settings().channel or Util.DEFAULT_CHANNEL
         local index = 1
@@ -465,19 +532,40 @@ function UI.BuildSettings(parent)
     end)
 
     local chanNote = fontString(parent,
-        "|cffaaaaaaA line starting with a slash command ignores this and runs as written.|r")
-    chanNote:SetPoint("TOPLEFT", 12, y - 24)
+        "|cff888888A line starting with a slash command ignores this and runs as written.|r")
+    chanNote:SetPoint("TOPLEFT", 14, y - 20)
+    y = y - 50
 
-    y = y - 52
+    row("Opacity",      "opacity",     0.2, 1.0, true)
+    row("Window scale", "scale",       0.6, 1.6, false,
+        "Applies when you let go of the slider.")
+    row("Button scale", "buttonScale", 0.6, 1.8, true,
+        "Reopen the dungeon in Run to see it.")
+    row("Text scale",   "textScale",   0.6, 1.6, true,
+        "Reopen the dungeon in Run to see it.")
 
-    slider("Opacity", "opacity", 0.2, 1.0)
-    slider("Scale", "scale", 0.6, 1.6)
-    slider("Button scale", "buttonScale", 0.6, 1.8)
-    slider("Text scale", "textScale", 0.6, 1.6)
+    local resetAll = panelButton(parent, "Reset all", 90, 22, function()
+        for key, value in pairs(SETTING_DEFAULTS) do
+            Core.Settings()[key] = value
+        end
+        UI.ApplySettings()
+        UI.RefreshSettings()
+        Util.Print("settings reset.")
+    end)
+    resetAll:SetPoint("TOPLEFT", 12, y - 4)
 
     local note = fontString(parent,
-        "|cffaaaaaaScale and opacity apply out of combat only.|r")
-    note:SetPoint("TOPLEFT", 12, y - 4)
+        "|cff888888Scale and opacity apply out of combat only.|r")
+    note:SetPoint("TOPLEFT", 110, y - 10)
+
+    --- Pull every control back in line with what is stored. Used by Reset all,
+    --- which changes the values behind the widgets.
+    function UI.RefreshSettings()
+        for _, refresh in ipairs(rows) do refresh() end
+        if chanBtn then chanBtn:SetText(Core.Settings().channel or Util.DEFAULT_CHANNEL) end
+    end
+
+    UI.RefreshSettings()
 end
 
 --------------------------------------------------------------------------------

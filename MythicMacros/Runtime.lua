@@ -216,6 +216,10 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
         header:SetWidth(cardW)
         header:SetJustifyH("LEFT")
         header:SetText(enemy.name)
+        local hFile, hSize, hFlags = header:GetFont()
+        if hFile and hSize then
+            header:SetFont(hFile, hSize * ((settings and settings.textScale) or 1), hFlags)
+        end
         header:Show()
 
         for i, line in ipairs(lines) do
@@ -241,6 +245,15 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
             button:SetAttribute("macrotext", macro)
             button.label:SetText(Util.ButtonLabel(line))
             button.macroText = macro
+
+            -- Text scale is separate from button scale on purpose: a bigger hit
+            -- target and a bigger caption are different needs, and one should
+            -- not force the other.
+            local textScale = (settings and settings.textScale) or 1
+            local fontFile, fontSize, fontFlags = button.label:GetFont()
+            if fontFile and fontSize then
+                button.label:SetFont(fontFile, fontSize * textScale, fontFlags)
+            end
 
             button:SetScript("OnEnter", function(self)
                 self.bg:SetColorTexture(0.22, 0.22, 0.30, 0.95)
