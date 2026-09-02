@@ -115,7 +115,19 @@ end
 
 local namePool, linePool, btnPool = {}, {}, {}
 
+local function refreshSortControls()
+    if not ui.sortBtn then return end
+    local s = Core.Settings()
+    local manual = (s.enemySort or "manual") == "manual"
+
+    ui.sortBtn:SetText(manual and "Order: manual" or "Order: A-Z")
+    ui.sortDirBtn:SetText(s.enemySortDesc and "reversed" or "normal")
+    -- Only offered when there is something to bake in.
+    ui.sortApply:SetShown(not manual or s.enemySortDesc)
+end
+
 function Edit.RefreshEnemies()
+    refreshSortControls()
     local ni, li, bi = 1, 1, 1
     local cat = state.categoryId and Core.GetCategory(state.categoryId)
 
@@ -128,22 +140,27 @@ function Edit.RefreshEnemies()
     local width = ui.enemyList:GetWidth() or 460
     local y = -4
 
-    for _, enemy in ipairs(cat.enemies) do
+    for _, enemy in ipairs(Core.EnemiesInOrder(state.categoryId,
+            Core.Settings().enemySort, Core.Settings().enemySortDesc)) do
         -- Name -----------------------------------------------------------------
         local name = acquire(namePool, ni, function()
             local eb = editBox(ui.enemyList, 64)
-            -- Child of the box, not of the list: hiding a pooled box then has
-            -- to take its button with it. Parented to the list, a removed line
-            -- left its "-" behind, which is exactly what shipped.
+            -- Children of the box, not of the list: hiding a pooled box then
+            -- has to take its buttons with it. Parented to the list, a removed
+            -- line left its "-" behind, which is exactly what shipped once.
+            eb.up = button(eb, "^", 20, 18)
+            eb.up:SetPoint("LEFT", eb, "RIGHT", 6, 0)
+            eb.down = button(eb, "v", 20, 18)
+            eb.down:SetPoint("LEFT", eb.up, "RIGHT", 2, 0)
             eb.del = button(eb, "x", 20, 18)
-            eb.del:SetPoint("LEFT", eb, "RIGHT", 6, 0)
+            eb.del:SetPoint("LEFT", eb.down, "RIGHT", 2, 0)
             return eb
         end)
         ni = ni + 1
 
         name:ClearAllPoints()
         name:SetPoint("TOPLEFT", ui.enemyList, "TOPLEFT", 10, y)
-        name:SetWidth(width - 90)
+        name:SetWidth(width - 140)
         name:SetText(enemy.name)
         name:SetScript("OnEnterPressed", function(self)
             Core.RenameEnemy(state.categoryId, enemy.id, self:GetText())
@@ -156,6 +173,23 @@ function Edit.RefreshEnemies()
 
         name.del:SetScript("OnClick", function()
             Core.DeleteEnemy(state.categoryId, enemy.id)
+            Edit.RefreshEnemies()
+        end)
+
+        -- Moving only means something against the stored order. Under an
+        -- alphabetical view "up" has no stable meaning, so the arrows go quiet
+        -- rather than doing something arbitrary.
+        local manual = (Core.Settings().enemySort or "manual") == "manual"
+        local step = Core.Settings().enemySortDesc and -1 or 1
+
+        name.up:SetEnabled(manual)
+        name.down:SetEnabled(manual)
+        name.up:SetScript("OnClick", function()
+            Core.MoveEnemy(state.categoryId, enemy.id, -step)
+            Edit.RefreshEnemies()
+        end)
+        name.down:SetScript("OnClick", function()
+            Core.MoveEnemy(state.categoryId, enemy.id, step)
             Edit.RefreshEnemies()
         end)
 
@@ -174,7 +208,7 @@ function Edit.RefreshEnemies()
 
             box:ClearAllPoints()
             box:SetPoint("TOPLEFT", ui.enemyList, "TOPLEFT", 10 + INDENT, y)
-            box:SetWidth(width - 90 - INDENT)
+            box:SetWidth(width - 140 - INDENT)
             box:SetText(line.body or "")
 
             -- Committed on Enter and on losing focus, so clicking away keeps
@@ -412,12 +446,38 @@ function Edit.Build(parent)
     ui.sendHint = label(ui.enemiesPanel, "")
     ui.sendHint:SetPoint("TOPLEFT", 10, -4)
 
+    -- Sorting is a view, not a rewrite. Changing how the list is displayed
+    -- should never quietly discard an arrangement someone built by hand, so
+    -- baking it in is a separate, deliberate button.
+    ui.sortBtn = button(ui.enemiesPanel, "", 110, 18, function()
+        local s = Core.Settings()
+        s.enemySort = (s.enemySort == "name") and "manual" or "name"
+        Edit.RefreshEnemies()
+    end)
+    ui.sortBtn:SetPoint("TOPLEFT", 10, -20)
+
+    ui.sortDirBtn = button(ui.enemiesPanel, "", 90, 18, function()
+        local s = Core.Settings()
+        s.enemySortDesc = not s.enemySortDesc
+        Edit.RefreshEnemies()
+    end)
+    ui.sortDirBtn:SetPoint("LEFT", ui.sortBtn, "RIGHT", 4, 0)
+
+    ui.sortApply = button(ui.enemiesPanel, "Keep this order", 110, 18, function()
+        local s = Core.Settings()
+        Core.SortEnemies(state.categoryId, s.enemySort, s.enemySortDesc)
+        s.enemySort, s.enemySortDesc = "manual", false
+        Edit.RefreshEnemies()
+        Util.Print("order saved. The arrows work again.")
+    end)
+    ui.sortApply:SetPoint("LEFT", ui.sortDirBtn, "RIGHT", 4, 0)
+
     ui.enemyEmpty = label(ui.enemiesPanel,
         "|cffaaaaaaNo enemies yet. Name one below, or target a mob and use Add target.|r")
-    ui.enemyEmpty:SetPoint("TOPLEFT", 10, -22)
+    ui.enemyEmpty:SetPoint("TOPLEFT", 10, -42)
 
     local enemyScroll = CreateFrame("ScrollFrame", nil, ui.enemiesPanel, "UIPanelScrollFrameTemplate")
-    enemyScroll:SetPoint("TOPLEFT", 0, -18)
+    enemyScroll:SetPoint("TOPLEFT", 0, -40)
     enemyScroll:SetPoint("BOTTOMRIGHT", -24, 0)
     ui.enemyList = CreateFrame("Frame", nil, enemyScroll)
     ui.enemyList:SetSize(470, 40)

@@ -32,6 +32,8 @@ local function defaultSettings()
     return {
         opacity     = 1.0,
         channel     = "/p",   -- where plain text is sent
+        enemySort   = "manual",
+        enemySortDesc = false,
         scale       = 1.0,
         buttonScale = 1.0,
         textScale   = 1.0,
@@ -252,6 +254,72 @@ function Core.DeleteEnemy(catId, enemyId)
 
     edited()
     return true
+end
+
+function Core.MoveEnemy(catId, enemyId, delta)
+    local cat = Core.GetCategory(catId)
+    if not cat then return nil end
+
+    local index = Util.IndexById(cat.enemies, enemyId)
+    if not index then return nil end
+
+    edited()
+    return Util.Move(cat.enemies, index, delta)
+end
+
+--- Rewrites the stored order to match a sort.
+---
+--- Kept separate from *viewing* a sort on purpose. Alphabetising the view is
+--- harmless and reversible; alphabetising the stored order throws away a manual
+--- arrangement, and that should be something asked for rather than a side
+--- effect of changing how the list is displayed.
+---
+--- This never touches page contents. The order enemies appear in on a page is
+--- the page's own, so sorting the library cannot rearrange anything you play
+--- with.
+function Core.SortEnemies(catId, mode, descending)
+    local cat = Core.GetCategory(catId)
+    if not cat then return false end
+
+    if mode == "name" then
+        table.sort(cat.enemies, function(a, b)
+            return (a.name or ""):lower() < (b.name or ""):lower()
+        end)
+    end
+
+    if descending then
+        local reversed = {}
+        for i = #cat.enemies, 1, -1 do
+            reversed[#reversed + 1] = cat.enemies[i]
+        end
+        cat.enemies = reversed
+    end
+
+    edited()
+    return true
+end
+
+--- The enemies in display order, without disturbing what is stored.
+function Core.EnemiesInOrder(catId, mode, descending)
+    local cat = Core.GetCategory(catId)
+    if not cat then return {} end
+
+    local list = {}
+    for i, enemy in ipairs(cat.enemies) do list[i] = enemy end
+
+    if mode == "name" then
+        table.sort(list, function(a, b)
+            return (a.name or ""):lower() < (b.name or ""):lower()
+        end)
+    end
+
+    if descending then
+        local reversed = {}
+        for i = #list, 1, -1 do reversed[#reversed + 1] = list[i] end
+        list = reversed
+    end
+
+    return list
 end
 
 --------------------------------------------------------------------------------

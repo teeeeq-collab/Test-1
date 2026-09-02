@@ -110,14 +110,15 @@ check("deleting a line leaves nothing behind", function()
     end
 
     local before = visibleDeletes()
-    if before ~= 3 then error(("expected 3 box buttons (1 name + 2 lines), saw %d"):format(before)) end
+    -- name box carries up/down/delete, each line box carries delete
+    if before ~= 5 then error(("expected 5 box buttons (3 name + 2 lines), saw %d"):format(before)) end
 
     MM.Core.DeleteLine(cat.id, e.id, l2.id)
     MM.Edit.RefreshEnemies()
 
     local after = visibleDeletes()
-    if after ~= 2 then
-        error(("after deleting a line, expected 2 box buttons, saw %d"):format(after))
+    if after ~= 4 then
+        error(("after deleting a line, expected 4 box buttons, saw %d"):format(after))
     end
 
     MM.Core.DeleteEnemy(cat.id, e.id)

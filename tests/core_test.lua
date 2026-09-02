@@ -87,4 +87,53 @@ local lines = Core.CategoryLines(cat.id)
 check("category lines collected", #lines == 2)
 
 print(("\n%d passed, %d failed"):format(pass, fail))
-os.exit(fail == 0 and 0 or 1)
+if fail > 0 then os.exit(1) end
+
+-- Ordering ---------------------------------------------------------------
+print("")
+local ord = Core.AddCategory("Ordering")
+local zeta  = Core.AddEnemy(ord.id, "Zeta")
+local alpha = Core.AddEnemy(ord.id, "alpha")
+local mid   = Core.AddEnemy(ord.id, "Mid")
+
+local function names(list)
+    local out = {}
+    for i, e in ipairs(list) do out[i] = e.name end
+    return table.concat(out, ",")
+end
+
+local p2, f2 = 0, 0
+local function ck(label, cond, got)
+    if cond then p2 = p2 + 1 else f2 = f2 + 1 print("  FAIL " .. label .. " -> " .. tostring(got)) end
+end
+
+ck("insertion order kept", names(ord.enemies) == "Zeta,alpha,Mid", names(ord.enemies))
+
+Core.MoveEnemy(ord.id, mid.id, -1)
+ck("moved up one step", names(ord.enemies) == "Zeta,Mid,alpha", names(ord.enemies))
+Core.MoveEnemy(ord.id, mid.id, -1)
+Core.MoveEnemy(ord.id, mid.id, -1)
+ck("cannot move past the top", names(ord.enemies) == "Mid,Zeta,alpha", names(ord.enemies))
+
+-- Viewing a sort must not rewrite what is stored.
+local view = Core.EnemiesInOrder(ord.id, "name", false)
+ck("alphabetical view ignores case", names(view) == "alpha,Mid,Zeta", names(view))
+ck("stored order untouched by viewing", names(ord.enemies) == "Mid,Zeta,alpha", names(ord.enemies))
+
+local desc = Core.EnemiesInOrder(ord.id, "name", true)
+ck("reversed view", names(desc) == "Zeta,Mid,alpha", names(desc))
+
+-- Sorting must never disturb what a page plays, which is the page's own order.
+local pg = Core.AddPage(ord.id, "Route")
+Core.AddEnemyToPage(ord.id, pg.id, zeta.id)
+Core.AddEnemyToPage(ord.id, pg.id, alpha.id)
+local before = names(Core.PageEnemies(ord.id, pg.id))
+
+Core.SortEnemies(ord.id, "name", false)
+ck("sorting rewrites the stored order", names(ord.enemies) == "alpha,Mid,Zeta", names(ord.enemies))
+ck("page order survives a library sort",
+   names(Core.PageEnemies(ord.id, pg.id)) == before,
+   names(Core.PageEnemies(ord.id, pg.id)))
+
+print(("ordering: %d passed, %d failed"):format(p2, f2))
+if f2 > 0 then os.exit(1) end
