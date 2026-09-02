@@ -26,75 +26,95 @@ MythicMacrosDB = MM.Core.Init({})
 
 check("UI.Init builds every panel", function() MM.UI.Init() end)
 
-check("switching to every tab", function()
-    MM.Edit.ShowTab("dungeons")
+check("every view switches", function()
+    MM.UI.ShowView("run")
+    MM.UI.ShowView("edit")
+    MM.UI.ShowView("settings")
+    MM.UI.ShowView("run")
+end)
+
+check("sidebar with no dungeons", function() MM.UI.RefreshSidebar() end)
+
+check("season dungeons appear in the sidebar", function()
+    MM.Starter.Create()
+    MM.UI.RefreshSidebar()
+end)
+
+check("edit with no dungeon selected", function()
+    MM.UI.ShowView("edit")
+    MM.Edit.SetCategory(nil)
     MM.Edit.ShowTab("enemies")
     MM.Edit.ShowTab("pages")
 end)
 
-check("dungeons tab with no dungeons", function() MM.Edit.RefreshDungeons() end)
-
-check("starter dungeons then refresh", function()
-    MM.Starter.Create()
-    MM.Edit.RefreshDungeons()
-    MM.UI.RefreshCategories()
-end)
-
-check("selecting a dungeon and listing its enemies", function()
-    local cat = MM.Core.Categories()[1]
-    MM.Capture.SetCategory(cat.id)
-    MM.Edit.ShowTab("dungeons")
-    MM.Edit.RefreshDungeons()
-end)
-
-check("enemies tab with content", function()
-    local cat = MM.Core.Categories()[6]     -- Kings' Rest: has boss cards
+check("edit a dungeon that has content", function()
+    local cat = MM.Core.Categories()[6]          -- Kings' Rest: has boss cards
     local e = MM.Core.AddEnemy(cat.id, "Trash pack")
     MM.Core.AddLine(cat.id, e.id, "Strat", "/p kick it")
+    MM.Core.AddLine(cat.id, e.id, "", "/p and again")
+    MM.Edit.SetCategory(cat.id)
     MM.Edit.ShowTab("enemies")
+    MM.Edit.ShowTab("pages")
+end)
+
+check("an enemy with no lines renders", function()
+    local cat = MM.Core.Categories()[1]
+    MM.Core.AddEnemy(cat.id, "Lineless")
+    MM.Edit.SetCategory(cat.id)
     MM.Edit.RefreshEnemies()
 end)
 
-check("pages tab with content", function()
+check("a dungeon with no pages renders", function()
+    local cat = MM.Core.AddCategory("Pageless")
+    MM.Edit.SetCategory(cat.id)
     MM.Edit.ShowTab("pages")
-    MM.Edit.RefreshPages()
 end)
 
-check("Edit.Refresh from any state", function() MM.Edit.Refresh() end)
+check("refresh after deleting everything", function()
+    local cat = MM.Core.AddCategory("Doomed")
+    local e = MM.Core.AddEnemy(cat.id, "Gone soon")
+    MM.Core.AddLine(cat.id, e.id, "", "/p bye")
+    MM.Edit.SetCategory(cat.id)
+    MM.Edit.RefreshEnemies()
+    MM.Core.DeleteEnemy(cat.id, e.id)
+    MM.Edit.RefreshEnemies()          -- pooled frames must not outlive their data
+end)
 
 check("stale marker", function() MM.Edit.RefreshStaleMarker() end)
-
 check("settings apply", function() MM.UI.ApplySettings() end)
+check("help window", function() MM.UI.ShowHelp() end)
 
-check("export window", function()
+check("export and import windows", function()
     local cat = MM.Core.Categories()[6]
-    local str = MM.Export.EncodeCategory(cat.id)
-    MM.UI.ShowExport("Export", str)
-end)
-
-check("import window", function()
+    MM.UI.ShowExport("Export", MM.Export.EncodeCategory(cat.id))
     MM.UI.ShowImport("Import", function() return "nothing" end)
 end)
 
-check("show and hide the panel", function()
+check("show, toggle and hide", function()
     MM.UI.Show("run")
     MM.UI.Toggle()
     MM.UI.Toggle()
 end)
 
-check("building a category's buttons", function()
+check("opening a dungeon in Run", function()
     local cat = MM.Core.Categories()[6]
-    local container = CreateFrame("Frame", nil, UIParent)
-    MM.Runtime.EnsureManager(container)
-    local ok, err = MM.Runtime.Build(container, cat.id, MM.Core.Settings())
-    if not ok then error(tostring(err)) end
+    MM.UI.ShowView("run")
+    if not MM.UI.OpenRun(cat.id) then error("OpenRun refused") end
+end)
+
+check("page memory survives a round trip", function()
+    local cat = MM.Core.Categories()[6]
+    MM.UI.OpenRun(cat.id)
+    MM.Runtime.ShowPage(2)
+    MM.UI.RememberPage()
 end)
 
 check("binding the page arrows", function()
     local arrows = MM.UI.Arrows()
     if not arrows then error("no arrows built") end
-    if not MM.Runtime.BindArrow(arrows.prev, -1) then error("prev arrow refused") end
-    if not MM.Runtime.BindArrow(arrows.next, 1) then error("next arrow refused") end
+    MM.Runtime.EnsureManager(MM.UI.root)
+    if not MM.Runtime.BindArrow(arrows.prev, -1) then error("prev refused") end
+    if not MM.Runtime.BindArrow(arrows.next, 1) then error("next refused") end
 end)
 
 realPrint(("\n%d passed, %d failed"):format(pass, fail))

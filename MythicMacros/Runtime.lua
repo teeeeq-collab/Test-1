@@ -288,6 +288,27 @@ function Runtime.Build(container, catId, settings)
     return true, nil, tallest
 end
 
+--- Show a specific page. Only ever called out of combat, from opening a
+--- dungeon: in combat the pager is the only thing allowed to change pages, and
+--- it does so from inside the restricted environment.
+function Runtime.ShowPage(index)
+    if not manager or built.pageCount == 0 then return false end
+    if InCombatLockdown() then return false end
+
+    index = tonumber(index) or 1
+    if index < 1 or index > built.pageCount then index = 1 end
+
+    for i = 1, #frames.pages do
+        local page = frames.pages[i]
+        if page then
+            if i == index then page:Show() else page:Hide() end
+        end
+    end
+
+    manager:SetAttribute("pageIndex", index)
+    return true
+end
+
 function Runtime.BuiltCategory()
     return built.categoryId
 end

@@ -1,8 +1,13 @@
 --------------------------------------------------------------------------------
--- UI: the collapsible bar, and the Run view.
+-- UI: the frame, the sidebar, and the views.
 --
--- The bar is the root. Collapsed, it is nearly invisible, which is its resting
--- state during a key. Run, Edit and Settings hang off it.
+-- Layout is a sidebar and a content panel. The sidebar always lists the
+-- dungeons, with creating one and going back pinned to the bottom, so the list
+-- of what exists is never more than a glance away and creating a dungeon is
+-- never buried inside editing one.
+--
+-- Run and Edit both fill the content panel; what differs is whether the cards
+-- in it are pressable or editable.
 --------------------------------------------------------------------------------
 
 local ADDON, MM = ...
@@ -11,30 +16,44 @@ MM.UI = {}
 local UI = MM.UI
 local Core, Runtime, Util = MM.Core, MM.Runtime, MM.Util
 
-local root, bar, views, currentView
-local runState = { categoryId = nil }
+local root, bar, body, sidebar, content
+local views, currentView
+local selected = { categoryId = nil }
 
-local BAR_H = 22
+-- Run remembers which page you were on, so stepping out to the dungeon list
+-- mid-key and back resumes the route instead of restarting it.
+--
+-- The intent is "remember it for this key". Detecting a key would mean watching
+-- keystone state, which this addon deliberately does not do, so the memory is
+-- approximated two ways instead: it lives in memory only, so a reload or logout
+-- clears it, and opening a different dungeon clears the previous one. Inside a
+-- key you will not open another dungeon, so the effect is the same without
+-- watching anything.
+local lastPage = {}
+
+local BAR_H, SIDE_W = 24, 168
 
 --------------------------------------------------------------------------------
--- Small shared widgets
+-- Widgets
 --------------------------------------------------------------------------------
 
-local function button(parent, text, w, h, onClick)
+local function fontString(parent, text, template)
+    local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontNormalSmall")
+    fs:SetText(text or "")
+    return fs
+end
+
+local function panelButton(parent, text, w, h, onClick)
     local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    b:SetSize(w, h or 22)
+    b:SetSize(w, h or 20)
     b:SetText(text)
     if onClick then b:SetScript("OnClick", onClick) end
     return b
 end
 
---- Style a button by hand.
----
---- Secure frames must inherit their secure template and nothing else. Adding
---- UIPanelButtonTemplate alongside one replaces the secure OnLoad with the
---- button template's, and the frame never gains SetFrameRef or its handler
---- methods. It fails at load with "attempt to call a nil value", and would
---- otherwise fail silently in ways that look like the game blocking something.
+--- Hand-skinned, because secure frames must inherit their secure template and
+--- nothing else: adding a button template alongside one replaces the secure
+--- OnLoad and the frame silently loses SetFrameRef and its handler methods.
 local function skin(b, text)
     local bg = b:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
@@ -56,19 +75,82 @@ local function skin(b, text)
     return b
 end
 
-local function fontString(parent, text, template)
-    local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontNormalSmall")
-    fs:SetText(text or "")
-    return fs
-end
+UI.Skin = skin
+UI.FontString = fontString
+UI.PanelButton = panelButton
 
---- Applies the user's scale, opacity and drag position.
 function UI.ApplySettings()
     local s = Core.Settings()
     if InCombatLockdown() then return false end   -- SetScale is blocked in combat
     root:SetScale(s.scale or 1)
     root:SetAlpha(s.opacity or 1)
     return true
+end
+
+--------------------------------------------------------------------------------
+-- Sidebar
+--------------------------------------------------------------------------------
+
+local sidebarRows = {}
+
+local function selectCategory(id)
+    -- Opening a different dungeon ends the previous one's route memory.
+    if selected.categoryId and selected.categoryId ~= id then
+        lastPage[selected.categoryId] = nil
+    end
+
+    selected.categoryId = id
+    MM.Capture.SetCategory(id)
+    UI.RefreshSidebar()
+
+    if currentView == "run" then
+        UI.OpenRun(id)
+    elseif currentView == "edit" then
+        MM.Edit.SetCategory(id)
+    end
+end
+
+function UI.SelectedCategory()
+    return selected.categoryId
+end
+
+function UI.RefreshSidebar()
+    for _, row in ipairs(sidebarRows) do row:Hide() end
+
+    local y = -4
+    for i, cat in ipairs(Core.Categories()) do
+        local row = sidebarRows[i]
+        if not row then
+            row = panelButton(sidebar.list, "", SIDE_W - 16, 22)
+            sidebarRows[i] = row
+        end
+        row:SetPoint("TOPLEFT", sidebar.list, "TOPLEFT", 6, y)
+        row:SetText(cat.name)
+        row:SetScript("OnClick", function() selectCategory(cat.id) end)
+
+        -- The selected dungeon is highlighted, so which one the right panel is
+        -- showing never has to be inferred from its heading.
+        if cat.id == selected.categoryId then row:LockHighlight() else row:UnlockHighlight() end
+
+        row:Show()
+        y = y - 24
+    end
+
+    sidebar.empty:SetShown(#Core.Categories() == 0)
+    sidebar.list:SetHeight(math.max(20, math.abs(y)))
+end
+
+local function commitNewCategory()
+    local name = sidebar.newName:GetText()
+    if not name or not name:match("%S") then
+        sidebar.newName:Hide()
+        return
+    end
+    local cat = Core.AddCategory(name)
+    sidebar.newName:SetText("")
+    sidebar.newName:Hide()
+    selectCategory(cat.id)
+    if currentView == "edit" then MM.Edit.SetCategory(cat.id) end
 end
 
 --------------------------------------------------------------------------------
@@ -79,74 +161,61 @@ local function showView(name)
     for viewName, frame in pairs(views) do
         if viewName == name then frame:Show() else frame:Hide() end
     end
-    -- Secure buttons left showing under the editor would sit on top of it, and
-    -- cannot be hidden later if a pull starts.
+
+    -- Secure buttons left showing under another view would sit on top of it,
+    -- and could not be hidden later if a pull started.
     if name ~= "run" then Runtime.HideAll() end
-    if name == "edit" then MM.Edit.Refresh() end
+
     currentView = name
+    sidebar:SetShown(name ~= "settings")
+    sidebar.newBtn:SetShown(name == "edit")
+
+    if bar and bar.tabs then
+        for tabName, btn in pairs(bar.tabs) do
+            if tabName == name then btn:LockHighlight() else btn:UnlockHighlight() end
+        end
+    end
+
+    if name == "edit" then
+        MM.Edit.SetCategory(selected.categoryId)
+    elseif name == "run" and selected.categoryId then
+        UI.OpenRun(selected.categoryId)
+    end
+
+    UI.RefreshSidebar()
 end
 
 function UI.CurrentView() return currentView end
+function UI.ShowView(name) showView(name) end
 
 --------------------------------------------------------------------------------
--- Run: category list, then the pages
+-- Run
 --------------------------------------------------------------------------------
 
-local runList, runPlay
-
-local function buildCategoryList()
-    for _, child in ipairs(runList.buttons) do child:Hide() end
-    wipe(runList.buttons)
-
-    local y = -4
-    for _, cat in ipairs(Core.Categories()) do
-        local b = button(runList, cat.name, 260, 24, function()
-            UI.LoadCategory(cat.id)
-        end)
-        b:SetPoint("TOPLEFT", 8, y)
-        b:Show()
-        runList.buttons[#runList.buttons + 1] = b
-        y = y - 28
-    end
-
-    if #Core.Categories() == 0 then
-        runList.empty:Show()
-    else
-        runList.empty:Hide()
-    end
-
-    runList:SetHeight(math.max(60, math.abs(y) + 12))
-end
-
---- Selecting a category is what writes every button's macro text, so it can
---- only happen out of combat. Refusing here, loudly, is the whole guard: there
---- is no half-built state to recover from because nothing is written until it
---- succeeds.
-function UI.LoadCategory(catId)
-    local ok, err = Runtime.Build(runPlay.pages, catId, Core.Settings())
+--- Builds a dungeon's buttons and shows its pages. Refuses in combat, because
+--- this writes every button's macro text and combat forbids that. Nothing is
+--- half-written: the build either succeeds or changes nothing.
+function UI.OpenRun(catId)
+    local ok, err = Runtime.Build(views.run.pages, catId, Core.Settings())
     if not ok then
-        Util.Print("|cffff4444" .. (err or "could not load") .. "|r")
+        views.run.prompt:SetText("|cffff4444" .. (err or "could not load") .. "|r")
+        views.run.prompt:Show()
         return false
     end
 
     local cat = Core.GetCategory(catId)
-    runState.categoryId = catId
-    runPlay.categoryName:SetText(cat and cat.name or "")
-    runPlay:Show()
-    runList:Hide()
+    views.run.prompt:Hide()
+    views.run.title:SetText(cat and cat.name or "")
+    Runtime.ShowPage(lastPage[catId] or 1)
     return true
 end
 
-local function backToCategoryList()
-    if InCombatLockdown() then
-        Util.Print("|cffff4444can't switch dungeon in combat.|r")
-        return
+--- Remembers where you were before leaving the dungeon, so coming back mid-key
+--- resumes the route rather than restarting it.
+function UI.RememberPage()
+    if selected.categoryId then
+        lastPage[selected.categoryId] = Runtime.CurrentPage()
     end
-    Runtime.HideAll()
-    runState.categoryId = nil
-    runPlay:Hide()
-    buildCategoryList()
-    runList:Show()
 end
 
 --------------------------------------------------------------------------------
@@ -155,13 +224,17 @@ end
 
 function UI.Init()
     root = CreateFrame("Frame", "MythicMacrosFrame", UIParent)
-    root:SetSize(620, 300)
+    root:SetSize(760, 380)
     root:SetPoint("CENTER")
     root:SetMovable(true)
     root:EnableMouse(true)
     root:SetClampedToScreen(true)
 
-    -- The bar ----------------------------------------------------------------
+    local rootBg = root:CreateTexture(nil, "BACKGROUND")
+    rootBg:SetAllPoints()
+    rootBg:SetColorTexture(0.05, 0.05, 0.07, 0.92)
+
+    -- Bar --------------------------------------------------------------------
     bar = CreateFrame("Frame", nil, root)
     bar:SetPoint("TOPLEFT")
     bar:SetPoint("TOPRIGHT")
@@ -177,97 +250,151 @@ function UI.Init()
 
     local barBg = bar:CreateTexture(nil, "BACKGROUND")
     barBg:SetAllPoints()
-    barBg:SetColorTexture(0.08, 0.08, 0.11, 0.9)
+    barBg:SetColorTexture(0.10, 0.09, 0.14, 0.95)
 
-    local collapse = button(bar, "-", 22, BAR_H - 2)
-    collapse:SetPoint("LEFT", 2, 0)
+    local collapse = panelButton(bar, "-", 22, BAR_H - 4)
+    collapse:SetPoint("LEFT", 3, 0)
 
-    local runBtn      = button(bar, "Run", 54, BAR_H - 2, function() showView("run") end)
-    local editBtn     = button(bar, "Edit", 54, BAR_H - 2, function() showView("edit") end)
-    local settingsBtn = button(bar, "Settings", 74, BAR_H - 2, function() showView("settings") end)
+    -- Run and Edit are where the work happens, so they get the left. Settings,
+    -- help and close are occasional, so they sit as icons on the right, out of
+    -- the way of the two buttons actually used every session.
+    local runBtn  = panelButton(bar, "Run", 60, BAR_H - 4, function() showView("run") end)
+    local editBtn = panelButton(bar, "Edit", 60, BAR_H - 4, function() showView("edit") end)
     runBtn:SetPoint("LEFT", collapse, "RIGHT", 4, 0)
     editBtn:SetPoint("LEFT", runBtn, "RIGHT", 2, 0)
-    settingsBtn:SetPoint("LEFT", editBtn, "RIGHT", 2, 0)
 
-    local hint = bar:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    hint:SetPoint("LEFT", settingsBtn, "RIGHT", 10, 0)
-    hint:SetText("drag the bar to move  |  X closes  |  /mm reopens")
+    bar.tabs = { run = runBtn, edit = editBtn }
 
-    local close = button(bar, "X", 22, BAR_H - 2, function() root:Hide() end)
-    close:SetPoint("RIGHT", -2, 0)
+    local close = panelButton(bar, "X", 22, BAR_H - 4, function() root:Hide() end)
+    close:SetPoint("RIGHT", -3, 0)
 
-    local body = CreateFrame("Frame", nil, root)
+    local gear = panelButton(bar, "*", 22, BAR_H - 4, function()
+        showView(currentView == "settings" and "run" or "settings")
+    end)
+    gear:SetPoint("RIGHT", close, "LEFT", -2, 0)
+
+    local info = panelButton(bar, "?", 22, BAR_H - 4, function() UI.ShowHelp() end)
+    info:SetPoint("RIGHT", gear, "LEFT", -2, 0)
+
+    bar.title = fontString(bar, "MythicMacros", "GameFontNormal")
+    bar.title:SetPoint("CENTER", bar, "CENTER", 0, 0)
+
+    body = CreateFrame("Frame", nil, root)
     body:SetPoint("TOPLEFT", bar, "BOTTOMLEFT")
     body:SetPoint("BOTTOMRIGHT")
-    local bodyBg = body:CreateTexture(nil, "BACKGROUND")
-    bodyBg:SetAllPoints()
-    bodyBg:SetColorTexture(0.05, 0.05, 0.07, 0.85)
 
     collapse:SetScript("OnClick", function(self)
         if body:IsShown() then
             body:Hide(); self:SetText("+"); root:SetHeight(BAR_H)
         else
-            body:Show(); self:SetText("-"); root:SetHeight(300)
+            body:Show(); self:SetText("-"); root:SetHeight(380)
         end
     end)
 
+    -- Sidebar ------------------------------------------------------------------
+    sidebar = CreateFrame("Frame", nil, body)
+    sidebar:SetPoint("TOPLEFT", 6, -6)
+    sidebar:SetPoint("BOTTOMLEFT", 6, 6)
+    sidebar:SetWidth(SIDE_W)
+
+    local sideBg = sidebar:CreateTexture(nil, "BACKGROUND")
+    sideBg:SetAllPoints()
+    sideBg:SetColorTexture(0.09, 0.09, 0.13, 0.95)
+
+    sidebar.header = fontString(sidebar, "Dungeons", "GameFontNormal")
+    sidebar.header:SetPoint("TOP", 0, -6)
+
+    -- Pinned to the bottom, so they stay put however long the list grows.
+    sidebar.back = panelButton(sidebar, "Back", SIDE_W - 16, 22, function()
+        UI.RememberPage()
+        selected.categoryId = nil
+        Runtime.HideAll()
+        views.run.title:SetText("")
+        views.run.prompt:SetText("Pick a dungeon on the left.")
+        views.run.prompt:Show()
+        MM.Edit.SetCategory(nil)
+        UI.RefreshSidebar()
+    end)
+    sidebar.back:SetPoint("BOTTOMLEFT", 8, 8)
+
+    sidebar.newBtn = panelButton(sidebar, "New dungeon", SIDE_W - 16, 22, function()
+        sidebar.newName:Show()
+        sidebar.newName:SetText("")
+        sidebar.newName:SetFocus()
+    end)
+    sidebar.newBtn:SetPoint("BOTTOMLEFT", sidebar.back, "TOPLEFT", 0, 4)
+
+    sidebar.newName = CreateFrame("EditBox", nil, sidebar, "InputBoxTemplate")
+    sidebar.newName:SetSize(SIDE_W - 22, 20)
+    sidebar.newName:SetPoint("BOTTOMLEFT", sidebar.newBtn, "TOPLEFT", 5, 4)
+    sidebar.newName:SetAutoFocus(false)
+    sidebar.newName:SetMaxLetters(64)
+    sidebar.newName:SetScript("OnEnterPressed", commitNewCategory)
+    sidebar.newName:SetScript("OnEscapePressed", function(self)
+        self:SetText(""); self:Hide()
+    end)
+    sidebar.newName:Hide()
+
+    local listScroll = CreateFrame("ScrollFrame", nil, sidebar, "UIPanelScrollFrameTemplate")
+    listScroll:SetPoint("TOPLEFT", 0, -24)
+    listScroll:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", -24, 82)
+    sidebar.list = CreateFrame("Frame", nil, listScroll)
+    sidebar.list:SetSize(SIDE_W - 24, 40)
+    listScroll:SetScrollChild(sidebar.list)
+
+    sidebar.empty = fontString(sidebar, "|cffaaaaaaNothing yet.|r")
+    sidebar.empty:SetPoint("TOPLEFT", 10, -30)
+
+    -- Content ------------------------------------------------------------------
+    content = CreateFrame("Frame", nil, body)
+    content:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", 6, 0)
+    content:SetPoint("BOTTOMRIGHT", -6, 6)
+
+    local contentBg = content:CreateTexture(nil, "BACKGROUND")
+    contentBg:SetAllPoints()
+    contentBg:SetColorTexture(0.09, 0.09, 0.13, 0.95)
+
     views = {}
 
-    -- Run: the category list -------------------------------------------------
-    views.run = CreateFrame("Frame", nil, body)
+    -- Run ----------------------------------------------------------------------
+    views.run = CreateFrame("Frame", nil, content)
     views.run:SetAllPoints()
 
-    runList = CreateFrame("Frame", nil, views.run)
-    runList:SetPoint("TOPLEFT", 0, 0)
-    runList:SetPoint("TOPRIGHT", 0, 0)
-    runList.buttons = {}
-    runList.empty = fontString(runList,
-        "No dungeons yet. Add one under Edit.")
-    runList.empty:SetPoint("TOPLEFT", 10, -10)
+    views.run.title = fontString(views.run, "", "GameFontNormalLarge")
+    views.run.title:SetPoint("TOP", 0, -6)
 
-    -- Run: the pages ---------------------------------------------------------
-    runPlay = CreateFrame("Frame", nil, views.run)
-    runPlay:SetAllPoints()
-    runPlay:Hide()
-
-    local back = button(runPlay, "<", 22, 20, backToCategoryList)
-    back:SetPoint("TOPLEFT", 6, -4)
-
-    runPlay.categoryName = fontString(runPlay, "", "GameFontNormal")
-    runPlay.categoryName:SetPoint("TOP", runPlay, "TOP", -40, -6)
-
-    -- The arrows are secure handlers, inheriting that template and nothing
-    -- else, and skinned by hand. They are created before Runtime binds them,
-    -- and are never clicked from script.
-    local nextBtn = CreateFrame("Button", "MythicMacrosNext", runPlay,
-        "SecureHandlerClickTemplate")
-    nextBtn:SetSize(24, 20)
-    nextBtn:SetPoint("TOPRIGHT", -6, -4)
+    local nextBtn = CreateFrame("Button", "MythicMacrosNext", views.run, "SecureHandlerClickTemplate")
+    nextBtn:SetSize(26, 20)
+    nextBtn:SetPoint("TOPRIGHT", -8, -6)
     skin(nextBtn, ">")
 
-    local prevBtn = CreateFrame("Button", "MythicMacrosPrev", runPlay,
-        "SecureHandlerClickTemplate")
-    prevBtn:SetSize(24, 20)
+    local prevBtn = CreateFrame("Button", "MythicMacrosPrev", views.run, "SecureHandlerClickTemplate")
+    prevBtn:SetSize(26, 20)
     prevBtn:SetPoint("RIGHT", nextBtn, "LEFT", -4, 0)
     skin(prevBtn, "<")
 
-    runPlay.pages = CreateFrame("Frame", nil, runPlay)
-    runPlay.pages:SetPoint("TOPLEFT", 10, -30)
-    runPlay.pages:SetPoint("BOTTOMRIGHT", -10, 10)
+    views.run.arrows = { prev = prevBtn, next = nextBtn }
 
-    runPlay.arrows = { prev = prevBtn, next = nextBtn }
+    views.run.prompt = fontString(views.run, "Pick a dungeon on the left.")
+    views.run.prompt:SetPoint("TOPLEFT", 12, -34)
 
-    -- Edit and Settings ------------------------------------------------------
-    views.edit = CreateFrame("Frame", nil, body)
+    views.run.pages = CreateFrame("Frame", nil, views.run)
+    views.run.pages:SetPoint("TOPLEFT", 10, -46)
+    views.run.pages:SetPoint("BOTTOMRIGHT", -10, 8)
+
+    -- Edit ---------------------------------------------------------------------
+    views.edit = CreateFrame("Frame", nil, content)
     views.edit:SetAllPoints()
     MM.Edit.Build(views.edit)
 
+    -- Settings -----------------------------------------------------------------
     views.settings = CreateFrame("Frame", nil, body)
-    views.settings:SetAllPoints()
+    views.settings:SetPoint("TOPLEFT", 12, -12)
+    views.settings:SetPoint("BOTTOMRIGHT", -12, 12)
     UI.BuildSettings(views.settings)
 
-    buildCategoryList()
     showView("run")
+    UI.RefreshSidebar()
 
     local s = Core.Settings()
     if s.point then
@@ -286,22 +413,22 @@ end
 --------------------------------------------------------------------------------
 
 function UI.BuildSettings(parent)
-    local y = -12
+    local y = -8
 
-    local function slider(label, key, minv, maxv)
-        local text = fontString(parent, label)
+    local function slider(labelText, key, minv, maxv)
+        local text = fontString(parent, labelText)
         text:SetPoint("TOPLEFT", 12, y)
 
         local s = CreateFrame("Slider", nil, parent, "OptionsSliderTemplate")
-        s:SetPoint("TOPLEFT", 130, y + 4)
-        s:SetWidth(180)
+        s:SetPoint("TOPLEFT", 140, y + 4)
+        s:SetWidth(200)
         s:SetMinMaxValues(minv, maxv)
         s:SetValueStep(0.05)
         s:SetObeyStepOnDrag(true)
         s:SetValue(Core.Settings()[key] or 1)
 
         local value = fontString(parent, ("%.2f"):format(Core.Settings()[key] or 1))
-        value:SetPoint("LEFT", s, "RIGHT", 10, 0)
+        value:SetPoint("LEFT", s, "RIGHT", 12, 0)
 
         s:SetScript("OnValueChanged", function(_, v)
             Core.Settings()[key] = v
@@ -311,7 +438,7 @@ function UI.BuildSettings(parent)
             end
         end)
 
-        y = y - 34
+        y = y - 36
         return s
     end
 
@@ -322,18 +449,11 @@ function UI.BuildSettings(parent)
 
     local note = fontString(parent,
         "|cffaaaaaaScale and opacity apply out of combat only.|r")
-    note:SetPoint("TOPLEFT", 12, y - 6)
+    note:SetPoint("TOPLEFT", 12, y - 4)
 end
 
 --------------------------------------------------------------------------------
--- Entry points
---------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
--- The string window
---
--- Used for both directions. WoW's chat frame cannot be selected with a mouse,
--- so a string that only gets printed cannot leave the game.
+-- The string window, used for both export and import
 --------------------------------------------------------------------------------
 
 local stringWindow
@@ -366,10 +486,11 @@ local function ensureStringWindow()
     f.editBox:SetAutoFocus(false)
     f.editBox:SetFontObject(ChatFontNormal)
     f.editBox:SetWidth(500)
+    f.editBox:SetHeight(220)
     f.editBox:SetScript("OnEscapePressed", function() f:Hide() end)
     scroll:SetScrollChild(f.editBox)
 
-    f.action = button(f, "", 110, 22)
+    f.action = panelButton(f, "", 110, 22)
     f.action:SetPoint("BOTTOMRIGHT", -16, 14)
 
     f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -379,7 +500,6 @@ local function ensureStringWindow()
     return f
 end
 
---- Show a string to be copied out. Pre-selected, so one keystroke takes it.
 function UI.ShowExport(title, text)
     local f = ensureStringWindow()
     f.title:SetText(title)
@@ -392,8 +512,6 @@ function UI.ShowExport(title, text)
     f.editBox:HighlightText()
 end
 
---- Show an empty box to paste into. `onImport` receives the pasted text and
---- returns a message, or nil plus a reason.
 function UI.ShowImport(title, onImport)
     local f = ensureStringWindow()
     f.title:SetText(title)
@@ -413,6 +531,48 @@ function UI.ShowImport(title, onImport)
     f.editBox:SetFocus()
 end
 
+--------------------------------------------------------------------------------
+-- Entry points
+--------------------------------------------------------------------------------
+
+--- What the addon does and the two rules that are not obvious from using it:
+--- that editing is out-of-combat work, and that nothing reaches disk until a
+--- reload. Both are the kind of thing people discover by losing something.
+function UI.ShowHelp()
+    UI.ShowExport("MythicMacros - how it works", table.concat({
+        "RUN",
+        "  Pick a dungeon on the left, then press a button to send its callout.",
+        "  < and > step through the pages of the route.",
+        "  Buttons and page arrows work in combat.",
+        "",
+        "EDIT",
+        "  Pick a dungeon on the left, or make one with New dungeon.",
+        "  Enemies: give an enemy a name, then add lines under it. Click any box",
+        "  and type straight into it. A line is one macro: /p, /i, /cast, and so on.",
+        "  Pages: choose which enemies appear on which page of the route.",
+        "",
+        "WHAT COMBAT BLOCKS",
+        "  Loading a dungeon, editing, and changing scale all need to be out of",
+        "  combat - the game refuses them mid-fight. Pressing buttons and flipping",
+        "  pages are fine in combat, which is what matters.",
+        "",
+        "SAVING",
+        "  WoW writes addon data on logout or /reload, not continuously. After a",
+        "  real editing session, /reload. Export gives you a string to keep",
+        "  outside the game; a crash cannot take that with it.",
+        "",
+        "LIMITS",
+        "  A macro line caps at 255 characters. The counter appears in whichever",
+        "  box you are typing in.",
+        "",
+        "COMMANDS",
+        "  /mm            open or close",
+        "  /mm starter    add this season's dungeons",
+        "  /mm add        add your current target as an enemy",
+        "  /mm demo       a sample dungeon with content in it",
+    }, "\n"))
+end
+
 function UI.Toggle()
     if not root then return end
     if root:IsShown() then root:Hide() else root:Show() end
@@ -425,9 +585,9 @@ function UI.Show(view)
 end
 
 function UI.RefreshCategories()
-    if runList then buildCategoryList() end
+    if sidebar then UI.RefreshSidebar() end
 end
 
 function UI.Arrows()
-    return runPlay and runPlay.arrows
+    return views and views.run and views.run.arrows
 end
