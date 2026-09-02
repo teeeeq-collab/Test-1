@@ -31,6 +31,7 @@ local DB_VERSION = 1
 local function defaultSettings()
     return {
         opacity     = 1.0,
+        channel     = "/p",   -- where plain text is sent
         scale       = 1.0,
         buttonScale = 1.0,
         textScale   = 1.0,

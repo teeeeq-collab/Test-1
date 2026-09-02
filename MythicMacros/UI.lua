@@ -442,6 +442,34 @@ function UI.BuildSettings(parent)
         return s
     end
 
+    -- Where plain text goes. This is the setting that decides whether a line
+    -- reaches the group at all, so it sits above the cosmetic ones.
+    local chanLabel = fontString(parent, "Send plain text to")
+    chanLabel:SetPoint("TOPLEFT", 12, y)
+
+    local chanBtn = panelButton(parent, Core.Settings().channel or Util.DEFAULT_CHANNEL,
+        80, 22, nil)
+    chanBtn:SetPoint("TOPLEFT", 140, y + 4)
+    chanBtn:SetScript("OnClick", function(self)
+        local current = Core.Settings().channel or Util.DEFAULT_CHANNEL
+        local index = 1
+        for i, c in ipairs(Util.CHANNELS) do
+            if c == current then index = i break end
+        end
+        local nextChannel = Util.CHANNELS[index % #Util.CHANNELS + 1]
+        Core.Settings().channel = nextChannel
+        self:SetText(nextChannel)
+        if MM.Edit and MM.Edit.RefreshSendHint then MM.Edit.RefreshSendHint() end
+        Util.Print(("plain text now goes to |cffffff00%s|r. Reopen the dungeon in Run to apply it.")
+            :format(nextChannel))
+    end)
+
+    local chanNote = fontString(parent,
+        "|cffaaaaaaA line starting with a slash command ignores this and runs as written.|r")
+    chanNote:SetPoint("TOPLEFT", 12, y - 24)
+
+    y = y - 52
+
     slider("Opacity", "opacity", 0.2, 1.0)
     slider("Scale", "scale", 0.6, 1.6)
     slider("Button scale", "buttonScale", 0.6, 1.8)

@@ -81,7 +81,17 @@ end
 
 local function updateCounter(eb)
     if not ui.counter then return end
-    local remaining = Util.MAX_MACRO_CHARS - Util.CharLen(eb:GetText())
+
+    local text = eb:GetText()
+    local channel = Core.Settings().channel or Util.DEFAULT_CHANNEL
+
+    -- The cap applies to the composed macro, not the raw text, so the room a
+    -- channel prefix will take is subtracted up front. The typed cap moves with
+    -- it, so a line cannot be typed into a length that only fails on write.
+    local max = Util.MaxTypedChars(text, channel)
+    eb:SetMaxLetters(max)
+
+    local remaining = max - Util.CharLen(text)
     ui.counter:SetText(tostring(remaining))
     if remaining <= 0 then
         ui.counter:SetTextColor(1, 0.3, 0.3)
@@ -365,6 +375,7 @@ function Edit.SetCategory(catId)
     ui.tabPages:SetShown(cat ~= nil)
 
     if cat then showTab(state.tab) end
+    Edit.RefreshSendHint()
     Edit.RefreshStaleMarker()
 end
 
@@ -398,12 +409,15 @@ function Edit.Build(parent)
     ui.enemiesPanel:SetPoint("TOPLEFT", 6, -52)
     ui.enemiesPanel:SetPoint("BOTTOMRIGHT", -6, 58)
 
+    ui.sendHint = label(ui.enemiesPanel, "")
+    ui.sendHint:SetPoint("TOPLEFT", 10, -4)
+
     ui.enemyEmpty = label(ui.enemiesPanel,
         "|cffaaaaaaNo enemies yet. Name one below, or target a mob and use Add target.|r")
-    ui.enemyEmpty:SetPoint("TOPLEFT", 10, -6)
+    ui.enemyEmpty:SetPoint("TOPLEFT", 10, -22)
 
     local enemyScroll = CreateFrame("ScrollFrame", nil, ui.enemiesPanel, "UIPanelScrollFrameTemplate")
-    enemyScroll:SetPoint("TOPLEFT", 0, 0)
+    enemyScroll:SetPoint("TOPLEFT", 0, -18)
     enemyScroll:SetPoint("BOTTOMRIGHT", -24, 0)
     ui.enemyList = CreateFrame("Frame", nil, enemyScroll)
     ui.enemyList:SetSize(470, 40)
@@ -534,11 +548,24 @@ function Edit.Build(parent)
     end)
     importBtn:SetPoint("LEFT", exportBtn, "RIGHT", 4, 0)
 
+    Edit.RefreshSendHint()
     Edit.SetCategory(nil)
 end
 
 --- Only appears once enough has changed to be worth losing. SavedVariables is
 --- not written until logout or a reload, and a crash takes everything since.
+--- Says where plain text goes, and that a slash command overrides it. Typing an
+--- instruction with no command was the failure that made a button look right
+--- and fire nothing, so the rule is stated where the typing happens.
+function Edit.RefreshSendHint()
+    if not ui.sendHint then return end
+    local channel = Core.Settings().channel or Util.DEFAULT_CHANNEL
+    ui.sendHint:SetText((
+        "|cffaaaaaaPlain text is sent to |r|cffffff00%s|r|cffaaaaaa. " ..
+        "Start a line with /cast, /i or any command to run it as written.|r")
+        :format(channel))
+end
+
 function Edit.RefreshStaleMarker()
     if not ui.stale then return end
     local n = Core.EditsSinceExport()

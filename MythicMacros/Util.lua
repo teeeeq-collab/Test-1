@@ -61,6 +61,46 @@ function Util.FitsInMacro(text)
 end
 
 --------------------------------------------------------------------------------
+-- Composing the macro
+--
+-- A macro body with no slash command in it does nothing at all, silently. That
+-- is a trap: the natural thing to type is the instruction itself, and the
+-- button then looks correct and fires nothing.
+--
+-- So plain text is sent to the chosen channel, and anything already starting
+-- with a slash command is passed through untouched, which keeps full macros
+-- available for anyone who wants /cast or a target marker.
+--------------------------------------------------------------------------------
+
+Util.DEFAULT_CHANNEL = "/p"
+
+Util.CHANNELS = { "/p", "/i", "/raid", "/say", "/rw", "/y" }
+
+--- True if the body already carries its own command.
+function Util.HasCommand(body)
+    return (body or ""):match("^%s*/") ~= nil
+end
+
+--- The text actually written to the button.
+function Util.ComposeMacro(body, channel)
+    body = (body or ""):gsub("^%s+", "")
+    if body == "" then return "" end
+    if Util.HasCommand(body) then return body end
+    return ((channel or Util.DEFAULT_CHANNEL) .. " " .. body)
+end
+
+--- How many characters may be typed, allowing for a channel prefix that will be
+--- added later. Counting the raw text alone would let a 255-character line
+--- compose to 258 and be truncated on write, which is the exact failure the
+--- limit exists to prevent.
+function Util.MaxTypedChars(body, channel)
+    if Util.HasCommand(body) then
+        return Util.MAX_MACRO_CHARS
+    end
+    return Util.MAX_MACRO_CHARS - Util.CharLen(channel or Util.DEFAULT_CHANNEL) - 1
+end
+
+--------------------------------------------------------------------------------
 -- Labels
 --------------------------------------------------------------------------------
 
@@ -79,8 +119,18 @@ function Util.ButtonLabel(line)
     local body = line.body or ""
     local firstLine = body:match("^[^\n]*") or ""
 
-    local stripped = firstLine:match("^/%a+%s+(.*)$")
-    return stripped or firstLine
+    local stripped = firstLine:match("^/%a+%s+(.*)$") or firstLine
+    return Util.Shorten(stripped, 26)
+end
+
+--- Trim for display. A button is a label, not a place to read a sentence; the
+--- whole line goes in the tooltip.
+function Util.Shorten(text, maxChars)
+    text = text or ""
+    if Util.CharLen(text) <= maxChars then return text end
+    -- The ellipsis counts against the budget, or the result is longer than the
+    -- length this promised to return.
+    return Util.TrimToChars(text, math.max(1, maxChars - 3)) .. "..."
 end
 
 --------------------------------------------------------------------------------

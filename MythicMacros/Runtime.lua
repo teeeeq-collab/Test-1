@@ -224,9 +224,28 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
                 y - HEADER_H - row * (bh + LINE_GAP))
 
             -- The whole point: the line's text, on the button, set now, while
-            -- we are out of combat and allowed to.
-            button:SetAttribute("macrotext", line.body or "")
+            -- we are out of combat and allowed to. Plain text gains the chosen
+            -- channel; a body that already starts with a slash command is left
+            -- exactly as written.
+            local channel = (settings and settings.channel) or Util.DEFAULT_CHANNEL
+            local macro = Util.ComposeMacro(line.body, channel)
+
+            button:SetAttribute("macrotext", macro)
             button.label:SetText(Util.ButtonLabel(line))
+            button.macroText = macro
+
+            button:SetScript("OnEnter", function(self)
+                self.bg:SetColorTexture(0.22, 0.22, 0.30, 0.95)
+                GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                GameTooltip:AddLine(enemy.name, 1, 0.82, 0)
+                GameTooltip:AddLine(self.macroText or "", 1, 1, 1, true)
+                GameTooltip:Show()
+            end)
+            button:SetScript("OnLeave", function(self)
+                self.bg:SetColorTexture(0.13, 0.13, 0.18, 0.92)
+                GameTooltip:Hide()
+            end)
+
             button:Show()
         end
 
