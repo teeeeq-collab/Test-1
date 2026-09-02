@@ -189,6 +189,13 @@ function UI.Init()
     editBtn:SetPoint("LEFT", runBtn, "RIGHT", 2, 0)
     settingsBtn:SetPoint("LEFT", editBtn, "RIGHT", 2, 0)
 
+    local hint = bar:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hint:SetPoint("LEFT", settingsBtn, "RIGHT", 10, 0)
+    hint:SetText("drag the bar to move  |  X closes  |  /mm reopens")
+
+    local close = button(bar, "X", 22, BAR_H - 2, function() root:Hide() end)
+    close:SetPoint("RIGHT", -2, 0)
+
     local body = CreateFrame("Frame", nil, root)
     body:SetPoint("TOPLEFT", bar, "BOTTOMLEFT")
     body:SetPoint("BOTTOMRIGHT")

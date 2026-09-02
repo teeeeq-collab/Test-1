@@ -343,13 +343,155 @@ function Edit.RefreshPages()
 end
 
 --------------------------------------------------------------------------------
+-- Dungeons sub-view
+--
+-- One level above the enemies, because creating a dungeon and writing callouts
+-- inside one are different jobs and mixing them buried the former in a corner
+-- of the latter.
+--
+-- The selected dungeon's enemies are listed indented beneath it, so what is
+-- inside a dungeon is visible without switching tabs to find out. Clicking one
+-- jumps straight to editing it.
+--------------------------------------------------------------------------------
+
+local dungeonPool = {}
+local forwardSelect   -- selectCategory is defined below; the rows need it now
+
+function Edit.RefreshDungeons()
+    releaseAll(dungeonPool)
+    local di = 0
+
+    local function row(height)
+        di = di + 1
+        local f = dungeonPool[di]
+        if not f then
+            f = CreateFrame("Frame", nil, ui.dungeonList)
+            f.name   = editBox(f, 220, 20, 64)
+            f.name:SetPoint("LEFT", 4, 0)
+            f.open   = button(f, "Enemies", 66, 18)
+            f.open:SetPoint("LEFT", f.name, "RIGHT", 6, 0)
+            f.pages  = button(f, "Pages", 54, 18)
+            f.pages:SetPoint("LEFT", f.open, "RIGHT", 3, 0)
+            f.up     = button(f, "^", 20, 18)
+            f.up:SetPoint("LEFT", f.pages, "RIGHT", 8, 0)
+            f.down   = button(f, "v", 20, 18)
+            f.down:SetPoint("LEFT", f.up, "RIGHT", 2, 0)
+            f.del    = button(f, "x", 20, 18)
+            f.del:SetPoint("LEFT", f.down, "RIGHT", 2, 0)
+            f.enemy  = button(f, "", 240, 16)      -- reused as an enemy line
+            f.enemy:SetPoint("LEFT", 24, 0)
+            dungeonPool[di] = f
+        end
+        f:SetSize(500, height or 22)
+        f:Show()
+        return f
+    end
+
+    local function asDungeon(f)
+        f.name:Show(); f.open:Show(); f.pages:Show()
+        f.up:Show(); f.down:Show(); f.del:Show()
+        f.enemy:Hide()
+    end
+
+    local function asEnemy(f)
+        f.name:Hide(); f.open:Hide(); f.pages:Hide()
+        f.up:Hide(); f.down:Hide(); f.del:Hide()
+        f.enemy:Show()
+    end
+
+    local y = -4
+    for _, cat in ipairs(Core.Categories()) do
+        local f = row(22)
+        asDungeon(f)
+        f:SetPoint("TOPLEFT", ui.dungeonList, "TOPLEFT", 4, y)
+
+        f.name:SetText(cat.name)
+        f.name:SetScript("OnEnterPressed", function(self)
+            Core.RenameCategory(cat.id, self:GetText())
+            self:ClearFocus()
+            Edit.RefreshDungeons()
+            MM.UI.RefreshCategories()
+        end)
+
+        f.open:SetScript("OnClick", function()
+            forwardSelect(cat.id)
+            showTab("enemies")
+        end)
+        f.pages:SetScript("OnClick", function()
+            forwardSelect(cat.id)
+            showTab("pages")
+        end)
+        f.up:SetScript("OnClick", function()
+            Core.MoveCategory(cat.id, -1); Edit.RefreshDungeons(); MM.UI.RefreshCategories()
+        end)
+        f.down:SetScript("OnClick", function()
+            Core.MoveCategory(cat.id, 1); Edit.RefreshDungeons(); MM.UI.RefreshCategories()
+        end)
+        f.del:SetScript("OnClick", function()
+            Core.DeleteCategory(cat.id)
+            if state.categoryId == cat.id then forwardSelect(nil) end
+            Edit.RefreshDungeons(); MM.UI.RefreshCategories()
+        end)
+
+        y = y - 24
+
+        -- The selected dungeon opens to show what is inside it.
+        if cat.id == state.categoryId then
+            if #cat.enemies == 0 then
+                local e = row(16)
+                asEnemy(e)
+                e:SetPoint("TOPLEFT", ui.dungeonList, "TOPLEFT", 4, y)
+                e.enemy:SetText("|cff777777no enemies yet - use Enemies, or the Add target keybind|r")
+                e.enemy:SetScript("OnClick", function() showTab("enemies") end)
+                y = y - 18
+            else
+                for _, enemy in ipairs(cat.enemies) do
+                    local e = row(16)
+                    asEnemy(e)
+                    e:SetPoint("TOPLEFT", ui.dungeonList, "TOPLEFT", 4, y)
+                    e.enemy:SetText(("%s  |cffaaaaaa(%d)|r"):format(enemy.name, #enemy.lines))
+                    e.enemy:SetScript("OnClick", function()
+                        forwardSelect(cat.id)
+                        showTab("enemies")
+                        if enemy.lines[1] then loadLine(enemy.id, enemy.lines[1].id) end
+                    end)
+                    y = y - 18
+                end
+            end
+            y = y - 6
+        end
+    end
+
+    if #Core.Categories() == 0 then
+        ui.dungeonEmpty:Show()
+    else
+        ui.dungeonEmpty:Hide()
+    end
+
+    ui.dungeonList:SetHeight(math.max(40, math.abs(y) + 10))
+end
+
+--------------------------------------------------------------------------------
 -- Category selection and tabs
 --------------------------------------------------------------------------------
 
-local function refreshCategoryLabel()
+--- Enemies and Pages both act on one dungeon. Rather than silently showing an
+--- empty panel, they say which dungeon they are working on, or that none is
+--- chosen and where to choose one.
+local function scopeText()
     local cat = state.categoryId and Core.GetCategory(state.categoryId)
-    ui.categoryName:SetText(cat and cat.name or "|cffaaaaaaNo category|r")
-    if ui.categoryEdit then ui.categoryEdit:SetText(cat and cat.name or "") end
+    if cat then
+        return ("Dungeon: |cffffff00%s|r"):format(cat.name)
+    end
+    return "|cffd9a441No dungeon selected - pick one on the Dungeons tab.|r"
+end
+
+--- The scope labels are the only place the current dungeon is named now that
+--- dungeon management has its own tab.
+local function refreshCategoryLabel()
+    local text = scopeText()
+    if ui.scope1 then ui.scope1:SetText(text) end
+    if ui.scope2 then ui.scope2:SetText(text) end
 end
 
 local function selectCategory(id)
@@ -363,100 +505,78 @@ local function selectCategory(id)
     MM.UI.RefreshCategories()
 end
 
-local function cycleCategory(delta)
-    local cats = Core.Categories()
-    if #cats == 0 then return end
-    local index = Util.IndexById(cats, state.categoryId) or 1
-    index = index + delta
-    if index < 1 then index = #cats elseif index > #cats then index = 1 end
-    selectCategory(cats[index].id)
-end
+forwardSelect = function(id) selectCategory(id) end
 
 local function showTab(name)
     state.tab = name
+    ui.dungeonsPanel:SetShown(name == "dungeons")
     ui.enemiesPanel:SetShown(name == "enemies")
     ui.pagesPanel:SetShown(name == "pages")
-    if name == "enemies" then Edit.RefreshEnemies() else Edit.RefreshPages() end
+
+    if name == "dungeons" then
+        Edit.RefreshDungeons()
+    elseif name == "enemies" then
+        Edit.RefreshEnemies()
+    else
+        Edit.RefreshPages()
+    end
 end
+
+function Edit.ShowTab(name) showTab(name) end
+
 
 --------------------------------------------------------------------------------
 -- Construction
 --------------------------------------------------------------------------------
 
 function Edit.Build(parent)
-    -- Category row ------------------------------------------------------------
-    local prev = button(parent, "<", 20, 20, function() cycleCategory(-1) end)
-    prev:SetPoint("TOPLEFT", 8, -8)
-
-    ui.categoryName = label(parent, "", "GameFontNormal")
-    ui.categoryName:SetPoint("LEFT", prev, "RIGHT", 8, 0)
-    ui.categoryName:SetWidth(180)
-    ui.categoryName:SetJustifyH("LEFT")
-
-    local next = button(parent, ">", 20, 20, function() cycleCategory(1) end)
-    next:SetPoint("LEFT", ui.categoryName, "RIGHT", 4, 0)
-
-    local newCat = button(parent, "New", 50, 20, function()
-        local cat = Core.AddCategory("New dungeon")
-        selectCategory(cat.id)
-    end)
-    newCat:SetPoint("LEFT", next, "RIGHT", 6, 0)
-
-    ui.categoryEdit = editBox(parent, 150, 20, 64)
-    ui.categoryEdit:SetPoint("LEFT", newCat, "RIGHT", 10, 0)
-    ui.categoryEdit:SetScript("OnEnterPressed", function(self)
-        if state.categoryId then
-            Core.RenameCategory(state.categoryId, self:GetText())
-            refreshCategoryLabel()
-            MM.UI.RefreshCategories()
-        end
-        self:ClearFocus()
-    end)
-
     -- Tabs --------------------------------------------------------------------
+    local tabDungeons = button(parent, "Dungeons", 76, 20, function() showTab("dungeons") end)
+    tabDungeons:SetPoint("TOPLEFT", 8, -8)
     local tabEnemies = button(parent, "Enemies", 70, 20, function() showTab("enemies") end)
-    tabEnemies:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -6)
-    local tabPages = button(parent, "Pages", 70, 20, function() showTab("pages") end)
+    tabEnemies:SetPoint("LEFT", tabDungeons, "RIGHT", 4, 0)
+    local tabPages = button(parent, "Pages", 62, 20, function() showTab("pages") end)
     tabPages:SetPoint("LEFT", tabEnemies, "RIGHT", 4, 0)
-
-    local exportCat = button(parent, "Export", 60, 20, function()
-        if not state.categoryId then return end
-        local str, err = MM.Export.EncodeCategory(state.categoryId)
-        if not str then
-            Util.Print("|cffff4444" .. (err or "could not export") .. "|r")
-            return
-        end
-        local cat = Core.GetCategory(state.categoryId)
-        Core.MarkExported()
-        Edit.RefreshStaleMarker()
-        MM.UI.ShowExport(("Export: %s"):format(cat.name), str)
-    end)
-    exportCat:SetPoint("LEFT", tabPages, "RIGHT", 16, 0)
-
-    local exportAll = button(parent, "Backup all", 84, 20, function()
-        local str, err = MM.Export.EncodeProfile()
-        if not str then
-            Util.Print("|cffff4444" .. (err or "could not export") .. "|r")
-            return
-        end
-        Core.MarkExported()
-        Edit.RefreshStaleMarker()
-        MM.UI.ShowExport("Backup of every category", str)
-    end)
-    exportAll:SetPoint("LEFT", exportCat, "RIGHT", 4, 0)
 
     local addTarget = button(parent, "Add target", 84, 20, function()
         local name, why = MM.Capture.AddTarget("target")
         if name then
             Util.Print(("added |cffffff00%s|r to %s."):format(name, why))
             Edit.RefreshEnemies()
+            Edit.RefreshDungeons()
         else
             Util.Print("|cffff4444" .. (why or "could not add") .. "|r")
         end
     end)
-    addTarget:SetPoint("TOPLEFT", tabEnemies, "TOPLEFT", 300, 0)
+    addTarget:SetPoint("LEFT", tabPages, "RIGHT", 16, 0)
 
-    local importBtn = button(parent, "Import", 60, 20, function()
+    local exportCat = button(parent, "Export", 58, 20, function()
+        if not state.categoryId then
+            Util.Print("|cffff4444pick a dungeon first.|r") return
+        end
+        local str, err = MM.Export.EncodeCategory(state.categoryId)
+        if not str then
+            Util.Print("|cffff4444" .. (err or "could not export") .. "|r") return
+        end
+        local cat = Core.GetCategory(state.categoryId)
+        Core.MarkExported()
+        Edit.RefreshStaleMarker()
+        MM.UI.ShowExport(("Export: %s"):format(cat.name), str)
+    end)
+    exportCat:SetPoint("LEFT", addTarget, "RIGHT", 10, 0)
+
+    local exportAll = button(parent, "Backup all", 78, 20, function()
+        local str, err = MM.Export.EncodeProfile()
+        if not str then
+            Util.Print("|cffff4444" .. (err or "could not export") .. "|r") return
+        end
+        Core.MarkExported()
+        Edit.RefreshStaleMarker()
+        MM.UI.ShowExport("Backup of every dungeon", str)
+    end)
+    exportAll:SetPoint("LEFT", exportCat, "RIGHT", 3, 0)
+
+    local importBtn = button(parent, "Import", 58, 20, function()
         MM.UI.ShowImport("Import", function(text)
             local what, err = MM.Export.Import(text)
             if what then
@@ -466,31 +586,67 @@ function Edit.Build(parent)
             return what, err
         end)
     end)
-    importBtn:SetPoint("LEFT", exportAll, "RIGHT", 4, 0)
+    importBtn:SetPoint("LEFT", exportAll, "RIGHT", 3, 0)
 
     ui.stale = label(parent, "")
-    ui.stale:SetPoint("LEFT", importBtn, "RIGHT", 12, 0)
+    ui.stale:SetPoint("TOPLEFT", tabDungeons, "BOTTOMLEFT", 2, -4)
+
+    -- Dungeons panel ----------------------------------------------------------
+    ui.dungeonsPanel = CreateFrame("Frame", nil, parent)
+    ui.dungeonsPanel:SetPoint("TOPLEFT", tabDungeons, "BOTTOMLEFT", 0, -20)
+    ui.dungeonsPanel:SetPoint("BOTTOMRIGHT", -8, 8)
+
+    local newDungeon = button(ui.dungeonsPanel, "+ New dungeon", 110, 22, function()
+        local cat = Core.AddCategory("New dungeon")
+        selectCategory(cat.id)
+        Edit.RefreshDungeons()
+        MM.UI.RefreshCategories()
+    end)
+    newDungeon:SetPoint("TOPLEFT", 0, 0)
+
+    local seasonBtn = button(ui.dungeonsPanel, "Add this season's dungeons", 180, 22, function()
+        local made, skipped = MM.Starter.Create()
+        Edit.RefreshDungeons()
+        MM.UI.RefreshCategories()
+        Util.Print(("created %d, skipped %d already there."):format(#made, #skipped))
+    end)
+    seasonBtn:SetPoint("LEFT", newDungeon, "RIGHT", 6, 0)
+
+    ui.dungeonEmpty = label(ui.dungeonsPanel,
+        "|cffaaaaaaNo dungeons yet. Create one, or add the season's list.|r")
+    ui.dungeonEmpty:SetPoint("TOPLEFT", 2, -30)
+
+    local dungeonScroll = CreateFrame("ScrollFrame", nil, ui.dungeonsPanel,
+        "UIPanelScrollFrameTemplate")
+    dungeonScroll:SetPoint("TOPLEFT", 0, -30)
+    dungeonScroll:SetPoint("BOTTOMRIGHT", -24, 0)
+    ui.dungeonList = CreateFrame("Frame", nil, dungeonScroll)
+    ui.dungeonList:SetSize(520, 100)
+    dungeonScroll:SetScrollChild(ui.dungeonList)
 
     -- Enemies panel -----------------------------------------------------------
     ui.enemiesPanel = CreateFrame("Frame", nil, parent)
-    ui.enemiesPanel:SetPoint("TOPLEFT", tabEnemies, "BOTTOMLEFT", 0, -8)
+    ui.enemiesPanel:SetPoint("TOPLEFT", tabDungeons, "BOTTOMLEFT", 0, -20)
     ui.enemiesPanel:SetPoint("BOTTOMRIGHT", -8, 8)
 
+    ui.scope1 = label(ui.enemiesPanel, "")
+    ui.scope1:SetPoint("TOPLEFT", 0, 0)
+
     ui.editingWho = label(ui.enemiesPanel, "|cffaaaaaaSelect a line below to edit it.|r")
-    ui.editingWho:SetPoint("TOPLEFT", 0, 0)
+    ui.editingWho:SetPoint("TOPLEFT", 0, -16)
 
     local capLabel = label(ui.enemiesPanel, "Caption")
-    capLabel:SetPoint("TOPLEFT", 0, -18)
+    capLabel:SetPoint("TOPLEFT", 0, -34)
     ui.caption = editBox(ui.enemiesPanel, 120, 20, 24)
     ui.caption:SetPoint("LEFT", capLabel, "RIGHT", 8, 0)
 
     ui.counter = label(ui.enemiesPanel, "255")
-    ui.counter:SetPoint("TOPRIGHT", 0, -20)
+    ui.counter:SetPoint("TOPRIGHT", 0, -36)
 
     local bodyBox = CreateFrame("ScrollFrame", nil, ui.enemiesPanel,
         "UIPanelScrollFrameTemplate")
-    bodyBox:SetPoint("TOPLEFT", 0, -44)
-    bodyBox:SetPoint("TOPRIGHT", -24, -44)
+    bodyBox:SetPoint("TOPLEFT", 0, -60)
+    bodyBox:SetPoint("TOPRIGHT", -24, -60)
     bodyBox:SetHeight(56)
 
     -- SetMaxLetters counts characters, and the macro cap is in characters, so
@@ -507,7 +663,7 @@ function Edit.Build(parent)
     bodyBox:SetScrollChild(ui.body)
 
     local save = button(ui.enemiesPanel, "Save", 60, 20, saveLine)
-    save:SetPoint("TOPLEFT", 0, -104)
+    save:SetPoint("TOPLEFT", 0, -120)
     local revert = button(ui.enemiesPanel, "Revert", 60, 20, function()
         loadLine(state.enemyId, state.lineId)
     end)
@@ -515,7 +671,7 @@ function Edit.Build(parent)
 
     local listScroll = CreateFrame("ScrollFrame", nil, ui.enemiesPanel,
         "UIPanelScrollFrameTemplate")
-    listScroll:SetPoint("TOPLEFT", 0, -130)
+    listScroll:SetPoint("TOPLEFT", 0, -146)
     listScroll:SetPoint("BOTTOMRIGHT", -24, 0)
     ui.enemyList = CreateFrame("Frame", nil, listScroll)
     ui.enemyList:SetSize(560, 100)
@@ -523,9 +679,12 @@ function Edit.Build(parent)
 
     -- Pages panel -------------------------------------------------------------
     ui.pagesPanel = CreateFrame("Frame", nil, parent)
-    ui.pagesPanel:SetPoint("TOPLEFT", tabEnemies, "BOTTOMLEFT", 0, -8)
+    ui.pagesPanel:SetPoint("TOPLEFT", tabDungeons, "BOTTOMLEFT", 0, -20)
     ui.pagesPanel:SetPoint("BOTTOMRIGHT", -8, 8)
     ui.pagesPanel:Hide()
+
+    ui.scope2 = label(ui.pagesPanel, "")
+    ui.scope2:SetPoint("TOPLEFT", 0, 0)
 
     local pagePrev = button(ui.pagesPanel, "<", 20, 20, function()
         local cat = Core.GetCategory(state.categoryId)
@@ -535,7 +694,7 @@ function Edit.Build(parent)
         state.pageId = cat.pages[i].id
         Edit.RefreshPages()
     end)
-    pagePrev:SetPoint("TOPLEFT", 0, 0)
+    pagePrev:SetPoint("TOPLEFT", 0, -18)
 
     ui.pageName = editBox(ui.pagesPanel, 200, 20, 40)
     ui.pageName:SetPoint("LEFT", pagePrev, "RIGHT", 8, 0)
@@ -575,16 +734,16 @@ function Edit.Build(parent)
 
     local pagesScroll = CreateFrame("ScrollFrame", nil, ui.pagesPanel,
         "UIPanelScrollFrameTemplate")
-    pagesScroll:SetPoint("TOPLEFT", 0, -28)
+    pagesScroll:SetPoint("TOPLEFT", 0, -46)
     pagesScroll:SetPoint("BOTTOMRIGHT", -24, 0)
     ui.pageList = CreateFrame("Frame", nil, pagesScroll)
     ui.pageList:SetSize(520, 100)
     pagesScroll:SetScrollChild(ui.pageList)
 
-    -- Start on the first category, if there is one.
-    local cats = Core.Categories()
-    if cats[1] then selectCategory(cats[1].id) else refreshCategoryLabel() end
-    showTab("enemies")
+    -- Opens on Dungeons. Nothing is auto-selected: which dungeon you are
+    -- working on should be a choice you made, not one you inherited.
+    selectCategory(state.categoryId)
+    showTab("dungeons")
 end
 
 --- The export-staleness marker. Not a nag: it only appears once enough has
