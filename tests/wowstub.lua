@@ -35,6 +35,17 @@ local function newFrame(frameType, name, parent, template)
 
     -- Methods whose return value the addon actually reads.
     f.IsShown       = function(self) return self.shown end
+    -- Own state and every ancestor's, which is what "on screen" actually means.
+    -- Without this the stub reports a child of a hidden frame as visible, and
+    -- an orphaned button left behind by a pool looks fine to it.
+    f.IsVisible     = function(self)
+        local node = self
+        while node do
+            if not node.shown then return false end
+            node = node.parent
+        end
+        return true
+    end
     f.Show          = function(self) self.shown = true end
     f.Hide          = function(self) self.shown = false end
     f.SetShown      = function(self, v) self.shown = not not v end
@@ -64,8 +75,25 @@ local function newFrame(frameType, name, parent, template)
         f.TitleBg = newFrame("Frame", nil, f)
     end
 
+    -- Parents keep their children, so a test can walk the tree and find frames
+    -- a pool left behind.
+    f.children = {}
+    if parent and type(parent) == "table" and parent.children then
+        parent.children[#parent.children + 1] = f
+    end
+
     setmetatable(f, mt)
     return f
+end
+
+--- Every descendant of a frame, depth first.
+function M.descendants(frame, out)
+    out = out or {}
+    for _, child in ipairs(frame.children or {}) do
+        out[#out + 1] = child
+        M.descendants(child, out)
+    end
+    return out
 end
 
 function M.install()

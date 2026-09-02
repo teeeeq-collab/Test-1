@@ -1,7 +1,8 @@
 ## Interface: 120100
-## Title: MythicMacros
-## Notes: Mythic+ callout panel. Pages of labelled buttons, each firing a macro.
-## Version: 0.1
+## Title: Inomrah's Mythic Instructions
+## Notes: Mythic+ instruction panel. Pages of labelled buttons, each firing a macro.
+## Author: Inomrah
+## Version: 0.6
 ## SavedVariables: MythicMacrosDB
 
 Libs/LibStub/LibStub.lua

@@ -276,7 +276,7 @@ function UI.Init()
     local info = panelButton(bar, "?", 22, BAR_H - 4, function() UI.ShowHelp() end)
     info:SetPoint("RIGHT", gear, "LEFT", -2, 0)
 
-    bar.title = fontString(bar, "MythicMacros", "GameFontNormal")
+    bar.title = fontString(bar, "Inomrah's Mythic Instructions", "GameFontNormal")
     bar.title:SetPoint("CENTER", bar, "CENTER", 0, 0)
 
     body = CreateFrame("Frame", nil, root)
@@ -539,7 +539,7 @@ end
 --- that editing is out-of-combat work, and that nothing reaches disk until a
 --- reload. Both are the kind of thing people discover by losing something.
 function UI.ShowHelp()
-    UI.ShowExport("MythicMacros - how it works", table.concat({
+    UI.ShowExport("Inomrah's Mythic Instructions - how it works", table.concat({
         "RUN",
         "  Pick a dungeon on the left, then press a button to send its callout.",
         "  < and > step through the pages of the route.",
@@ -566,10 +566,10 @@ function UI.ShowHelp()
         "  box you are typing in.",
         "",
         "COMMANDS",
-        "  /mm            open or close",
-        "  /mm starter    add this season's dungeons",
-        "  /mm add        add your current target as an enemy",
-        "  /mm demo       a sample dungeon with content in it",
+        "  /imi           open or close  (/mm still works)",
+        "  /imi starter   add this season's dungeons",
+        "  /imi add       add your current target as an enemy",
+        "  /imi demo      a sample dungeon with content in it",
     }, "\n"))
 end
 

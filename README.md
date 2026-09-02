@@ -1,4 +1,4 @@
-# MythicMacros
+# Inomrah's Mythic Instructions
 
 A personal Mythic+ callout addon for WoW Midnight (12.1). A small panel of
 labelled buttons, each firing a macro — one short instruction to the party —
@@ -10,6 +10,11 @@ live client that shaped it.
 
 ## Installing
 
+The folder on disk stays `MythicMacros`, deliberately: WoW keys saved data to
+the folder name, so renaming it would orphan everything you have entered. Only
+the name shown in the addon list changes. If this is ever published, the folder
+can be renamed properly with a migration.
+
 Copy the `MythicMacros` folder into:
 
 ```
@@ -20,11 +25,11 @@ Fully restart the client — WoW only scans for new addon folders at startup.
 
 ## Using it
 
-`/mm` opens the panel. The bar carries **Run**, **Edit** and **Settings**, and
+`/imi` opens the panel (`/mm` still works). The bar carries **Run**, **Edit** and **Settings**, and
 collapses with the `-` button to a strip.
 
-**Start here:** `/mm starter` creates the eight Season 2 dungeons with a page
-skeleton each. `/mm demo` instead creates one sample dungeon with content in it,
+**Start here:** `/imi starter` creates the eight Season 2 dungeons with a page
+skeleton each. `/imi demo` instead creates one sample dungeon with content in it,
 covering the shapes that matter — a one-line enemy, a two-line one, a boss laid
 out three across, and one enemy shared between two pages.
 
@@ -40,7 +45,7 @@ Bindings → MythicMacros. Then open Edit, select the dungeon, walk it, and pres
 the key on each pack. Names come out exact and correctly localised, duplicates
 are refused, and each new enemy arrives with an empty line ready to write.
 
-`/mm add` and the **Add target** button in Edit do the same thing.
+`/imi add` and the **Add target** button in Edit do the same thing.
 
 Boss names for the three returning dungeons — Kings' Rest, Temple of Sethraliss
 and Ruby Life Pools — are filled in already. Worth checking: they are old
@@ -88,13 +93,13 @@ changed, Edit shows how many edits are unbacked.
 
 | | |
 | ------------- | -------------------------------- |
-| `/mm`         | toggle the panel |
-| `/mm starter` | create the eight Season 2 dungeons |
-| `/mm add`     | add your current target as an enemy |
-| `/mm demo`    | create the sample dungeon |
-| `/mm edit`    | open Edit |
-| `/mm settings`| open Settings |
-| `/mm wipe`    | delete everything (no confirm) |
+| `/imi`        | toggle the panel (`/mm` also works) |
+| `/imi starter`| create the eight Season 2 dungeons |
+| `/imi add`    | add your current target as an enemy |
+| `/imi demo`   | create the sample dungeon |
+| `/imi edit`   | open Edit |
+| `/imi settings`| open Settings |
+| `/imi wipe`   | delete everything (no confirm) |
 
 ## Tests
 

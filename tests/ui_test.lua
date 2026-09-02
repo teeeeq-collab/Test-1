@@ -80,6 +80,51 @@ check("refresh after deleting everything", function()
     MM.Edit.RefreshEnemies()          -- pooled frames must not outlive their data
 end)
 
+-- The bug that shipped: delete buttons were parented to the list rather than to
+-- the box they act on, so hiding a pooled box left its "-" on screen forever.
+check("deleting a line leaves nothing behind", function()
+    local stub = require("wowstub")
+    local cat = MM.Core.AddCategory("Orphan check")
+    local e = MM.Core.AddEnemy(cat.id, "Mob")
+    local l1 = MM.Core.AddLine(cat.id, e.id, "", "/p one")
+    local l2 = MM.Core.AddLine(cat.id, e.id, "", "/p two")
+
+    -- Init leaves the frame hidden, and IsVisible walks ancestors, so without
+    -- showing it every frame reads as invisible and the test proves nothing.
+    MM.UI.Show("edit")
+    MM.Edit.SetCategory(cat.id)
+    MM.Edit.ShowTab("enemies")
+
+    -- Delete buttons are precisely the buttons parented to an edit box. Matching
+    -- on the label alone also counted the bar's collapse button, which is a
+    -- different "-" entirely.
+    local function visibleDeletes()
+        local n = 0
+        for _, f in ipairs(stub.descendants(MM.UI.root)) do
+            if f.frameType == "Button" and f.parent
+               and f.parent.frameType == "EditBox" and f:IsVisible() then
+                n = n + 1
+            end
+        end
+        return n
+    end
+
+    local before = visibleDeletes()
+    if before ~= 3 then error(("expected 3 box buttons (1 name + 2 lines), saw %d"):format(before)) end
+
+    MM.Core.DeleteLine(cat.id, e.id, l2.id)
+    MM.Edit.RefreshEnemies()
+
+    local after = visibleDeletes()
+    if after ~= 2 then
+        error(("after deleting a line, expected 2 box buttons, saw %d"):format(after))
+    end
+
+    MM.Core.DeleteEnemy(cat.id, e.id)
+    MM.Edit.RefreshEnemies()
+    if visibleDeletes() ~= 0 then error("buttons survived their enemy") end
+end)
+
 check("stale marker", function() MM.Edit.RefreshStaleMarker() end)
 check("settings apply", function() MM.UI.ApplySettings() end)
 check("help window", function() MM.UI.ShowHelp() end)

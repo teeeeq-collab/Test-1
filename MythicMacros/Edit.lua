@@ -122,7 +122,11 @@ function Edit.RefreshEnemies()
         -- Name -----------------------------------------------------------------
         local name = acquire(namePool, ni, function()
             local eb = editBox(ui.enemyList, 64)
-            eb.del = button(ui.enemyList, "x", 20, 18)
+            -- Child of the box, not of the list: hiding a pooled box then has
+            -- to take its button with it. Parented to the list, a removed line
+            -- left its "-" behind, which is exactly what shipped.
+            eb.del = button(eb, "x", 20, 18)
+            eb.del:SetPoint("LEFT", eb, "RIGHT", 6, 0)
             return eb
         end)
         ni = ni + 1
@@ -140,9 +144,6 @@ function Edit.RefreshEnemies()
             Core.RenameEnemy(state.categoryId, enemy.id, self:GetText())
         end)
 
-        name.del:Show()
-        name.del:ClearAllPoints()
-        name.del:SetPoint("LEFT", name, "RIGHT", 6, 0)
         name.del:SetScript("OnClick", function()
             Core.DeleteEnemy(state.categoryId, enemy.id)
             Edit.RefreshEnemies()
@@ -154,7 +155,8 @@ function Edit.RefreshEnemies()
         for _, line in ipairs(enemy.lines) do
             local box = acquire(linePool, li, function()
                 local eb = editBox(ui.enemyList, Util.MAX_MACRO_CHARS)
-                eb.del = button(ui.enemyList, "-", 20, 18)
+                eb.del = button(eb, "-", 20, 18)
+                eb.del:SetPoint("LEFT", eb, "RIGHT", 6, 0)
                 attachCounter(eb)
                 return eb
             end)
@@ -176,9 +178,6 @@ function Edit.RefreshEnemies()
                 if ui.counter then ui.counter:Hide() end
             end)
 
-            box.del:Show()
-            box.del:ClearAllPoints()
-            box.del:SetPoint("LEFT", box, "RIGHT", 6, 0)
             box.del:SetScript("OnClick", function()
                 Core.DeleteLine(state.categoryId, enemy.id, line.id)
                 Edit.RefreshEnemies()

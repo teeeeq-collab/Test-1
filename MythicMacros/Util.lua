@@ -128,5 +128,5 @@ function Util.Move(list, index, delta)
 end
 
 function Util.Print(msg)
-    print("|cff8f7fe8MythicMacros|r " .. tostring(msg))
+    print("|cff8f7fe8Mythic Instructions|r " .. tostring(msg))
 end

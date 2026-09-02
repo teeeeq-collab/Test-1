@@ -24,7 +24,7 @@ loader:SetScript("OnEvent", function(self, event, name)
         Runtime.BindArrow(arrows.next, 1)
     end
 
-    Util.Print("loaded. |cffffff00/mm|r opens it.")
+    Util.Print("loaded. |cffffff00/imi|r opens it.")
 end)
 
 --------------------------------------------------------------------------------
@@ -77,7 +77,10 @@ end
 -- panel button while hovering a mob is not possible.
 --------------------------------------------------------------------------------
 
-BINDING_HEADER_MYTHICMACROS = "MythicMacros"
+-- The binding identifier stays MYTHICMACROS_ADDTARGET on purpose: changing
+-- it would silently drop whatever key is already bound to it. Only the text
+-- shown in the Key Bindings panel changes.
+BINDING_HEADER_MYTHICMACROS = "Inomrah's Mythic Instructions"
 BINDING_NAME_MYTHICMACROS_ADDTARGET = "Add target as enemy"
 
 function MythicMacros_AddTarget()
@@ -94,7 +97,8 @@ end
 -- Slash command
 --------------------------------------------------------------------------------
 
-SLASH_MYTHICMACROS1 = "/mm"
+SLASH_MYTHICMACROS1 = "/imi"
+SLASH_MYTHICMACROS2 = "/mm"   -- the old command still works
 SlashCmdList.MYTHICMACROS = function(arg)
     arg = (arg or ""):lower():match("^%s*(.-)%s*$")
 
