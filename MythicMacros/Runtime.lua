@@ -92,11 +92,21 @@ end
 
 --- Wire an arrow to the manager. `delta` is -1 for back, 1 for forward.
 function Runtime.BindArrow(button, delta)
+    -- A button that inherited a second template alongside its secure one has no
+    -- SetFrameRef. Saying so beats throwing during login, where the error lands
+    -- before anything is on screen to explain it.
+    if type(button.SetFrameRef) ~= "function" then
+        Util.Print("|cffff4444page arrows are not secure handlers - "
+            .. "paging will not work. This is a bug.|r")
+        return false
+    end
+
     button:RegisterForClicks("AnyUp")   -- one click type only: registering both
                                         -- up and down fires the action twice
     button:SetFrameRef("manager", manager)
     button:SetAttribute("delta", delta)
     button:SetAttribute("_onclick", FLIP_SNIPPET)
+    return true
 end
 
 --------------------------------------------------------------------------------

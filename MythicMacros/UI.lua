@@ -28,6 +28,34 @@ local function button(parent, text, w, h, onClick)
     return b
 end
 
+--- Style a button by hand.
+---
+--- Secure frames must inherit their secure template and nothing else. Adding
+--- UIPanelButtonTemplate alongside one replaces the secure OnLoad with the
+--- button template's, and the frame never gains SetFrameRef or its handler
+--- methods. It fails at load with "attempt to call a nil value", and would
+--- otherwise fail silently in ways that look like the game blocking something.
+local function skin(b, text)
+    local bg = b:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.16, 0.16, 0.21, 0.95)
+
+    local edge = b:CreateTexture(nil, "BORDER")
+    edge:SetPoint("TOPLEFT", -1, 1)
+    edge:SetPoint("BOTTOMRIGHT", 1, -1)
+    edge:SetColorTexture(0.36, 0.36, 0.46, 1)
+    edge:SetDrawLayer("BORDER", -1)
+
+    b.label = b:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    b.label:SetAllPoints()
+    b.label:SetText(text or "")
+
+    b:EnableMouse(true)
+    b:SetScript("OnEnter", function() bg:SetColorTexture(0.26, 0.26, 0.34, 0.95) end)
+    b:SetScript("OnLeave", function() bg:SetColorTexture(0.16, 0.16, 0.21, 0.95) end)
+    return b
+end
+
 local function fontString(parent, text, template)
     local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontNormalSmall")
     fs:SetText(text or "")
@@ -201,19 +229,20 @@ function UI.Init()
     runPlay.categoryName = fontString(runPlay, "", "GameFontNormal")
     runPlay.categoryName:SetPoint("TOP", runPlay, "TOP", -40, -6)
 
-    -- The arrows are secure handlers. They must be created before Runtime is
-    -- asked to bind them, and never clicked from script.
+    -- The arrows are secure handlers, inheriting that template and nothing
+    -- else, and skinned by hand. They are created before Runtime binds them,
+    -- and are never clicked from script.
     local nextBtn = CreateFrame("Button", "MythicMacrosNext", runPlay,
-        "SecureHandlerClickTemplate,UIPanelButtonTemplate")
+        "SecureHandlerClickTemplate")
     nextBtn:SetSize(24, 20)
     nextBtn:SetPoint("TOPRIGHT", -6, -4)
-    nextBtn:SetText(">")
+    skin(nextBtn, ">")
 
     local prevBtn = CreateFrame("Button", "MythicMacrosPrev", runPlay,
-        "SecureHandlerClickTemplate,UIPanelButtonTemplate")
+        "SecureHandlerClickTemplate")
     prevBtn:SetSize(24, 20)
     prevBtn:SetPoint("RIGHT", nextBtn, "LEFT", -4, 0)
-    prevBtn:SetText("<")
+    skin(prevBtn, "<")
 
     runPlay.pages = CreateFrame("Frame", nil, runPlay)
     runPlay.pages:SetPoint("TOPLEFT", 10, -30)
