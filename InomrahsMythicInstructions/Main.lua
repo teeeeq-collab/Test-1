@@ -2,9 +2,9 @@
 -- Main: load, wire, and the slash command.
 --------------------------------------------------------------------------------
 
-local ADDON, MM = ...
+local ADDON, IMI = ...
 
-local Core, UI, Runtime, Util = MM.Core, MM.UI, MM.Runtime, MM.Util
+local Core, UI, Runtime, Util = IMI.Core, IMI.UI, IMI.Runtime, IMI.Util
 
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
@@ -12,7 +12,7 @@ loader:SetScript("OnEvent", function(self, event, name)
     if name ~= ADDON then return end
     self:UnregisterEvent("ADDON_LOADED")
 
-    MythicMacrosDB = Core.Init(MythicMacrosDB)
+    InomrahsMythicInstructionsDB = Core.Init(InomrahsMythicInstructionsDB)
     UI.Init()
 
     -- Arrows are secure handlers built with the UI; the pager they drive has to
@@ -77,17 +77,16 @@ end
 -- panel button while hovering a mob is not possible.
 --------------------------------------------------------------------------------
 
--- The binding identifier stays MYTHICMACROS_ADDTARGET on purpose: changing
--- it would silently drop whatever key is already bound to it. Only the text
--- shown in the Key Bindings panel changes.
-BINDING_HEADER_MYTHICMACROS = "Inomrah's Mythic Instructions"
-BINDING_NAME_MYTHICMACROS_ADDTARGET = "Add target as enemy"
+-- The binding identifier changed with the rename, so a key bound under the old
+-- name is gone and has to be set again. That is the one-off cost of the rename.
+BINDING_HEADER_INOMRAHSMI = "Inomrah's Mythic Instructions"
+BINDING_NAME_INOMRAHSMI_ADDTARGET = "Add target as enemy"
 
-function MythicMacros_AddTarget()
-    local name, why = MM.Capture.AddTarget("target")
+function InomrahsMI_AddTarget()
+    local name, why = IMI.Capture.AddTarget("target")
     if name then
         Util.Print(("added |cffffff00%s|r to %s."):format(name, why))
-        if MM.Edit and MM.Edit.RefreshEnemies then MM.Edit.RefreshEnemies() end
+        if IMI.Edit and IMI.Edit.RefreshEnemies then IMI.Edit.RefreshEnemies() end
     else
         Util.Print("|cffff4444" .. (why or "could not add") .. "|r")
     end
@@ -97,9 +96,10 @@ end
 -- Slash command
 --------------------------------------------------------------------------------
 
-SLASH_MYTHICMACROS1 = "/imi"
-SLASH_MYTHICMACROS2 = "/mm"   -- the old command still works
-SlashCmdList.MYTHICMACROS = function(arg)
+-- Only /imi. /mm belongs to Mythic Mentor, and two addons claiming the same
+-- slash command means whichever loads second silently wins.
+SLASH_INOMRAHSMI1 = "/imi"
+SlashCmdList.INOMRAHSMI = function(arg)
     arg = (arg or ""):lower():match("^%s*(.-)%s*$")
 
     if arg == "demo" then
@@ -116,19 +116,19 @@ SlashCmdList.MYTHICMACROS = function(arg)
             Util.Print("|cffff4444not in combat.|r")
             return
         end
-        local made, skipped = MM.Starter.Create()
+        local made, skipped = IMI.Starter.Create()
         UI.RefreshCategories()
-        if MM.Edit and MM.Edit.Refresh then MM.Edit.Refresh() end
+        if IMI.Edit and IMI.Edit.Refresh then IMI.Edit.Refresh() end
         Util.Print(("created %d dungeon(s)%s."):format(#made,
             (#skipped > 0) and (", skipped %d already there"):format(#skipped) or ""))
         Util.Print("|cffaaaaaaTrash is empty by design - target a mob and press the "
             .. "Add target keybind, or the button in Edit.|r")
 
     elseif arg == "add" then
-        MythicMacros_AddTarget()
+        InomrahsMI_AddTarget()
 
     elseif arg == "debug" then
-        MM.Runtime.Debug()
+        IMI.Runtime.Debug()
 
     elseif arg == "settings" then
         UI.Show("settings")
@@ -141,7 +141,7 @@ SlashCmdList.MYTHICMACROS = function(arg)
             Util.Print("|cffff4444not in combat.|r")
             return
         end
-        MythicMacrosDB = Core.Init({})
+        InomrahsMythicInstructionsDB = Core.Init({})
         UI.RefreshCategories()
         Util.Print("data cleared.")
 

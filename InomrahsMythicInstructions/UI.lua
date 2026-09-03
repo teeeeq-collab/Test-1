@@ -10,11 +10,11 @@
 -- in it are pressable or editable.
 --------------------------------------------------------------------------------
 
-local ADDON, MM = ...
+local ADDON, IMI = ...
 
-MM.UI = {}
-local UI = MM.UI
-local Core, Runtime, Util = MM.Core, MM.Runtime, MM.Util
+IMI.UI = {}
+local UI = IMI.UI
+local Core, Runtime, Util = IMI.Core, IMI.Runtime, IMI.Util
 
 local root, bar, body, sidebar, content
 local views, currentView
@@ -40,14 +40,14 @@ local BAR_H, SIDE_W = 24, 168
 local function fontString(parent, text, template)
     local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontNormalSmall")
     fs:SetText(text or "")
-    fs:SetTextColor(unpack(MM.Style.colors.text))
+    fs:SetTextColor(unpack(IMI.Style.colors.text))
     return fs
 end
 
 local function panelButton(parent, text, w, h, onClick, opts)
     local b = CreateFrame("Button", nil, parent)
     b:SetSize(w, h or 20)
-    MM.Style.Button(b, text, opts)
+    IMI.Style.Button(b, text, opts)
     if onClick then b:SetScript("OnClick", onClick) end
     return b
 end
@@ -90,8 +90,8 @@ function UI.Dropdown(parent, width)
     dd.list:SetFrameStrata("DIALOG")
     dd.list:Hide()
 
-    MM.Style.Background(dd.list, MM.Style.colors.window)
-    MM.Style.Border(dd.list, MM.Style.colors.gold)
+    IMI.Style.Background(dd.list, IMI.Style.colors.window)
+    IMI.Style.Border(dd.list, IMI.Style.colors.gold)
 
     dd.rows = {}
 
@@ -151,13 +151,13 @@ local function selectCategory(id)
     end
 
     selected.categoryId = id
-    MM.Capture.SetCategory(id)
+    IMI.Capture.SetCategory(id)
     UI.RefreshSidebar()
 
     if currentView == "run" then
         UI.OpenRun(id)
     elseif currentView == "edit" then
-        MM.Edit.SetCategory(id)
+        IMI.Edit.SetCategory(id)
     end
 end
 
@@ -202,7 +202,7 @@ local function commitNewCategory()
     sidebar.newName:SetText("")
     sidebar.newName:Hide()
     selectCategory(cat.id)
-    if currentView == "edit" then MM.Edit.SetCategory(cat.id) end
+    if currentView == "edit" then IMI.Edit.SetCategory(cat.id) end
 end
 
 --------------------------------------------------------------------------------
@@ -229,7 +229,7 @@ local function showView(name)
     end
 
     if name == "edit" then
-        MM.Edit.SetCategory(selected.categoryId)
+        IMI.Edit.SetCategory(selected.categoryId)
     elseif name == "run" and selected.categoryId then
         UI.OpenRun(selected.categoryId)
     end
@@ -306,15 +306,15 @@ end
 --------------------------------------------------------------------------------
 
 function UI.Init()
-    root = CreateFrame("Frame", "MythicMacrosFrame", UIParent)
+    root = CreateFrame("Frame", "InomrahsMIFrame", UIParent)
     root:SetSize(760, 380)
     root:SetPoint("CENTER")
     root:SetMovable(true)
     root:EnableMouse(true)
     root:SetClampedToScreen(true)
 
-    MM.Style.Background(root, MM.Style.colors.window)
-    MM.Style.Border(root, MM.Style.colors.gold)
+    IMI.Style.Background(root, IMI.Style.colors.window)
+    IMI.Style.Border(root, IMI.Style.colors.gold)
 
     -- Bar --------------------------------------------------------------------
     bar = CreateFrame("Frame", nil, root)
@@ -330,7 +330,7 @@ function UI.Init()
         Core.Settings().point = { point = point, relativePoint = rel, x = x, y = y }
     end)
 
-    MM.Style.Background(bar, MM.Style.colors.bar)
+    IMI.Style.Background(bar, IMI.Style.colors.bar)
 
     local collapse = panelButton(bar, "-", 22, BAR_H - 4)
     collapse:SetPoint("LEFT", 3, 0)
@@ -356,7 +356,7 @@ function UI.Init()
     local info = panelButton(bar, "?", 22, BAR_H - 4, function() UI.ShowHelp() end)
     info:SetPoint("RIGHT", gear, "LEFT", -2, 0)
 
-    bar.title = MM.Style.Header(bar, "Inomrah's Mythic Instructions")
+    bar.title = IMI.Style.Header(bar, "Inomrah's Mythic Instructions")
     bar.title:SetPoint("CENTER", bar, "CENTER", 0, 0)
 
     body = CreateFrame("Frame", nil, root)
@@ -377,9 +377,9 @@ function UI.Init()
     sidebar:SetPoint("BOTTOMLEFT", 6, 6)
     sidebar:SetWidth(SIDE_W)
 
-    MM.Style.Panel(sidebar)
+    IMI.Style.Panel(sidebar)
 
-    sidebar.header = MM.Style.Header(sidebar, "Dungeons")
+    sidebar.header = IMI.Style.Header(sidebar, "Dungeons")
     sidebar.header:SetPoint("TOP", 0, -6)
 
     -- Pinned to the bottom, so they stay put however long the list grows.
@@ -391,7 +391,7 @@ function UI.Init()
         views.run.prompt:SetText("Pick a dungeon on the left.")
         views.run.prompt:Show()
         if views.run.variant then views.run.variant:Hide() end
-        MM.Edit.SetCategory(nil)
+        IMI.Edit.SetCategory(nil)
         UI.RefreshSidebar()
     end)
     sidebar.back:SetPoint("BOTTOMLEFT", 8, 8)
@@ -405,7 +405,7 @@ function UI.Init()
 
     sidebar.newName = CreateFrame("EditBox", nil, sidebar)
     sidebar.newName:SetFontObject("ChatFontNormal")
-    MM.Style.EditBox(sidebar.newName)
+    IMI.Style.EditBox(sidebar.newName)
     sidebar.newName:SetSize(SIDE_W - 22, 20)
     sidebar.newName:SetPoint("BOTTOMLEFT", sidebar.newBtn, "TOPLEFT", 5, 4)
     sidebar.newName:SetAutoFocus(false)
@@ -431,7 +431,7 @@ function UI.Init()
     content:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", 6, 0)
     content:SetPoint("BOTTOMRIGHT", -6, 6)
 
-    MM.Style.Panel(content)
+    IMI.Style.Panel(content)
 
     views = {}
 
@@ -439,17 +439,17 @@ function UI.Init()
     views.run = CreateFrame("Frame", nil, content)
     views.run:SetAllPoints()
 
-    views.run.title = MM.Style.Header(views.run, "")
+    views.run.title = IMI.Style.Header(views.run, "")
     views.run.title:SetFontObject("GameFontNormalLarge")
-    views.run.title:SetTextColor(unpack(MM.Style.colors.goldText))
+    views.run.title:SetTextColor(unpack(IMI.Style.colors.goldText))
     views.run.title:SetPoint("TOP", 0, -6)
 
-    local nextBtn = CreateFrame("Button", "MythicMacrosNext", views.run, "SecureHandlerClickTemplate")
+    local nextBtn = CreateFrame("Button", "InomrahsMINext", views.run, "SecureHandlerClickTemplate")
     nextBtn:SetSize(26, 20)
     nextBtn:SetPoint("TOPRIGHT", -8, -6)
     skin(nextBtn, ">")
 
-    local prevBtn = CreateFrame("Button", "MythicMacrosPrev", views.run, "SecureHandlerClickTemplate")
+    local prevBtn = CreateFrame("Button", "InomrahsMIPrev", views.run, "SecureHandlerClickTemplate")
     prevBtn:SetSize(26, 20)
     prevBtn:SetPoint("RIGHT", nextBtn, "LEFT", -4, 0)
     skin(prevBtn, "<")
@@ -470,7 +470,7 @@ function UI.Init()
     -- Edit ---------------------------------------------------------------------
     views.edit = CreateFrame("Frame", nil, content)
     views.edit:SetAllPoints()
-    MM.Edit.Build(views.edit)
+    IMI.Edit.Build(views.edit)
 
     -- Settings -----------------------------------------------------------------
     views.settings = CreateFrame("Frame", nil, body)
@@ -524,7 +524,7 @@ function UI.BuildSettings(parent)
 
         local box = CreateFrame("EditBox", nil, parent)
         box:SetFontObject("ChatFontNormal")
-        MM.Style.EditBox(box)
+        IMI.Style.EditBox(box)
         box:SetSize(46, 20)
         box:SetPoint("LEFT", slider, "RIGHT", 16, 0)
         box:SetAutoFocus(false)
@@ -613,7 +613,7 @@ function UI.BuildSettings(parent)
         local nextChannel = Util.CHANNELS[index % #Util.CHANNELS + 1]
         Core.Settings().channel = nextChannel
         self:SetText(nextChannel)
-        if MM.Edit and MM.Edit.RefreshSendHint then MM.Edit.RefreshSendHint() end
+        if IMI.Edit and IMI.Edit.RefreshSendHint then IMI.Edit.RefreshSendHint() end
         Util.Print(("plain text now goes to |cffffff00%s|r. Reopen the dungeon in Run to apply it.")
             :format(nextChannel))
     end)
@@ -664,7 +664,7 @@ local stringWindow
 local function ensureStringWindow()
     if stringWindow then return stringWindow end
 
-    local f = CreateFrame("Frame", "MythicMacrosStringWindow", UIParent,
+    local f = CreateFrame("Frame", "InomrahsMIStringWindow", UIParent,
         "BasicFrameTemplateWithInset")
     f:SetSize(560, 300)
     f:SetPoint("CENTER")
@@ -678,7 +678,7 @@ local function ensureStringWindow()
     f.title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     f.title:SetPoint("TOP", f.TitleBg, "TOP", 0, -5)
 
-    local scroll = CreateFrame("ScrollFrame", "MythicMacrosStringScroll", f,
+    local scroll = CreateFrame("ScrollFrame", "InomrahsMIStringScroll", f,
         "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 14, -32)
     scroll:SetPoint("BOTTOMRIGHT", -34, 44)
@@ -769,7 +769,7 @@ function UI.ShowHelp()
         "  box you are typing in.",
         "",
         "COMMANDS",
-        "  /imi           open or close  (/mm still works)",
+        "  /imi           open or close",
         "  /imi starter   add this season's dungeons",
         "  /imi add       add your current target as an enemy",
         "  /imi demo      a sample dungeon with content in it",

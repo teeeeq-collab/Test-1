@@ -11,11 +11,11 @@
 -- dungeons, and inventing them would be worse than leaving them out.
 --------------------------------------------------------------------------------
 
-local ADDON, MM = ...
+local ADDON, IMI = ...
 
-MM.Capture = {}
-local Capture = MM.Capture
-local Core, Util = MM.Core, MM.Util
+IMI.Capture = {}
+local Capture = IMI.Capture
+local Core, Util = IMI.Core, IMI.Util
 
 local targetCategoryId
 

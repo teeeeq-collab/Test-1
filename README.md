@@ -10,12 +10,12 @@ live client that shaped it.
 
 ## Installing
 
-The folder on disk stays `MythicMacros`, deliberately: WoW keys saved data to
-the folder name, so renaming it would orphan everything you have entered. Only
-the name shown in the addon list changes. If this is ever published, the folder
-can be renamed properly with a migration.
+**If you have an older `MythicMacros` folder installed, delete it first.** The
+addon was renamed, folder and all; leaving both in place means two copies
+registering the same panel. Anything saved under the old name is not carried
+over — the rename was made while there was nothing worth keeping.
 
-Copy the `MythicMacros` folder into:
+Copy the `InomrahsMythicInstructions` folder into:
 
 ```
 World of Warcraft/_retail_/Interface/AddOns/
@@ -25,7 +25,8 @@ Fully restart the client — WoW only scans for new addon folders at startup.
 
 ## Using it
 
-`/imi` opens the panel (`/mm` still works). The bar carries **Run**, **Edit** and **Settings**, and
+`/imi` opens the panel. (`/mm` is deliberately not claimed — that is Mythic
+Mentor's.) The bar carries **Run**, **Edit** and **Settings**, and
 collapses with the `-` button to a strip.
 
 **Start here:** `/imi starter` creates the eight Season 2 dungeons with a page
@@ -41,7 +42,7 @@ list would be worse than shipping none: you would write callouts for mobs that
 do not exist and miss the ones that do.
 
 So collect them from the game instead. Bind **Add target as enemy** under Key
-Bindings → MythicMacros. Then open Edit, select the dungeon, walk it, and press
+Bindings → Inomrah's Mythic Instructions. Then open Edit, select the dungeon, walk it, and press
 the key on each pack. Names come out exact and correctly localised, duplicates
 are refused, and each new enemy arrives with an empty line ready to write.
 
@@ -93,7 +94,7 @@ changed, Edit shows how many edits are unbacked.
 
 | | |
 | ------------- | -------------------------------- |
-| `/imi`        | toggle the panel (`/mm` also works) |
+| `/imi`        | toggle the panel |
 | `/imi starter`| create the eight Season 2 dungeons |
 | `/imi add`    | add your current target as an enemy |
 | `/imi demo`   | create the sample dungeon |
@@ -108,4 +109,4 @@ model, the length guard, and export/import round trips including the ways a
 paste goes wrong. Requires `lua5.1`.
 
 Everything touching the WoW API can only be verified in a live client, which is
-what `MythicMacrosProbe/` was for.
+what `InomrahsMIProbe/` was for.

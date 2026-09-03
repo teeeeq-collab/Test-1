@@ -1,7 +1,7 @@
-local MM = {}
-loadfile("MythicMacros/Util.lua")("MythicMacros", MM)
-loadfile("MythicMacros/Core.lua")("MythicMacros", MM)
-local Core, Util = MM.Core, MM.Util
+local IMI = {}
+loadfile("InomrahsMythicInstructions/Util.lua")("InomrahsMythicInstructions", IMI)
+loadfile("InomrahsMythicInstructions/Core.lua")("InomrahsMythicInstructions", IMI)
+local Core, Util = IMI.Core, IMI.Util
 
 local pass, fail = 0, 0
 local function check(label, cond)

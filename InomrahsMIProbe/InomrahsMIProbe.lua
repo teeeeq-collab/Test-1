@@ -1,7 +1,7 @@
 --------------------------------------------------------------------------------
--- MythicMacros Probe
+-- Inomrah's MI Probe
 --
--- Not the addon. This measures the specific mechanisms the MythicMacros design
+-- Not the addon. This measures the specific mechanisms the Inomrah's Mythic Instructions design
 -- is betting on, so the real code is written against confirmed behaviour rather
 -- than against reporting that contradicts itself.
 --
@@ -21,27 +21,27 @@
 --                     the cap?
 --
 -- Results are written to SavedVariables, so anything collected inside a key
--- survives a reload and can be printed afterwards with /mmprobe report.
+-- survives a reload and can be printed afterwards with /imiprobe report.
 --------------------------------------------------------------------------------
 
-local PREFIX     = "MMP_"
+local PREFIX     = "IMIP_"
 local RUN_MACRO  = PREFIX .. "RUN"
 local CHAT_MACRO = PREFIX .. "CHAT"
 
-local TOKEN_MT = "MMProbe-MT"   -- chat sent via the macrotext attribute
-local TOKEN_RM = "MMProbe-RM"   -- chat sent via a real macro
+local TOKEN_MT = "IMIProbe-MT"   -- chat sent via the macrotext attribute
+local TOKEN_RM = "IMIProbe-RM"   -- chat sent via a real macro
 
-MMProbeDB = MMProbeDB or {}
+IMIProbeDB = IMIProbeDB or {}
 
 local function db()
-    MMProbeDB.results  = MMProbeDB.results or {}
-    MMProbeDB.created  = MMProbeDB.created or {}
-    MMProbeDB.chatVerb = MMProbeDB.chatVerb or "/p"
-    return MMProbeDB
+    IMIProbeDB.results  = IMIProbeDB.results or {}
+    IMIProbeDB.created  = IMIProbeDB.created or {}
+    IMIProbeDB.chatVerb = IMIProbeDB.chatVerb or "/p"
+    return IMIProbeDB
 end
 
 local function out(msg)
-    print("|cff33ff99MMProbe|r " .. msg)
+    print("|cff33ff99IMIProbe|r " .. msg)
 end
 
 local function record(key, value, note)
@@ -62,7 +62,7 @@ local frame, btnMtChat
 -- Signal target, called by macros via /run.
 --------------------------------------------------------------------------------
 
-function MMProbeSignal(tag)
+function IMIProbeSignal(tag)
     record("B.exec." .. tostring(tag) .. (db().runCount and ("." .. db().runCount) or ""),
         "FIRED", InCombatLockdown() and "in combat" or "out of combat")
 end
@@ -120,18 +120,18 @@ end
 -- tool has to survive its own bugs.
 --------------------------------------------------------------------------------
 
-SLASH_MMPROBE1 = "/mmprobe"
-SlashCmdList.MMPROBE = function(arg)
+SLASH_IMIPROBE1 = "/imiprobe"
+SlashCmdList.IMIPROBE = function(arg)
     arg = (arg or ""):lower():match("^%s*(.-)%s*$")
 
     if arg == "report" then
-        MMProbeReport()
+        IMIProbeReport()
     elseif arg == "copy" then
-        MMProbeShowCopy()
+        IMIProbeShowCopy()
     elseif arg == "clean" then
         cleanupMacros()
     elseif arg == "reset" then
-        MMProbeDB.results = {}
+        IMIProbeDB.results = {}
         out("results cleared.")
     elseif arg == "say" or arg == "party" or arg == "raid" or arg == "instance" then
         if InCombatLockdown() then
@@ -148,7 +148,7 @@ SlashCmdList.MMPROBE = function(arg)
         end
         out("chat tests now use |cffffff00" .. db().chatVerb .. "|r")
     elseif not frame then
-        out("|cffff4444the panel failed to build - /mmprobe report still works.|r")
+        out("|cffff4444the panel failed to build - /imiprobe report still works.|r")
     else
         if frame:IsShown() then frame:Hide() else frame:Show() end
         out("commands: report | copy | clean | reset | say | party | raid | instance")
@@ -292,7 +292,7 @@ end
 -- UI
 --------------------------------------------------------------------------------
 
-frame = CreateFrame("Frame", "MMProbeFrame", UIParent, "BasicFrameTemplateWithInset")
+frame = CreateFrame("Frame", "IMIProbeFrame", UIParent, "BasicFrameTemplateWithInset")
 frame:SetSize(470, 560)
 frame:SetPoint("CENTER")
 frame:SetMovable(true)
@@ -305,7 +305,7 @@ frame:Hide()
 
 frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 frame.title:SetPoint("TOP", frame.TitleBg, "TOP", 0, -5)
-frame.title:SetText("MythicMacros Probe")
+frame.title:SetText("Inomrah's MI Probe")
 
 local y = -32
 local function label(text, colour)
@@ -428,14 +428,14 @@ end
 
 plain("Create macros", 14, 140, function()
     if InCombatLockdown() then out("|cffff4444not in combat.|r") return end
-    ensureProbeMacro(RUN_MACRO, "/run MMProbeSignal('realmacro')", "B.macro.run")
+    ensureProbeMacro(RUN_MACRO, "/run IMIProbeSignal('realmacro')", "B.macro.run")
     ensureProbeMacro(CHAT_MACRO, ("%s %s check"):format(db().chatVerb, TOKEN_RM), "B.macro.chat")
     out("now click the four buttons below, one press each.")
 end)
 y = y - 30
 
 local btnMtRun = secure("macrotext + /run", 14, "macrotext.run", function(b)
-    b:SetAttribute("macrotext", "/run MMProbeSignal('macrotext')")
+    b:SetAttribute("macrotext", "/run IMIProbeSignal('macrotext')")
 end)
 btnMtChat = secure("macrotext + chat", 240, "macrotext.chat", function(b)
     b:SetAttribute("macrotext", ("%s %s check"):format(db().chatVerb, TOKEN_MT))
@@ -482,7 +482,7 @@ local function combatOps(pfx)
     step(pfx, "SetAttribute", function()
         local sentinel = "MMPsent" .. math.random(100000, 999999)
         pcall(function()
-            btnMtRun:SetAttribute("macrotext", "/run MMProbeSignal('" .. sentinel .. "')")
+            btnMtRun:SetAttribute("macrotext", "/run IMIProbeSignal('" .. sentinel .. "')")
         end)
         local got = btnMtRun:GetAttribute("macrotext")
         record(pfx .. ".SetAttribute",
@@ -497,12 +497,12 @@ local function combatOps(pfx)
             record(pfx .. ".EditMacro", "SKIPPED", "probe macros not created")
             return
         end
-        local marker = "/run MMProbeSignal('edited" .. math.random(1000, 9999) .. "')"
+        local marker = "/run IMIProbeSignal('edited" .. math.random(1000, 9999) .. "')"
         pcall(EditMacro, idx, RUN_MACRO, nil, marker)
         local body = GetMacroBody(idx)
         record(pfx .. ".EditMacro", (body == marker) and "APPLIED" or "NO EFFECT",
             "body now: " .. tostring(body):sub(1, 40))
-        pcall(EditMacro, idx, RUN_MACRO, nil, "/run MMProbeSignal('realmacro')")
+        pcall(EditMacro, idx, RUN_MACRO, nil, "/run IMIProbeSignal('realmacro')")
     end)
 
     -- CreateMacro / DeleteMacro: act, then look up by name.
@@ -539,10 +539,10 @@ y = y - 30
 -- avoids a large amount of secure-handler machinery.
 --------------------------------------------------------------------------------
 
-local pagePlain = CreateFrame("Frame", "MMProbePagePlain", frame)
+local pagePlain = CreateFrame("Frame", "IMIProbePagePlain", frame)
 pagePlain:SetSize(212, 24)
 pagePlain:SetPoint("TOPLEFT", 240, y)
-local pagePlainBtn = CreateFrame("Button", "MMProbePlainChild", pagePlain,
+local pagePlainBtn = CreateFrame("Button", "IMIProbePlainChild", pagePlain,
     "SecureActionButtonTemplate")
 pagePlainBtn:SetAllPoints()
 pagePlainBtn:SetAttribute("type", "macro")
@@ -568,14 +568,14 @@ plain("D1. Plain Hide()", 14, 200, function()
 end)
 y = y - 30
 
-local pageA = CreateFrame("Frame", "MMProbePageA", frame, "SecureHandlerBaseTemplate")
+local pageA = CreateFrame("Frame", "IMIProbePageA", frame, "SecureHandlerBaseTemplate")
 pageA:SetSize(212, 24)
 pageA:SetPoint("TOPLEFT", 240, y)
 pageA.text = pageA:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 pageA.text:SetAllPoints()
 pageA.text:SetText("|cff44ff44PAGE A|r")
 
-local pageB = CreateFrame("Frame", "MMProbePageB", frame, "SecureHandlerBaseTemplate")
+local pageB = CreateFrame("Frame", "IMIProbePageB", frame, "SecureHandlerBaseTemplate")
 pageB:SetSize(212, 24)
 pageB:SetPoint("TOPLEFT", 240, y)
 pageB.text = pageB:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -583,7 +583,7 @@ pageB.text:SetAllPoints()
 pageB.text:SetText("|cffff8844PAGE B|r")
 pageB:Hide()
 
-local btnFlip = CreateFrame("Button", "MMProbeFlip", frame, "SecureHandlerClickTemplate")
+local btnFlip = CreateFrame("Button", "IMIProbeFlip", frame, "SecureHandlerClickTemplate")
 btnFlip:SetSize(200, 24)
 btnFlip:SetPoint("TOPLEFT", 14, y)
 btnFlip:RegisterForClicks("AnyUp")
@@ -683,9 +683,9 @@ local btnInKey = plain("K. Run all in-key checks", 14, 300, function() runAllInK
 y = y - 32
 
 label("Report", "|cffaaaaaa")
-plain("Print report", 14, 140, function() MMProbeReport() end)
+plain("Print report", 14, 140, function() IMIProbeReport() end)
 plain("Remove macros", 166, 140, cleanupMacros)
-plain("Copy report", 318, 140, function() MMProbeShowCopy() end)
+plain("Copy report", 318, 140, function() IMIProbeShowCopy() end)
 y = y - 30
 
 -- Size the panel to whatever the layout actually consumed. Hardcoding a height
@@ -705,7 +705,7 @@ end
 --- anyone. This is the form that actually leaves the game.
 local function reportText()
     local lines = {
-        "MythicMacros Probe report",
+        "Inomrah's MI Probe report",
         ("client %s  toc %s  recorded %s"):format(
             tostring((GetBuildInfo())), tostring(select(4, GetBuildInfo())),
             date("%Y-%m-%d %H:%M:%S")),
@@ -729,7 +729,7 @@ local function reportText()
     return table.concat(lines, "\n")
 end
 
-function MMProbeReport()
+function IMIProbeReport()
     out("|cffffff00========== PROBE REPORT ==========|r")
     for line in reportText():gmatch("[^\n]+") do print("  " .. line) end
     out("|cffffff00===== END =====|r  use |cffffff00Copy report|r to get it out")
@@ -744,7 +744,7 @@ local copyFrame
 
 local function showCopyWindow()
     if not copyFrame then
-        copyFrame = CreateFrame("Frame", "MMProbeCopyFrame", UIParent,
+        copyFrame = CreateFrame("Frame", "IMIProbeCopyFrame", UIParent,
             "BasicFrameTemplateWithInset")
         copyFrame:SetSize(640, 460)
         copyFrame:SetPoint("CENTER")
@@ -759,7 +759,7 @@ local function showCopyWindow()
         title:SetPoint("TOP", copyFrame.TitleBg, "TOP", 0, -5)
         title:SetText("Probe report - already selected, press Cmd-C / Ctrl-C")
 
-        local scroll = CreateFrame("ScrollFrame", "MMProbeCopyScroll", copyFrame,
+        local scroll = CreateFrame("ScrollFrame", "IMIProbeCopyScroll", copyFrame,
             "UIPanelScrollFrameTemplate")
         scroll:SetPoint("TOPLEFT", 14, -32)
         scroll:SetPoint("BOTTOMRIGHT", -34, 14)
@@ -781,7 +781,7 @@ local function showCopyWindow()
     copyFrame.editBox:HighlightText()
 end
 
-function MMProbeShowCopy() showCopyWindow() end
+function IMIProbeShowCopy() showCopyWindow() end
 
 --------------------------------------------------------------------------------
 -- Chat echo detection
@@ -806,7 +806,7 @@ end
 --- and an unreadable message is recorded once rather than raising an error each
 --- time somebody talks.
 ---
---- None of this touches MythicMacros itself, which only ever sends chat.
+--- None of this touches Inomrah's Mythic Instructions itself, which only ever sends chat.
 local secretChatNoted = false
 
 --- Find whatever 12.x exposes for asking "is this value secret?" without
@@ -885,4 +885,4 @@ end)
 -- Slash command
 --------------------------------------------------------------------------------
 
-out("loaded. |cffffff00/mmprobe|r opens the panel.")
+out("loaded. |cffffff00/imiprobe|r opens the panel.")

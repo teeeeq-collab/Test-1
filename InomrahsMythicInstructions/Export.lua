@@ -1,7 +1,7 @@
 --------------------------------------------------------------------------------
 -- Export: sharing a category, and backing up a profile.
 --
--- Format:  !MM1:<adler>!<encoded>
+-- Format:  !IMI1:<adler>!<encoded>
 --
 -- The prefix carries the format version and an Adler-32 of the serialised
 -- payload. Both exist because a truncated paste is the commonest import failure
@@ -15,13 +15,13 @@
 -- teammates is the entire point of this feature.
 --------------------------------------------------------------------------------
 
-local ADDON, MM = ...
+local ADDON, IMI = ...
 
-MM.Export = {}
-local Export = MM.Export
-local Core, Util = MM.Core, MM.Util
+IMI.Export = {}
+local Export = IMI.Export
+local Core, Util = IMI.Core, IMI.Util
 
-local PREFIX  = "!MM1:"
+local PREFIX  = "!IMI1:"
 local VERSION = 1
 
 local Deflate, Serialize
@@ -139,10 +139,10 @@ function Export.Decode(str)
 
     local adlerText, encoded = str:match("^" .. PREFIX .. "(%d+)!(.+)$")
     if not adlerText then
-        if str:match("^!MM") then
-            return nil, nil, "this looks like a MythicMacros string from a newer version"
+        if str:match("^!IMI") then
+            return nil, nil, "this looks like an Inomrah's Mythic Instructions string from a newer version"
         end
-        return nil, nil, "not a MythicMacros export string"
+        return nil, nil, "not an Inomrah's Mythic Instructions export string"
     end
 
     local deflate, serialize = libs()

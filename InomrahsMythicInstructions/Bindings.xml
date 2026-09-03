@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="INOMRAHSMI_ADDTARGET" header="INOMRAHSMI" category="INOMRAHSMI">
+        InomrahsMI_AddTarget()
+    </Binding>
+</Bindings>

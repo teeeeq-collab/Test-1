@@ -9,10 +9,10 @@
 -- appearance from here instead.
 --------------------------------------------------------------------------------
 
-local ADDON, MM = ...
+local ADDON, IMI = ...
 
-MM.Style = {}
-local Style = MM.Style
+IMI.Style = {}
+local Style = IMI.Style
 
 -- Dark blue-grey grounds, a gold rule around anything that is a panel, and one
 -- warm accent reserved for "this is the thing you have selected". The accent

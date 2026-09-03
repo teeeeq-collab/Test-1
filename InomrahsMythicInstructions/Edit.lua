@@ -14,11 +14,11 @@
 -- says so; nothing here should depend on guessing that Enter commits.
 --------------------------------------------------------------------------------
 
-local ADDON, MM = ...
+local ADDON, IMI = ...
 
-MM.Edit = {}
-local Edit = MM.Edit
-local Core, Util = MM.Core, MM.Util
+IMI.Edit = {}
+local Edit = IMI.Edit
+local Core, Util = IMI.Core, IMI.Util
 
 local state = { categoryId = nil, pageId = nil, tab = "enemies" }
 local ui = {}
@@ -32,7 +32,7 @@ local ROW_H, CARD_GAP, INDENT = 22, 8, 14
 local function button(parent, text, w, h, onClick, opts)
     local b = CreateFrame("Button", nil, parent)
     b:SetSize(w, h or 20)
-    MM.Style.Button(b, text, opts)
+    IMI.Style.Button(b, text, opts)
     if onClick then b:SetScript("OnClick", onClick) end
     return b
 end
@@ -40,14 +40,14 @@ end
 local function label(parent, text, template)
     local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontNormalSmall")
     fs:SetText(text or "")
-    fs:SetTextColor(unpack(MM.Style.colors.text))
+    fs:SetTextColor(unpack(IMI.Style.colors.text))
     return fs
 end
 
 local function editBox(parent, maxLetters)
     local eb = CreateFrame("EditBox", nil, parent)
     eb:SetFontObject("ChatFontNormal")
-    MM.Style.EditBox(eb)
+    IMI.Style.EditBox(eb)
     eb:SetHeight(20)
     eb:SetAutoFocus(false)
     eb:SetMaxLetters(maxLetters or 64)
@@ -168,7 +168,7 @@ function Edit.RefreshEnemies()
         name:SetScript("OnEnterPressed", function(self)
             Core.RenameEnemy(state.categoryId, enemy.id, self:GetText())
             self:ClearFocus()
-            MM.UI.RefreshSidebar()
+            IMI.UI.RefreshSidebar()
         end)
         name:SetScript("OnEditFocusLost", function(self)
             Core.RenameEnemy(state.categoryId, enemy.id, self:GetText())
@@ -433,9 +433,9 @@ function Edit.Category() return state.categoryId end
 --------------------------------------------------------------------------------
 
 function Edit.Build(parent)
-    ui.title = MM.Style.Header(parent, "")
+    ui.title = IMI.Style.Header(parent, "")
     ui.title:SetFontObject("GameFontNormalLarge")
-    ui.title:SetTextColor(unpack(MM.Style.colors.goldText))
+    ui.title:SetTextColor(unpack(IMI.Style.colors.goldText))
     ui.title:SetPoint("TOP", 0, -6)
 
     ui.prompt = label(parent, "Pick a dungeon on the left, or make one with New dungeon.")
@@ -446,7 +446,7 @@ function Edit.Build(parent)
     ui.variantLabel = label(parent, "Variant")
     ui.variantLabel:SetPoint("TOPLEFT", 8, -28)
 
-    ui.variant = MM.UI.Dropdown(parent, 130)
+    ui.variant = IMI.UI.Dropdown(parent, 130)
     ui.variant:SetPoint("LEFT", ui.variantLabel, "RIGHT", 6, 0)
 
     ui.variantNew = button(parent, "New", 42, 20, function() Edit.ShowVariantDialog() end)
@@ -639,7 +639,7 @@ function Edit.Build(parent)
     ui.addBtn:SetPoint("BOTTOMLEFT", ui.addBox, "BOTTOMRIGHT", 6, 0)
 
     ui.addTarget = button(parent, "Add target", 78, 20, function()
-        local name, why = MM.Capture.AddTarget("target")
+        local name, why = IMI.Capture.AddTarget("target")
         if name then
             Util.Print(("added |cffffff00%s|r to %s."):format(name, why))
             Edit.RefreshEnemies()
@@ -653,19 +653,19 @@ function Edit.Build(parent)
         if not state.categoryId then
             Util.Print("|cffff4444pick a dungeon first.|r") return
         end
-        local str, err = MM.Export.EncodeCategory(state.categoryId)
+        local str, err = IMI.Export.EncodeCategory(state.categoryId)
         if not str then Util.Print("|cffff4444" .. (err or "failed") .. "|r") return end
         Core.MarkExported()
         Edit.RefreshStaleMarker()
-        MM.UI.ShowExport(("Export: %s"):format(Core.GetCategory(state.categoryId).name), str)
+        IMI.UI.ShowExport(("Export: %s"):format(Core.GetCategory(state.categoryId).name), str)
     end)
     exportBtn:SetPoint("LEFT", ui.addTarget, "RIGHT", 4, 0)
 
     local importBtn = button(parent, "Import", 54, 20, function()
-        MM.UI.ShowImport("Import", function(text)
-            local what, err = MM.Export.Import(text)
+        IMI.UI.ShowImport("Import", function(text)
+            local what, err = IMI.Export.Import(text)
             if what then
-                MM.UI.RefreshCategories()
+                IMI.UI.RefreshCategories()
                 Edit.RefreshEnemies()
             end
             return what, err
@@ -689,7 +689,7 @@ function Edit.ShowVariantDialog()
     end
 
     if not ui.dialog then
-        local d = CreateFrame("Frame", nil, MM.UI.root, "BasicFrameTemplateWithInset")
+        local d = CreateFrame("Frame", nil, IMI.UI.root, "BasicFrameTemplateWithInset")
         d:SetSize(320, 130)
         d:SetPoint("CENTER")
         d:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -800,5 +800,5 @@ function Edit.Refresh()
 end
 
 function Edit.RefreshDungeons()
-    MM.UI.RefreshSidebar()
+    IMI.UI.RefreshSidebar()
 end

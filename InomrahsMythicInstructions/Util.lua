@@ -2,10 +2,10 @@
 -- Util: the macro length guard, and small shared helpers.
 --------------------------------------------------------------------------------
 
-local ADDON, MM = ...
+local ADDON, IMI = ...
 
-MM.Util = {}
-local Util = MM.Util
+IMI.Util = {}
+local Util = IMI.Util
 
 -- Measured on 12.1.0 rather than assumed:
 --

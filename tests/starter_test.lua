@@ -1,8 +1,8 @@
-local MM = {}
-loadfile("MythicMacros/Util.lua")("MythicMacros", MM)
-loadfile("MythicMacros/Core.lua")("MythicMacros", MM)
-loadfile("MythicMacros/Starter.lua")("MythicMacros", MM)
-local Core, Starter = MM.Core, MM.Starter
+local IMI = {}
+loadfile("InomrahsMythicInstructions/Util.lua")("InomrahsMythicInstructions", IMI)
+loadfile("InomrahsMythicInstructions/Core.lua")("InomrahsMythicInstructions", IMI)
+loadfile("InomrahsMythicInstructions/Starter.lua")("InomrahsMythicInstructions", IMI)
+local Core, Starter = IMI.Core, IMI.Starter
 
 local pass, fail = 0, 0
 local function check(label, cond, extra)

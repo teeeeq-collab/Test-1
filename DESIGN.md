@@ -1,4 +1,4 @@
-# MythicMacros — design
+# Inomrah's Mythic Instructions — design
 
 Personal Mythic+ callout addon. A small window of labelled buttons; each button
 fires a real macro, typically one line of instruction to the party. Built so
@@ -192,7 +192,7 @@ belongs.
 The payload is wrapped rather than exported bare:
 
 ```
-!MM1!<encoded>
+!IMI1:<adler>!<encoded>
 ```
 
 The prefix identifies format and version, so a future format change is detected
@@ -251,7 +251,7 @@ nothing threw.
 Chat received inside an instance arrives as a Secret Value: the message is
 delivered, but an addon touching its contents throws. Messages the addon sent
 itself read normally, which is how the echo checks worked at all. This cannot
-affect MythicMacros, which only sends chat, but it rules out any future feature
+affect Inomrah's Mythic Instructions, which only sends chat, but it rules out any future feature
 needing to see what was said.
 
 ### During a boss encounter: sending works, observing does not
@@ -269,10 +269,10 @@ A screenshot of the chat frame during the encounter shows both messages
 delivered to instance chat, interleaved with the run-5 click records:
 
 ```
-MMProbe B.click.macrotext.chat.5 = CLICKED (in combat)
-08:36 [Instance] [Inomrah]: MMProbe-MT check
-MMProbe B.click.realmacro.chat.5 = CLICKED (in combat)
-08:36 [Instance] [Inomrah]: MMProbe-RM check
+IMIProbe B.click.macrotext.chat.5 = CLICKED (in combat)
+08:36 [Instance] [Inomrah]: IMIProbe-MT check
+IMIProbe B.click.realmacro.chat.5 = CLICKED (in combat)
+08:36 [Instance] [Inomrah]: IMIProbe-RM check
 ```
 
 So during an active boss encounter, in combat: **chat from a macro is sent and
@@ -283,7 +283,7 @@ That distinction matters because the two are indistinguishable from inside Lua,
 and reading the absent echo as a block would have condemned the whole design on
 the strength of missing bookkeeping.
 
-MythicMacros only ever sends. It never reads chat. So the restriction that does
+Inomrah's Mythic Instructions only ever sends. It never reads chat. So the restriction that does
 exist is one it never touches.
 
 ### In a live keystone

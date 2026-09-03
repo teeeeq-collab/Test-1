@@ -21,12 +21,12 @@
 -- combat permits.
 --------------------------------------------------------------------------------
 
-local ADDON, MM = ...
+local ADDON, IMI = ...
 
-MM.Runtime = {}
-local Runtime = MM.Runtime
-local Util = MM.Util
-local Core = MM.Core
+IMI.Runtime = {}
+local Runtime = IMI.Runtime
+local Util = IMI.Util
+local Core = IMI.Core
 
 local frames = {
     pages   = {},   -- page frame pool, index-keyed
@@ -78,7 +78,7 @@ local manager
 
 local function ensureManager(parent)
     if manager then return manager end
-    manager = CreateFrame("Frame", "MythicMacrosPager", parent, "SecureHandlerBaseTemplate")
+    manager = CreateFrame("Frame", "InomrahsMIPager", parent, "SecureHandlerBaseTemplate")
     manager:SetSize(1, 1)
     manager:SetPoint("TOPLEFT")
     return manager
@@ -121,7 +121,7 @@ local function acquirePage(parent, index)
     local page = frames.pages[index]
     if page then return page end
 
-    page = CreateFrame("Frame", "MythicMacrosPage" .. index, parent,
+    page = CreateFrame("Frame", "InomrahsMIPage" .. index, parent,
         "SecureHandlerBaseTemplate")
     page:SetAllPoints(parent)
     page:Hide()
@@ -142,7 +142,7 @@ local function acquireButton(pageIndex, page, buttonIndex)
     local button = pool[buttonIndex]
     if button then return button end
 
-    button = CreateFrame("Button", ("MythicMacrosBtn%d_%d"):format(pageIndex, buttonIndex),
+    button = CreateFrame("Button", ("InomrahsMIBtn%d_%d"):format(pageIndex, buttonIndex),
         page, "SecureActionButtonTemplate")
     button:SetSize(BUTTON_W, BUTTON_H)
     -- Both directions, matching the configuration the probe proved fires. An
@@ -158,7 +158,7 @@ local function acquireButton(pageIndex, page, buttonIndex)
 
     -- Same appearance as every other button, from the same place, so a callout
     -- does not look like a different kind of control from the ones around it.
-    MM.Style.Button(button, "", { justify = "LEFT" })
+    IMI.Style.Button(button, "", { justify = "LEFT" })
 
     pool[buttonIndex] = button
     return button
@@ -200,7 +200,7 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
         if not header then
             page.headers = page.headers or {}
             header = page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            header:SetTextColor(unpack(MM.Style.colors.goldText))
+            header:SetTextColor(unpack(IMI.Style.colors.goldText))
             page.headers[enemy.id] = header
         end
         header:ClearAllPoints()

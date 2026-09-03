@@ -38,11 +38,11 @@ outside:
 
 - **Interface clarity.** Reported as "could be clearer" after the sidebar
   rewrite; specifics not yet gathered.
-- **Folder rename.** The addon displays as Inomrah's Mythic Instructions but its
-  folder is still `MythicMacros`, because WoW keys saved data to the folder name
-  and renaming it would orphan everything entered. Needs a migration before
-  publishing. The keybinding identifier is unchanged for the same reason:
-  changing it silently drops the bound key.
+- **Re-bind after the rename.** The binding identifier moved with everything
+  else, so a key bound to **Add target as enemy** under the old name is gone and
+  has to be set again under Key Bindings → Inomrah's Mythic Instructions. Saved
+  dungeons from the old folder do not carry over either; that was accepted
+  explicitly, there being nothing saved yet worth a migration.
 
 ## What the design rests on
 

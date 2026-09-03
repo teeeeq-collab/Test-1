@@ -1,12 +1,12 @@
 strmatch = string.match
-local MM = {}
-loadfile("MythicMacros/Libs/LibStub/LibStub.lua")()
-loadfile("MythicMacros/Libs/LibDeflate/LibDeflate.lua")()
-loadfile("MythicMacros/Libs/LibSerialize/LibSerialize.lua")()
-loadfile("MythicMacros/Util.lua")("MythicMacros", MM)
-loadfile("MythicMacros/Core.lua")("MythicMacros", MM)
-loadfile("MythicMacros/Export.lua")("MythicMacros", MM)
-local Core, Export = MM.Core, MM.Export
+local IMI = {}
+loadfile("InomrahsMythicInstructions/Libs/LibStub/LibStub.lua")()
+loadfile("InomrahsMythicInstructions/Libs/LibDeflate/LibDeflate.lua")()
+loadfile("InomrahsMythicInstructions/Libs/LibSerialize/LibSerialize.lua")()
+loadfile("InomrahsMythicInstructions/Util.lua")("InomrahsMythicInstructions", IMI)
+loadfile("InomrahsMythicInstructions/Core.lua")("InomrahsMythicInstructions", IMI)
+loadfile("InomrahsMythicInstructions/Export.lua")("InomrahsMythicInstructions", IMI)
+local Core, Export = IMI.Core, IMI.Export
 
 local pass, fail = 0, 0
 local function check(label, cond, extra)
@@ -30,7 +30,7 @@ Core.AddEnemyToPage(cat.id, p2.id, m.id)   -- shared across pages
 -- Round trip -----------------------------------------------------------------
 local str = Export.EncodeCategory(cat.id)
 check("encodes", type(str) == "string")
-check("has envelope", str:match("^!MM1:%d+!") ~= nil)
+check("has envelope", str:match("^!IMI1:%d+!") ~= nil)
 print(("  category string: %d chars"):format(#str))
 
 local before = #Core.Categories()
@@ -132,7 +132,7 @@ local legacy = {
 local Deflate   = LibStub("LibDeflate")
 local Serialize = LibStub("LibSerialize")
 local ser = Serialize:Serialize({ v = 1, kind = "category", data = legacy })
-local oldStr = ("!MM1:%d!%s"):format(Deflate:Adler32(ser),
+local oldStr = ("!IMI1:%d!%s"):format(Deflate:Adler32(ser),
     Deflate:EncodeForPrint(Deflate:CompressDeflate(ser, { level = 9 })))
 
 local owhat, oerr = Export.Import(oldStr)

@@ -16,11 +16,11 @@
 -- order.
 --------------------------------------------------------------------------------
 
-local ADDON, MM = ...
+local ADDON, IMI = ...
 
-MM.Core = {}
-local Core = MM.Core
-local Util = MM.Util
+IMI.Core = {}
+local Core = IMI.Core
+local Util = IMI.Util
 
 local DB_VERSION = 1
 

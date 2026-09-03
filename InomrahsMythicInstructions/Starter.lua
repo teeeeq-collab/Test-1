@@ -15,11 +15,11 @@
 -- is not "verified".
 --------------------------------------------------------------------------------
 
-local ADDON, MM = ...
+local ADDON, IMI = ...
 
-MM.Starter = {}
-local Starter = MM.Starter
-local Core = MM.Core
+IMI.Starter = {}
+local Starter = IMI.Starter
+local Core = IMI.Core
 
 -- Mythic+ Season 2, patch 12.1. Five Midnight dungeons and three returning.
 local SEASON = {

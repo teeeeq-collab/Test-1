@@ -1,8 +1,8 @@
 -- Exercise the character logic without WoW's strlenutf8 present.
-local MM = {}
-local chunk = loadfile("MythicMacros/Util.lua")
-chunk("MythicMacros", MM)
-local U = MM.Util
+local IMI = {}
+local chunk = loadfile("InomrahsMythicInstructions/Util.lua")
+chunk("InomrahsMythicInstructions", IMI)
+local U = IMI.Util
 
 local euro = string.rep("\226\130\172", 120)          -- 120 chars, 360 bytes
 local ascii = string.rep("x", 300)                     -- 300 chars, 300 bytes
