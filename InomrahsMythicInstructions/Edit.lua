@@ -802,3 +802,11 @@ end
 function Edit.RefreshDungeons()
     IMI.UI.RefreshSidebar()
 end
+
+--- Just the heading. Renaming a dungeon from the sidebar must not go through
+--- SetCategory, which clears the selected page: changing a name should not move
+--- you somewhere else in the editor.
+function Edit.RefreshTitle()
+    local cat = state.categoryId and Core.GetCategory(state.categoryId)
+    ui.title:SetText(cat and cat.name or "")
+end

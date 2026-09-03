@@ -57,13 +57,34 @@ local function newFrame(frameType, name, parent, template)
     f.SetScale      = function(self, v) self.scale = v end
     f.SetAlpha      = function(self, v) self.alpha = v end
     f.GetPoint      = function(self) return "CENTER", nil, "CENTER", 0, 0 end
+    -- Screen geometry. Modelled because the unmodelled-method fallback returns
+    -- the frame itself, and the drag maths would then do arithmetic on a table
+    -- — an error the stub would be inventing rather than catching.
+    f.GetTop            = function(self) return 600 end
+    f.GetBottom         = function(self) return 0 end
+    f.GetLeft           = function(self) return 0 end
+    f.GetRight          = function(self) return self.width end
+    f.GetEffectiveScale = function(self) return self.scale end
+    f.GetFrameLevel     = function(self) return self.level or 1 end
+    f.SetFrameLevel     = function(self, v) self.level = v end
     f.SetAttribute  = function(self, k, v) self.attributes[k] = v end
     f.GetAttribute  = function(self, k) return self.attributes[k] end
     f.SetFrameRef   = function(self, k, v) self.attributes["ref:" .. k] = v end
     f.GetFrameRef   = function(self, k) return self.attributes["ref:" .. k] end
     f.SetScript     = function(self, e, fn) self.scripts[e] = fn end
     f.GetScript     = function(self, e) return self.scripts[e] end
-    f.HookScript    = function(self, e, fn) self.scripts[e] = fn end
+    -- Chains rather than replaces, which is the difference that matters: code
+    -- hooking a script it does not own expects the original to keep running,
+    -- and a stub that silently drops it hides exactly the bug being guarded
+    -- against.
+    f.HookScript    = function(self, e, fn)
+        local existing = self.scripts[e]
+        if existing then
+            self.scripts[e] = function(...) existing(...) return fn(...) end
+        else
+            self.scripts[e] = fn
+        end
+    end
     f.GetText       = function(self) return self.text or "" end
     f.SetText       = function(self, t) self.text = t end
     f.SetTextColor  = function(self, r, g, b, a) self.color = { r, g, b, a } end
@@ -105,6 +126,7 @@ function M.install()
     _G.UnitExists = function() return false end
     _G.UnitName   = function() return nil end
     _G.GetTime    = function() return 0 end
+    _G.GetCursorPosition = function() return 0, 0 end
     _G.wipe       = function(t) for k in pairs(t) do t[k] = nil end return t end
     _G.ChatFontNormal = {}
     _G.SlashCmdList = {}

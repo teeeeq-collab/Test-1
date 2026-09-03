@@ -259,5 +259,170 @@ check("binding the page arrows", function()
     if not IMI.Runtime.BindArrow(arrows.next, 1) then error("next refused") end
 end)
 
+--------------------------------------------------------------------------------
+-- The dungeon list: rename in place, drag to reorder, delete.
+--------------------------------------------------------------------------------
+
+-- The drop maths, on its own. Rows are 24 apart starting 4 below the list top,
+-- so these are the exact boundaries a cursor crosses.
+check("a drop lands in the row under the cursor", function()
+    local top = 600
+    local function slot(y) return IMI.UI.DropIndex(top, y, 5) end
+
+    if slot(600 - 4) ~= 1 then error("the top of the first row is not slot 1") end
+    if slot(600 - 4 - 23) ~= 1 then error("the bottom of the first row left slot 1") end
+    if slot(600 - 4 - 24) ~= 2 then error("crossing into the second row missed it") end
+    if slot(600 - 4 - 24 * 4) ~= 5 then error("the fifth row is not slot 5") end
+
+    -- Off either end of the list means the nearest end, not a refusal.
+    if slot(9999) ~= 1 then error("above the list should clamp to the top") end
+    if slot(-9999) ~= 5 then error("below the list should clamp to the bottom") end
+    if IMI.UI.DropIndex(top, 0, 0) ~= 1 then error("an empty list should still answer") end
+end)
+
+check("renaming a dungeon on its row", function()
+    IMI.Core.Init({})
+    local a = IMI.Core.AddCategory("Typo Hall")
+    IMI.Core.AddCategory("Second")
+    IMI.UI.Show("edit")
+    IMI.UI.RefreshSidebar()
+
+    local row = IMI.UI.SidebarRows()[1]
+    if row:GetText() ~= "Typo Hall" then error("row does not show the dungeon name") end
+
+    row:GetScript("OnDoubleClick")(row)
+    if not row.rename:IsShown() then error("double-click did not open the name for editing") end
+    if row.rename:GetText() ~= "Typo Hall" then error("the box did not start from the old name") end
+
+    -- Enter and clicking away both end in lost focus, which is where the commit
+    -- lives, so that is the path driven here.
+    row.rename:SetText("Grand Hall")
+    row.rename:GetScript("OnEditFocusLost")(row.rename)
+
+    if IMI.Core.GetCategory(a.id).name ~= "Grand Hall" then error("the rename did not stick") end
+    if row.rename:IsShown() then error("the box stayed open after committing") end
+    if IMI.UI.SidebarRows()[1]:GetText() ~= "Grand Hall" then error("the row still shows the old name") end
+end)
+
+check("escape abandons a rename", function()
+    IMI.Core.Init({})
+    local a = IMI.Core.AddCategory("Keep This")
+    IMI.UI.Show("edit")
+    IMI.UI.RefreshSidebar()
+
+    local row = IMI.UI.SidebarRows()[1]
+    row:GetScript("OnDoubleClick")(row)
+    row.rename:SetText("Discard me")
+    row.rename:GetScript("OnEscapePressed")(row.rename)
+    row.rename:GetScript("OnEditFocusLost")(row.rename)
+
+    if IMI.Core.GetCategory(a.id).name ~= "Keep This" then
+        error("escape committed the edit anyway")
+    end
+end)
+
+check("dragging a row moves the dungeon", function()
+    IMI.Core.Init({})
+    for _, name in ipairs({ "One", "Two", "Three" }) do IMI.Core.AddCategory(name) end
+    IMI.UI.Show("edit")
+    IMI.UI.RefreshSidebar()
+
+    -- The stubbed cursor sits at the bottom of the world, so any drop is "last".
+    local row = IMI.UI.SidebarRows()[1]
+    row:GetScript("OnDragStart")(row)
+    row:GetScript("OnDragStop")(row)
+
+    local names = {}
+    for _, cat in ipairs(IMI.Core.Categories()) do names[#names + 1] = cat.name end
+    if table.concat(names, ",") ~= "Two,Three,One" then
+        error("after dragging the first row down: " .. table.concat(names, ","))
+    end
+end)
+
+-- Deleting a dungeon costs everything in it, so one click arms and the second
+-- deletes. A single click must never be enough.
+check("deleting takes two clicks", function()
+    IMI.Core.Init({})
+    local doomed = IMI.Core.AddCategory("Doomed")
+    IMI.Core.AddCategory("Survivor")
+    IMI.UI.Show("edit")
+    IMI.UI.RefreshSidebar()
+
+    local row = IMI.UI.SidebarRows()[1]
+    if not row.del:IsShown() then error("no delete button in the edit view") end
+
+    row.del:GetScript("OnClick")(row.del)
+    if IMI.Core.GetCategory(doomed.id) == nil then error("one click deleted it") end
+    if row.del:GetText() ~= "?" then error("the armed button does not say so") end
+
+    row.del:GetScript("OnClick")(row.del)
+    if IMI.Core.GetCategory(doomed.id) ~= nil then error("the second click did not delete") end
+    if #IMI.Core.Categories() ~= 1 then error("the wrong number of dungeons survived") end
+end)
+
+check("moving off the delete button disarms it", function()
+    IMI.Core.Init({})
+    local safe = IMI.Core.AddCategory("Safe")
+    IMI.UI.Show("edit")
+    IMI.UI.RefreshSidebar()
+
+    local row = IMI.UI.SidebarRows()[1]
+    row.del:GetScript("OnClick")(row.del)
+    row.del:GetScript("OnLeave")(row.del)      -- chained: repaint, then disarm
+    if row.del:GetText() ~= "x" then error("the button stayed armed after leaving it") end
+
+    row.del:GetScript("OnClick")(row.del)      -- so this only re-arms
+    if IMI.Core.GetCategory(safe.id) == nil then error("a disarmed button still deleted") end
+end)
+
+check("deleting the open dungeon selects its neighbour", function()
+    IMI.Core.Init({})
+    local first = IMI.Core.AddCategory("First")
+    local second = IMI.Core.AddCategory("Second")
+    IMI.UI.Show("edit")
+    IMI.UI.RefreshSidebar()
+
+    IMI.UI.SidebarRows()[1]:GetScript("OnClick")()
+    if IMI.UI.SelectedCategory() ~= first.id then error("clicking a row did not select it") end
+
+    local row = IMI.UI.SidebarRows()[1]
+    row.del:GetScript("OnClick")(row.del)
+    row.del:GetScript("OnClick")(row.del)
+
+    if IMI.UI.SelectedCategory() ~= second.id then
+        error("deleting the selected dungeon left the selection dangling")
+    end
+end)
+
+check("deleting the last dungeon leaves nothing selected", function()
+    IMI.Core.Init({})
+    IMI.Core.AddCategory("Only")
+    IMI.UI.Show("edit")
+    IMI.UI.RefreshSidebar()
+
+    local row = IMI.UI.SidebarRows()[1]
+    IMI.UI.SidebarRows()[1]:GetScript("OnClick")()
+    row.del:GetScript("OnClick")(row.del)
+    row.del:GetScript("OnClick")(row.del)
+
+    if #IMI.Core.Categories() ~= 0 then error("the dungeon survived") end
+    if IMI.UI.SelectedCategory() ~= nil then error("something is still selected") end
+    IMI.UI.RefreshSidebar()          -- and an empty list still draws
+end)
+
+-- Run is a way in and nothing else. A slipped drag or a stray double-click
+-- mid-key must not be able to rearrange the list or cost a dungeon.
+check("Run cannot rename, reorder or delete", function()
+    IMI.Core.Init({})
+    IMI.Core.AddCategory("Untouchable")
+    IMI.UI.Show("run")
+    IMI.UI.RefreshSidebar()
+
+    local row = IMI.UI.SidebarRows()[1]
+    if row.del:IsShown() then error("the delete button is reachable from Run") end
+    if row:GetScript("OnDoubleClick") then error("double-click renames from Run") end
+    if row:GetScript("OnDragStart") then error("rows can be dragged in Run") end
+end)
+
 realPrint(("\n%d passed, %d failed"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

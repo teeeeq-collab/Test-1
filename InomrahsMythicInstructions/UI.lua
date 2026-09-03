@@ -33,6 +33,12 @@ local lastPage = {}
 
 local BAR_H, SIDE_W = 24, 168
 
+-- The sidebar list is a fixed grid: row height, the gap-inclusive pitch between
+-- them, and the inset above the first. Dropping a dragged row works out which
+-- slot the cursor is over by dividing by the pitch, so these three have to be
+-- the numbers actually used to lay the rows out, not a second copy of them.
+local ROW_H, ROW_PITCH, LIST_TOP = 22, 24, 4
+
 --------------------------------------------------------------------------------
 -- Widgets
 --------------------------------------------------------------------------------
@@ -144,6 +150,17 @@ end
 
 local sidebarRows = {}
 
+-- A drag has a state between the press and the release that is neither "nothing
+-- is happening" nor a committed move. It lives here rather than on the row,
+-- because a refresh can recycle the row it started on before the mouse comes
+-- back up.
+local dragState = { id = nil, target = nil }
+
+-- Deleting a dungeon throws away every variant, enemy, line and page inside it
+-- — far more than any other delete in this addon. So the button arms on the
+-- first click and deletes on the second, and only ever one row is armed.
+local armedRow = nil
+
 local function selectCategory(id)
     -- Opening a different dungeon ends the previous one's route memory.
     if selected.categoryId and selected.categoryId ~= id then
@@ -165,30 +182,239 @@ function UI.SelectedCategory()
     return selected.categoryId
 end
 
+--- The dungeon rows, in list order. Exposed for the same reason UI.Arrows is:
+--- the rows carry the rename, reorder and delete behaviour, and there is no
+--- other way to reach it from a test.
+function UI.SidebarRows()
+    return sidebarRows
+end
+
+--- Puts Run back to its nothing-selected state. Both Back and deleting the
+--- dungeon you were looking at end up here.
+local function clearRun()
+    Runtime.HideAll()
+    views.run.title:SetText("")
+    views.run.prompt:SetText("Pick a dungeon on the left.")
+    views.run.prompt:Show()
+    if views.run.variant then views.run.variant:Hide() end
+end
+
+local function disarmDelete()
+    if armedRow then
+        armedRow.del:SetText("x")
+        armedRow = nil
+    end
+end
+
+local function deleteCategory(id)
+    -- Run has this dungeon's secure buttons on screen and hiding those is
+    -- refused in combat. Only this one case is blocked: deleting some other
+    -- dungeon mid-key touches nothing protected.
+    if InCombatLockdown() and Runtime.BuiltCategory() == id then
+        Util.Print("|cffff4444can't delete the dungeon you are running, in combat.|r")
+        return
+    end
+
+    local cats = Core.Categories()
+    local index = Util.IndexById(cats, id)
+    local cat = Core.GetCategory(id)
+    local name = cat and cat.name or "dungeon"
+    if not Core.DeleteCategory(id) then return end
+
+    lastPage[id] = nil
+    if Runtime.BuiltCategory() == id then clearRun() end
+
+    -- The list closes up around the gap, so the dungeon that slid into the
+    -- deleted one's place is the one to show. Deleting the last leaves nothing
+    -- selected rather than jumping to the top.
+    if selected.categoryId == id then
+        selected.categoryId = nil
+        local neighbour = cats[index] or cats[#cats]
+        if neighbour then
+            selectCategory(neighbour.id)
+        else
+            IMI.Capture.SetCategory(nil)
+            clearRun()
+            IMI.Edit.SetCategory(nil)
+        end
+    end
+
+    UI.RefreshSidebar()
+    Util.Print(("deleted |cffffff00%s|r."):format(name))
+end
+
+--- Which slot in the list a point sits in, counting from 1.
+---
+--- Split out as plain arithmetic because it is the one part of dragging that
+--- can be tested without a client: everything else needs a real cursor. Out of
+--- range clamps to an end, so dragging past the last row means "put it last".
+function UI.DropIndex(listTop, cursorY, count)
+    if count <= 0 then return 1 end
+    local slot = math.floor((listTop - LIST_TOP - cursorY) / ROW_PITCH) + 1
+    if slot < 1 then slot = 1 end
+    if slot > count then slot = count end
+    return slot
+end
+
+--- Where the cursor is in the list, or nil if the client will not say. Guarded
+--- rather than trusted: GetCursorPosition is one of the calls that returns
+--- nothing at all in some frames, and arithmetic on that is a Lua error in
+--- the middle of a drag.
+local function cursorSlot()
+    if type(GetCursorPosition) ~= "function" then return nil end
+    local _, y = GetCursorPosition()
+    local scale = sidebar.list:GetEffectiveScale()
+    local top = sidebar.list:GetTop()
+    if type(y) ~= "number" or type(scale) ~= "number" or type(top) ~= "number"
+        or scale == 0 then
+        return nil
+    end
+    return UI.DropIndex(top, y / scale, #Core.Categories())
+end
+
+local function dragUpdate()
+    local slot = cursorSlot()
+    if not slot then return end
+    dragState.target = slot
+
+    local line = sidebar.dropLine
+    if not line then return end
+    line:ClearAllPoints()
+    line:SetPoint("TOPLEFT", sidebar.list, "TOPLEFT", 6,
+        -(LIST_TOP + (slot - 1) * ROW_PITCH) + 1)
+    line:SetWidth(SIDE_W - 16)
+    line:Show()
+end
+
+local function endDrag()
+    sidebar:SetScript("OnUpdate", nil)
+    if sidebar.dropLine then sidebar.dropLine:Hide() end
+
+    local id, target = dragState.id, dragState.target
+    dragState.id, dragState.target = nil, nil
+    if id and target then Core.MoveCategoryTo(id, target) end
+    UI.RefreshSidebar()
+end
+
+local function newSidebarRow()
+    local row = panelButton(sidebar.list, "", SIDE_W - 16, ROW_H, nil,
+        { justify = "LEFT" })
+
+    -- Leaves room for the delete button, so a long dungeon name stops short of
+    -- it rather than running underneath it.
+    row.label:SetPoint("RIGHT", -24, 0)
+
+    row.del = panelButton(row, "x", 18, 18, nil, { danger = true })
+    row.del:SetPoint("RIGHT", -2, 0)
+
+    -- Both of these sit on top of the row rather than beside it, and a frame
+    -- only draws above another by having a higher level. Left to the default
+    -- they would be somewhere under the row's own background, which reads as
+    -- the button simply not being there.
+    row.del:SetFrameLevel(row:GetFrameLevel() + 2)
+
+    -- Moving off the button is the answer "no": nothing stays armed behind your
+    -- back waiting for an unrelated click to land on it. Hooked once here and
+    -- not per refresh, because HookScript appends rather than replaces and a
+    -- pooled row would collect one more of these every time the list redrew.
+    row.del:HookScript("OnLeave", disarmDelete)
+
+    -- Renaming happens on the row itself, so a name is edited where it is read
+    -- rather than in a field somewhere else that has to say which row it means.
+    row.rename = CreateFrame("EditBox", nil, row)
+    row.rename:SetFontObject("ChatFontNormal")
+    IMI.Style.EditBox(row.rename)
+    row.rename:SetAllPoints()
+    row.rename:SetAutoFocus(false)
+    row.rename:SetMaxLetters(64)
+    row.rename:SetFrameLevel(row:GetFrameLevel() + 1)
+    row.rename:Hide()
+
+    row:RegisterForDrag("LeftButton")
+    return row
+end
+
 function UI.RefreshSidebar()
+    disarmDelete()
     for _, row in ipairs(sidebarRows) do row:Hide() end
 
-    local y = -4
+    -- Rearranging and deleting belong to Edit. In Run the list is a way in and
+    -- nothing else: a stray double-click or a slipped drag mid-key should not
+    -- be able to rename a dungeon, reorder the list, or cost you one.
+    local editable = (currentView == "edit")
+
+    local y = -LIST_TOP
     for i, cat in ipairs(Core.Categories()) do
         local row = sidebarRows[i]
         if not row then
-            row = panelButton(sidebar.list, "", SIDE_W - 16, 22, nil,
-                { justify = "LEFT" })
+            row = newSidebarRow()
             sidebarRows[i] = row
         end
+
         row:SetPoint("TOPLEFT", sidebar.list, "TOPLEFT", 6, y)
         row:SetText(cat.name)
+        row:SetAlpha(1)
+        row.rename:Hide()
         row:SetScript("OnClick", function() selectCategory(cat.id) end)
+
+        row.del:SetShown(editable)
+        row.del:SetText("x")
+        row.del:SetScript("OnClick", function(self)
+            if armedRow ~= row then
+                disarmDelete()
+                armedRow = row
+                self:SetText("?")
+                return
+            end
+            armedRow = nil
+            deleteCategory(cat.id)
+        end)
+
+        row:SetScript("OnDoubleClick", editable and function()
+            row.rename:SetText(cat.name)
+            row.rename:Show()
+            row.rename:SetFocus()
+            row.rename:HighlightText()
+        end or nil)
+
+        -- Enter and click-away both commit, Escape abandons. Committing on lost
+        -- focus is what the enemy name boxes already do, so a name typed and
+        -- then clicked away from is kept rather than quietly dropped.
+        row.rename:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+        row.rename:SetScript("OnEscapePressed", function(self)
+            self.cancelled = true
+            self:ClearFocus()
+        end)
+        row.rename:SetScript("OnEditFocusLost", function(self)
+            self:Hide()
+            if self.cancelled then self.cancelled = nil; return end
+            if not Core.RenameCategory(cat.id, self:GetText()) then return end
+
+            UI.RefreshSidebar()
+            if Runtime.BuiltCategory() == cat.id then
+                views.run.title:SetText(self:GetText())
+            end
+            if currentView == "edit" then IMI.Edit.RefreshTitle() end
+        end)
+
+        row:SetScript("OnDragStart", editable and function()
+            dragState.id, dragState.target = cat.id, i
+            row:SetAlpha(0.5)
+            sidebar:SetScript("OnUpdate", dragUpdate)
+            dragUpdate()
+        end or nil)
+        row:SetScript("OnDragStop", editable and endDrag or nil)
 
         -- The selected dungeon is highlighted, so which one the right panel is
         -- showing never has to be inferred from its heading.
         if cat.id == selected.categoryId then row:LockHighlight() else row:UnlockHighlight() end
 
         row:Show()
-        y = y - 24
+        y = y - ROW_PITCH
     end
 
     sidebar.empty:SetShown(#Core.Categories() == 0)
+    sidebar.hint:SetShown(editable and #Core.Categories() > 0)
     sidebar.list:SetHeight(math.max(20, math.abs(y)))
 end
 
@@ -386,11 +612,7 @@ function UI.Init()
     sidebar.back = panelButton(sidebar, "Back", SIDE_W - 16, 22, function()
         UI.RememberPage()
         selected.categoryId = nil
-        Runtime.HideAll()
-        views.run.title:SetText("")
-        views.run.prompt:SetText("Pick a dungeon on the left.")
-        views.run.prompt:Show()
-        if views.run.variant then views.run.variant:Hide() end
+        clearRun()
         IMI.Edit.SetCategory(nil)
         UI.RefreshSidebar()
     end)
@@ -418,13 +640,30 @@ function UI.Init()
 
     local listScroll = CreateFrame("ScrollFrame", nil, sidebar, "UIPanelScrollFrameTemplate")
     listScroll:SetPoint("TOPLEFT", 0, -24)
-    listScroll:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", -24, 82)
+    listScroll:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", -24, 106)
     sidebar.list = CreateFrame("Frame", nil, listScroll)
     sidebar.list:SetSize(SIDE_W - 24, 40)
     listScroll:SetScrollChild(sidebar.list)
 
+    -- Where a dragged row would land. Drawn on the list rather than moving the
+    -- row itself: the row stays in place and slightly faded, so the list never
+    -- reflows under the cursor while you are aiming at a gap in it.
+    sidebar.dropLine = sidebar.list:CreateTexture(nil, "OVERLAY")
+    sidebar.dropLine:SetColorTexture(unpack(IMI.Style.colors.accent))
+    sidebar.dropLine:SetHeight(2)
+    sidebar.dropLine:Hide()
+
     sidebar.empty = fontString(sidebar, "|cffaaaaaaNothing yet.|r")
     sidebar.empty:SetPoint("TOPLEFT", 10, -30)
+
+    -- Neither renaming nor reordering leaves a mark on the panel, so they are
+    -- said once here instead of being found by accident.
+    sidebar.hint = fontString(sidebar,
+        "|cff8a8a8fDouble-click a name to rename it.\nDrag a row to reorder.|r")
+    sidebar.hint:SetPoint("BOTTOMLEFT", sidebar.newName, "TOPLEFT", 0, 6)
+    sidebar.hint:SetWidth(SIDE_W - 20)
+    sidebar.hint:SetJustifyH("LEFT")
+    sidebar.hint:Hide()
 
     -- Content ------------------------------------------------------------------
     content = CreateFrame("Frame", nil, body)

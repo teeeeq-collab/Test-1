@@ -10,6 +10,7 @@ that produced it.
 - Enemy reordering and sorting; pages and page composition
 - Export and import strings
 - `/imi starter` (the eight Season 2 dungeons), `Add target` keybind
+- Renaming, reordering and deleting dungeons in the Edit sidebar
 
 ## Known to have been broken, now fixed
 
@@ -37,7 +38,9 @@ causes that look identical from outside:
 ## Also open
 
 - **Interface clarity.** Reported as "could be clearer" after the sidebar
-  rewrite; specifics not yet gathered.
+  rewrite. One concrete part of it is now done — the dungeon list can be
+  renamed, reordered and pruned — but the rest of the specifics are still not
+  gathered.
 - **Re-bind after the rename.** The binding identifier moved with everything
   else, so a key bound to **Add target as enemy** under the old name is gone and
   has to be set again under Key Bindings → Inomrah's Mythic Instructions. Saved

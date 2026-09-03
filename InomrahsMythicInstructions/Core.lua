@@ -352,6 +352,25 @@ function Core.MoveCategory(id, delta)
     return Util.Move(Core.Categories(), index, delta)
 end
 
+--- Move to a position rather than by a step. A drag knows where it was dropped,
+--- and turning that back into a delta only to add it again is a chance to be
+--- off by one for no gain. Out-of-range targets are clamped rather than
+--- refused: the cursor can leave the list, and the nearest end is what was
+--- meant.
+function Core.MoveCategoryTo(id, target)
+    local cats = Core.Categories()
+    local index = Util.IndexById(cats, id)
+    if not index or #cats == 0 then return nil end
+
+    target = math.floor(tonumber(target) or index)
+    if target < 1 then target = 1 end
+    if target > #cats then target = #cats end
+    if target == index then return index end
+
+    edited()
+    return Util.Move(cats, index, target - index)
+end
+
 --------------------------------------------------------------------------------
 -- Enemies
 --------------------------------------------------------------------------------

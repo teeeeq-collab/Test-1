@@ -34,6 +34,26 @@ skeleton each. `/imi demo` instead creates one sample dungeon with content in it
 covering the shapes that matter — a one-line enemy, a two-line one, a boss laid
 out three across, and one enemy shared between two pages.
 
+### The dungeon list
+
+The list on the left is the same in Run and Edit, but only Edit lets you change
+it. In Edit each row can be:
+
+- **renamed** — double-click the name and type over it. Enter or clicking away
+  keeps the change, Escape abandons it.
+- **reordered** — drag a row up or down. An orange line shows where it will
+  land; drop past either end to send it to the top or the bottom.
+- **deleted** — the red `x` at the right of the row. It arms on the first click
+  and reads `?`; the second click deletes. Moving off the button cancels.
+
+Deleting a dungeon takes every variant, enemy, line and page in it, and nothing
+undoes that — export the profile first if you might want it back. The one time
+it is refused is deleting the dungeon you are currently running, in combat:
+its buttons are on screen and hiding those mid-fight is not allowed.
+
+Run shows the same list with none of this attached, so a slipped drag or a stray
+double-click mid-key cannot rearrange anything.
+
 ### Filling in the enemies
 
 The starter dungeons arrive empty of trash, deliberately. Trash names for the

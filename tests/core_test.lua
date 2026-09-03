@@ -226,3 +226,62 @@ ck3("migrating twice changes nothing", #Core.GetCategory("catOld").variants == 1
 
 print(("variants: %d passed, %d failed"):format(p3, f3))
 if f3 > 0 then os.exit(1) end
+
+--------------------------------------------------------------------------------
+-- Reordering dungeons by drag, which lands on a position rather than a step.
+--------------------------------------------------------------------------------
+local p4, f4 = 0, 0
+local function ck4(label, cond, got)
+    if cond then p4 = p4 + 1
+    else f4 = f4 + 1; print("  FAIL: " .. label .. (got and ("  got: " .. tostring(got)) or "")) end
+end
+
+Core.Init({})
+local names = { "Alpha", "Bravo", "Charlie", "Delta" }
+local ids = {}
+for i, name in ipairs(names) do ids[i] = Core.AddCategory(name).id end
+
+local function order()
+    local out = {}
+    for _, cat in ipairs(Core.Categories()) do out[#out + 1] = cat.name end
+    return table.concat(out, ",")
+end
+
+ck4("starts in the order added", order() == "Alpha,Bravo,Charlie,Delta", order())
+
+Core.MoveCategoryTo(ids[1], 3)
+ck4("dragging down lands on the target slot", order() == "Bravo,Charlie,Alpha,Delta", order())
+
+Core.MoveCategoryTo(ids[1], 1)
+ck4("and back up again", order() == "Alpha,Bravo,Charlie,Delta", order())
+
+Core.MoveCategoryTo(ids[4], 1)
+ck4("the last can reach the top", order() == "Delta,Alpha,Bravo,Charlie", order())
+
+-- The cursor can leave the list on either side, and the nearest end is what was
+-- meant. Refusing would drop the drag on the floor.
+Core.MoveCategoryTo(ids[4], -20)
+ck4("below the list clamps to the top", order() == "Delta,Alpha,Bravo,Charlie", order())
+Core.MoveCategoryTo(ids[4], 99)
+ck4("past the end clamps to the bottom", order() == "Alpha,Bravo,Charlie,Delta", order())
+
+ck4("dropping where it already was is a no-op",
+    Core.MoveCategoryTo(ids[1], 1) == 1 and order() == "Alpha,Bravo,Charlie,Delta", order())
+ck4("an unknown dungeon moves nothing", Core.MoveCategoryTo("nope", 2) == nil)
+
+-- Deleting has to take the whole dungeon, not just its entry in the list.
+local doomed = Core.AddCategory("Doomed")
+local mob = Core.AddEnemy(doomed.id, "Mob")
+Core.AddLine(doomed.id, mob.id, "", "/p bye")
+ck4("delete removes the dungeon", Core.DeleteCategory(doomed.id) == true)
+ck4("and it is gone from the list", Core.GetCategory(doomed.id) == nil)
+ck4("deleting it twice is refused", Core.DeleteCategory(doomed.id) == false)
+ck4("the others are untouched", order() == "Alpha,Bravo,Charlie,Delta", order())
+
+ck4("renaming takes", Core.RenameCategory(ids[2], "Bravo Two")
+    and Core.GetCategory(ids[2]).name == "Bravo Two")
+ck4("a blank name is refused", Core.RenameCategory(ids[2], "   ") == false)
+ck4("and leaves the old name in place", Core.GetCategory(ids[2]).name == "Bravo Two")
+
+print(("\ndungeon list: %d passed, %d failed"):format(p4, f4))
+if f4 > 0 then os.exit(1) end
