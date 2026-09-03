@@ -221,6 +221,34 @@ Import never overwrites in place: the whole string is parsed and validated
 first, then lands as a new profile, or a new category with a suffix on a name
 clash. A bad paste cannot destroy existing work.
 
+## Undo
+
+Snapshots, not inverse operations.
+
+Twenty-seven functions in `Core` change stored data. An inverse-operation undo
+means writing an opposite for each, and the opposites are where the edge cases
+hide: deleting an enemy also strips it from every page that referenced it, so
+un-deleting has to put it back at its old index *and* back into each of those
+pages, in their old positions. Copying the whole thing before the change cannot
+get that wrong, and it is one piece of code rather than twenty-seven. The test
+for exactly that case is in `tests/history_test.lua`.
+
+Recording hangs off `Core`'s own `edited()`, which every mutator already calls.
+That makes coverage automatic rather than a list of call sites in the UI that a
+later change could quietly fall outside of.
+
+The cost is memory: thirty steps, each a deep copy of every profile. A fully
+written-out season is tens of kilobytes, so the ceiling is a couple of megabytes
+and typically far less. None of it is saved — history is a session-lifetime
+editing convenience, and `Export` is the thing that survives a logout.
+
+Each step carries the editor's position at the moment of the change — dungeon,
+variant, tab, page — and undo restores that too. Reversing a change you cannot
+see happen is most of the way to no undo at all.
+
+Settings are outside history, and combat refuses a step: undoing can delete the
+dungeon Run has built, and hiding secure buttons mid-fight is blocked.
+
 ## Measured behaviour (12.1.0)
 
 Verified by effect on the live client, not inferred. Earlier drafts of this

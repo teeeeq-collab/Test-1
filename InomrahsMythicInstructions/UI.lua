@@ -61,6 +61,9 @@ local function panelButton(parent, text, w, h, onClick, opts)
     b:SetSize(w, h or 20)
     IMI.Style.Button(b, text, opts)
     if onClick then b:SetScript("OnClick", onClick) end
+    -- Anything labelled with a symbol has to say what it is on hover; a "*" is
+    -- not a word. Buttons whose own label is already the answer say nothing.
+    if opts and opts.tip then IMI.Style.Tooltip(b, opts.tip, opts.tipDetail) end
     return b
 end
 
@@ -183,6 +186,10 @@ end
 function UI.SelectedCategory()
     return selected.categoryId
 end
+
+--- Selecting from outside the sidebar — undo returning to where a change was
+--- made, for one.
+function UI.SelectCategory(id) selectCategory(id) end
 
 --- The dungeon rows, in list order. Exposed for the same reason UI.Arrows is:
 --- the rows carry the rename, reorder and delete behaviour, and there is no
@@ -310,6 +317,78 @@ local function deleteCategory(id)
     Util.Print(("deleted |cffffff00%s|r."):format(name))
 end
 
+--- Undo or redo one step, then put the editor back where that change was made
+--- so the change coming or going is on screen rather than somewhere you have to
+--- go and find.
+---
+--- Refused in combat. A step can delete the dungeon Run has built, and hiding
+--- its buttons mid-fight is not allowed; and there is no reason to be editing
+--- during a pull. One rule is easier to rely on than a partial one.
+local function historyStep(direction)
+    if InCombatLockdown() then
+        Util.Print("|cffff4444not while in combat.|r")
+        return
+    end
+
+    local History = IMI.History
+    local ctx = (direction == "undo") and History.Undo() or History.Redo()
+    if ctx == nil then
+        Util.Print(("nothing to %s."):format(direction))
+        return
+    end
+
+    -- Everything was replaced wholesale, so anything held by id may be gone.
+    if selected.categoryId and not Core.GetCategory(selected.categoryId) then
+        selected.categoryId = nil
+        IMI.Capture.SetCategory(nil)
+        IMI.Edit.SetCategory(nil)
+    end
+    if Runtime.BuiltCategory() and not Core.GetCategory(Runtime.BuiltCategory()) then
+        clearRun()
+    end
+
+    -- Navigating touches stored data (the active variant), and that must not
+    -- land on the stacks as an edit of its own.
+    IMI.History.Silently(function() IMI.Edit.RestoreContext(ctx or nil) end)
+
+    UI.RefreshSidebar()
+    IMI.Edit.RefreshStaleMarker()
+    UI.RefreshHistoryButtons()
+end
+
+function UI.Undo() historyStep("undo") end
+function UI.Redo() historyStep("redo") end
+
+--- Greys the buttons out when there is nothing that way. Called by History
+--- whenever the stacks move, so the buttons never claim a step that is not
+--- there.
+function UI.RefreshHistoryButtons()
+    local buttons = views and views.edit and views.edit.history
+    if not buttons then return end
+
+    local History = IMI.History
+    local undoDepth, redoDepth = History.Depth()
+
+    buttons.undo:SetEnabled(History.CanUndo())
+    buttons.redo:SetEnabled(History.CanRedo())
+
+    IMI.Style.Tooltip(buttons.undo, "Undo",
+        undoDepth > 0
+            and ("Takes back the last change, and goes to where it was made. %d step%s back.")
+                :format(undoDepth, undoDepth == 1 and "" or "s")
+            or "Nothing to undo yet.")
+    IMI.Style.Tooltip(buttons.redo, "Redo",
+        redoDepth > 0
+            and ("Puts back the last undone change. %d step%s forward.")
+                :format(redoDepth, redoDepth == 1 and "" or "s")
+            or "Nothing to redo.")
+end
+
+--- The undo pair, for tests: nothing else reaches into the Edit view's frames.
+function UI.EditHistoryButtons()
+    return views and views.edit and views.edit.history
+end
+
 --- Which slot in the list a point sits in, counting from 1.
 ---
 --- Split out as plain arithmetic because it is the one part of dragging that
@@ -371,7 +450,8 @@ local function newSidebarRow()
     -- it rather than running underneath it.
     row.label:SetPoint("RIGHT", -24, 0)
 
-    row.del = panelButton(row, "x", 18, 18, nil, { danger = true })
+    row.del = panelButton(row, "x", 18, 18, nil, { danger = true,
+        tip = "Delete dungeon", tipDetail = "Asks first. Takes everything in it." })
     row.del:SetPoint("RIGHT", -2, 0)
 
     -- Both of these sit on top of the row rather than beside it, and a frame
@@ -627,28 +707,33 @@ function UI.Init()
 
     IMI.Style.Background(bar, IMI.Style.colors.bar)
 
-    local collapse = panelButton(bar, "-", 22, BAR_H - 4)
+    local collapse = panelButton(bar, "-", 22, BAR_H - 4, nil,
+        { tip = "Collapse", tipDetail = "Rolls the window up to just this bar." })
     collapse:SetPoint("LEFT", 3, 0)
 
     -- Run and Edit are where the work happens, so they get the left. Settings,
     -- help and close are occasional, so they sit as icons on the right, out of
     -- the way of the two buttons actually used every session.
-    local runBtn  = panelButton(bar, "Run", 60, BAR_H - 4, function() showView("run") end)
-    local editBtn = panelButton(bar, "Edit", 60, BAR_H - 4, function() showView("edit") end)
+    local runBtn  = panelButton(bar, "Run", 60, BAR_H - 4, function() showView("run") end,
+        { tip = "Run", tipDetail = "The pages of callout buttons, for use in a key." })
+    local editBtn = panelButton(bar, "Edit", 60, BAR_H - 4, function() showView("edit") end,
+        { tip = "Edit", tipDetail = "Write the callouts and arrange the pages." })
     runBtn:SetPoint("LEFT", collapse, "RIGHT", 4, 0)
     editBtn:SetPoint("LEFT", runBtn, "RIGHT", 2, 0)
 
     bar.tabs = { run = runBtn, edit = editBtn }
 
-    local close = panelButton(bar, "X", 22, BAR_H - 4, function() root:Hide() end)
+    local close = panelButton(bar, "X", 22, BAR_H - 4, function() root:Hide() end,
+        { tip = "Close window", tipDetail = "/imi opens it again. Nothing is lost." })
     close:SetPoint("RIGHT", -3, 0)
 
     local gear = panelButton(bar, "*", 22, BAR_H - 4, function()
         showView(currentView == "settings" and "run" or "settings")
-    end)
+    end, { tip = "Settings", tipDetail = "Size, opacity, text scale and which chat channel." })
     gear:SetPoint("RIGHT", close, "LEFT", -2, 0)
 
-    local info = panelButton(bar, "?", 22, BAR_H - 4, function() UI.ShowHelp() end)
+    local info = panelButton(bar, "?", 22, BAR_H - 4, function() UI.ShowHelp() end,
+        { tip = "Help", tipDetail = "What everything does, and the slash commands." })
     info:SetPoint("RIGHT", gear, "LEFT", -2, 0)
 
     bar.title = IMI.Style.Header(bar, "Inomrah's Mythic Instructions")
@@ -686,6 +771,8 @@ function UI.Init()
         UI.RefreshSidebar()
     end)
     sidebar.back:SetPoint("BOTTOMLEFT", 8, 8)
+    IMI.Style.Tooltip(sidebar.back, "Back to the list",
+        "Closes the dungeon without changing it. In Run, the page you were on is remembered.")
 
     sidebar.newBtn = panelButton(sidebar, "New dungeon", SIDE_W - 16, 22, function()
         sidebar.newName:Show()
@@ -693,6 +780,7 @@ function UI.Init()
         sidebar.newName:SetFocus()
     end)
     sidebar.newBtn:SetPoint("BOTTOMLEFT", sidebar.back, "TOPLEFT", 0, 4)
+    IMI.Style.Tooltip(sidebar.newBtn, "New dungeon", "Type a name and press Enter.")
 
     sidebar.newName = CreateFrame("EditBox", nil, sidebar)
     sidebar.newName:SetFontObject("ChatFontNormal")
@@ -757,11 +845,13 @@ function UI.Init()
     nextBtn:SetSize(26, 20)
     nextBtn:SetPoint("TOPRIGHT", -8, -6)
     skin(nextBtn, ">")
+    IMI.Style.Tooltip(nextBtn, "Next page")
 
     local prevBtn = CreateFrame("Button", "InomrahsMIPrev", views.run, "SecureHandlerClickTemplate")
     prevBtn:SetSize(26, 20)
     prevBtn:SetPoint("RIGHT", nextBtn, "LEFT", -4, 0)
     skin(prevBtn, "<")
+    IMI.Style.Tooltip(prevBtn, "Previous page")
 
     views.run.arrows = { prev = prevBtn, next = nextBtn }
 

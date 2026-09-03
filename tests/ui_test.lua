@@ -9,7 +9,7 @@ for _, f in ipairs({
     "Libs/LibStub/LibStub", "Libs/LibDeflate/LibDeflate", "Libs/LibSerialize/LibSerialize",
 }) do loadfile("InomrahsMythicInstructions/" .. f .. ".lua")() end
 
-for _, f in ipairs({ "Util", "Style", "Core", "Runtime", "UI", "Edit",
+for _, f in ipairs({ "Util", "Style", "Core", "History", "Runtime", "UI", "Edit",
                      "Export", "Starter", "Capture" }) do
     local chunk, err = loadfile("InomrahsMythicInstructions/" .. f .. ".lua")
     if not chunk then realPrint("  FAIL loading " .. f .. ": " .. tostring(err)); os.exit(1) end
@@ -477,6 +477,117 @@ check("Run cannot rename, reorder or delete", function()
     if row.del:IsShown() then error("the delete button is reachable from Run") end
     if row:GetScript("OnDoubleClick") then error("double-click renames from Run") end
     if row:GetScript("OnDragStart") then error("rows can be dragged in Run") end
+end)
+
+--------------------------------------------------------------------------------
+-- Undo and redo through the interface, and the hover text.
+--------------------------------------------------------------------------------
+
+check("undo takes back an edit and goes to where it happened", function()
+    IMI.Core.Init({})
+    IMI.History.Init(IMI.Edit.Context)
+    IMI.History.onChange = IMI.UI.RefreshHistoryButtons
+
+    local first = IMI.Core.AddCategory("First")
+    local second = IMI.Core.AddCategory("Second")
+    IMI.UI.Show("edit")
+    IMI.UI.SelectCategory(first.id)
+    IMI.Edit.ShowTab("enemies")
+    IMI.Core.AddEnemy(first.id, "Mob in the first")
+
+    -- Wander off to another dungeon and another tab, the way you would.
+    IMI.UI.SelectCategory(second.id)
+    IMI.Edit.ShowTab("pages")
+
+    IMI.UI.Undo()
+
+    if #IMI.Core.Enemies(first.id) ~= 0 then error("the enemy was not taken back") end
+    if IMI.UI.SelectedCategory() ~= first.id then
+        error("undo did not return to the dungeon the change was made in")
+    end
+    if IMI.Edit.Context().tab ~= "enemies" then
+        error("undo did not return to the tab the change was made on")
+    end
+
+    IMI.UI.Redo()
+    if #IMI.Core.Enemies(first.id) ~= 1 then error("redo did not put it back") end
+end)
+
+check("the undo buttons say whether there is anywhere to go", function()
+    IMI.Core.Init({})
+    IMI.History.Init(IMI.Edit.Context)
+    IMI.History.onChange = IMI.UI.RefreshHistoryButtons
+    IMI.UI.Show("edit")
+    IMI.UI.RefreshHistoryButtons()
+
+    local buttons = IMI.UI.EditHistoryButtons()
+    if not buttons then error("no undo buttons were built") end
+    if buttons.undo.enabled then error("undo is offered with an empty history") end
+    if buttons.redo.enabled then error("redo is offered with an empty history") end
+
+    IMI.Core.AddCategory("Something")
+    if not buttons.undo.enabled then error("undo stayed grey after an edit") end
+    if buttons.redo.enabled then error("redo lit up without anything undone") end
+
+    IMI.UI.Undo()
+    if buttons.undo.enabled then error("undo still offered after undoing the only step") end
+    if not buttons.redo.enabled then error("redo did not light up after an undo") end
+end)
+
+check("undoing a deleted dungeon leaves the selection somewhere real", function()
+    IMI.Core.Init({})
+    IMI.History.Init(IMI.Edit.Context)
+    local only = IMI.Core.AddCategory("Only one")
+    IMI.UI.Show("edit")
+    IMI.UI.SelectCategory(only.id)
+
+    IMI.Core.DeleteCategory(only.id)
+    IMI.UI.RefreshSidebar()
+    IMI.UI.Redo()                              -- nothing to redo; must not error
+
+    IMI.UI.Undo()                              -- brings the dungeon back
+    if IMI.Core.GetCategory(only.id) == nil then error("undo did not restore it") end
+    if IMI.UI.SelectedCategory() ~= only.id then
+        error("undo did not reselect the restored dungeon")
+    end
+end)
+
+-- Symbols need words. A button labelled "*" or "^" says nothing on its own.
+check("the symbol buttons carry hover text", function()
+    IMI.Core.Init({})
+    IMI.Core.AddCategory("Hoverable")
+    IMI.UI.Show("edit")
+    IMI.UI.RefreshSidebar()
+
+    local row = IMI.UI.SidebarRows()[1]
+    if not row.del.tooltipText then error("the delete button says nothing on hover") end
+
+    local arrows = IMI.UI.Arrows()
+    if not (arrows.prev.tooltipText and arrows.next.tooltipText) then
+        error("the page arrows say nothing on hover")
+    end
+
+    local buttons = IMI.UI.EditHistoryButtons()
+    if not (buttons.undo.tooltipText and buttons.redo.tooltipText) then
+        error("the undo buttons say nothing on hover")
+    end
+
+    -- Hovering must still work when the client offers no tooltip to borrow.
+    row.del:GetScript("OnEnter")(row.del)
+    row.del:GetScript("OnLeave")(row.del)
+end)
+
+-- Style.Tooltip hooks OnEnter, which the button already uses for its hover
+-- colour. Replacing rather than chaining would leave buttons that never light.
+check("hover text does not cost the hover colour", function()
+    local b = CreateFrame("Button", nil, UIParent)
+    IMI.Style.Button(b, "hover me")
+    IMI.Style.Tooltip(b, "Something")
+
+    b:GetScript("OnEnter")(b)
+    if not b.hovered then error("the hover colour stopped being applied") end
+    b:GetScript("OnLeave")(b)
+    if b.hovered then error("the button stayed hovered after leaving") end
 end)
 
 realPrint(("\n%d passed, %d failed"):format(pass, fail))

@@ -11,6 +11,7 @@ that produced it.
 - Export and import strings
 - `/imi starter` (the eight Season 2 dungeons), `Add target` keybind
 - Renaming, reordering and deleting dungeons in the Edit sidebar
+- Undo and redo across everything Edit changes; hover text on the symbol buttons
 
 ## Known to have been broken, now fixed
 

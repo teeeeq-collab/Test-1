@@ -113,8 +113,12 @@ end
 
 --- Bump the counter that drives the export-staleness marker. Every mutation
 --- below calls this, so nothing can change without the marker noticing.
+--- Every mutator ends here, which makes it the one place undo has to hook to
+--- cover all of them — including any written later by someone who never went
+--- looking for a list of them.
 local function edited()
     Core.db.editsSinceExport = (Core.db.editsSinceExport or 0) + 1
+    if Core.onEdit then Core.onEdit() end
 end
 
 function Core.MarkExported()

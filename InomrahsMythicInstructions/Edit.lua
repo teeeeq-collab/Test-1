@@ -34,6 +34,9 @@ local function button(parent, text, w, h, onClick, opts)
     b:SetSize(w, h or 20)
     IMI.Style.Button(b, text, opts)
     if onClick then b:SetScript("OnClick", onClick) end
+    -- The single-character buttons on the cards are the ones that need this
+    -- most: "^", "v", "x" and "-" are shapes, not words.
+    if opts and opts.tip then IMI.Style.Tooltip(b, opts.tip, opts.tipDetail) end
     return b
 end
 
@@ -151,11 +154,12 @@ function Edit.RefreshEnemies()
             -- Children of the box, not of the list: hiding a pooled box then
             -- has to take its buttons with it. Parented to the list, a removed
             -- line left its "-" behind, which is exactly what shipped once.
-            eb.up = button(eb, "^", 20, 18)
+            eb.up = button(eb, "^", 20, 18, nil, { tip = "Move up" })
             eb.up:SetPoint("LEFT", eb, "RIGHT", 6, 0)
-            eb.down = button(eb, "v", 20, 18)
+            eb.down = button(eb, "v", 20, 18, nil, { tip = "Move down" })
             eb.down:SetPoint("LEFT", eb.up, "RIGHT", 2, 0)
-            eb.del = button(eb, "x", 20, 18, nil, { danger = true })
+            eb.del = button(eb, "x", 20, 18, nil, { danger = true,
+                tip = "Delete enemy", tipDetail = "Removes it from every page too." })
             eb.del:SetPoint("LEFT", eb.down, "RIGHT", 2, 0)
             return eb
         end)
@@ -202,7 +206,8 @@ function Edit.RefreshEnemies()
         for _, line in ipairs(enemy.lines) do
             local box = acquire(linePool, li, function()
                 local eb = editBox(ui.enemyList, Util.MAX_MACRO_CHARS)
-                eb.del = button(eb, "-", 20, 18, nil, { danger = true })
+                eb.del = button(eb, "-", 20, 18, nil, { danger = true,
+                    tip = "Delete this line" })
                 eb.del:SetPoint("LEFT", eb, "RIGHT", 6, 0)
                 attachCounter(eb)
                 return eb
@@ -428,11 +433,57 @@ end
 
 function Edit.Category() return state.categoryId end
 
+--- Where the editor is standing. Recorded with every change, so undo can put
+--- the editor back on the page the change was made on rather than leaving you
+--- to work out what just moved somewhere off screen.
+function Edit.Context()
+    return {
+        categoryId = state.categoryId,
+        tab = state.tab,
+        pageId = state.pageId,
+        variantId = state.categoryId and Core.ActiveVariantId(state.categoryId) or nil,
+    }
+end
+
+--- Goes back to a recorded position, skipping any part of it that no longer
+--- exists — undoing past the creation of a dungeon leaves nothing to return to,
+--- and that is not an error.
+function Edit.RestoreContext(ctx)
+    if type(ctx) ~= "table" then return end
+
+    local cat = ctx.categoryId and Core.GetCategory(ctx.categoryId)
+    if cat then
+        if ctx.variantId and Util.FindById(Core.Variants(ctx.categoryId), ctx.variantId) then
+            Core.SetActiveVariant(ctx.categoryId, ctx.variantId)
+        end
+        -- Through the sidebar, so the row highlights too: being taken somewhere
+        -- without being shown where is worse than not being taken.
+        IMI.UI.SelectCategory(ctx.categoryId)
+    end
+
+    -- After SetCategory, which clears the page as part of opening a dungeon.
+    state.pageId = ctx.pageId
+    showTab(ctx.tab or "enemies")
+    Edit.RefreshVariants()
+end
+
 --------------------------------------------------------------------------------
 -- Construction
 --------------------------------------------------------------------------------
 
 function Edit.Build(parent)
+    -- Directly under the bar's icons, which is where the window's other
+    -- whole-panel controls already live.
+    ui.undo = button(parent, "<-", 26, 20, function() IMI.UI.Undo() end,
+        { tip = "Undo" })
+    ui.undo:SetPoint("TOPRIGHT", -8, -5)
+    ui.redo = button(parent, "->", 26, 20, function() IMI.UI.Redo() end,
+        { tip = "Redo" })
+    ui.redo:SetPoint("RIGHT", ui.undo, "LEFT", -3, 0)
+    ui.undo:SetEnabled(false)
+    ui.redo:SetEnabled(false)
+    parent.history = { undo = ui.undo, redo = ui.redo }
+
     ui.title = IMI.Style.Header(parent, "")
     ui.title:SetFontObject("GameFontNormalLarge")
     ui.title:SetTextColor(unpack(IMI.Style.colors.goldText))
@@ -449,7 +500,9 @@ function Edit.Build(parent)
     ui.variant = IMI.UI.Dropdown(parent, 130)
     ui.variant:SetPoint("LEFT", ui.variantLabel, "RIGHT", 6, 0)
 
-    ui.variantNew = button(parent, "New", 42, 20, function() Edit.ShowVariantDialog() end)
+    ui.variantNew = button(parent, "New", 42, 20, function() Edit.ShowVariantDialog() end,
+        { tip = "New variant",
+          tipDetail = "A second set of enemies and pages for the same dungeon." })
     ui.variantNew:SetPoint("LEFT", ui.variant, "RIGHT", 6, 0)
 
     ui.variantRename = button(parent, "Rename", 62, 20, function()
@@ -460,6 +513,7 @@ function Edit.Build(parent)
         ui.variantName:SetFocus()
     end)
     ui.variantRename:SetPoint("LEFT", ui.variantNew, "RIGHT", 3, 0)
+    IMI.Style.Tooltip(ui.variantRename, "Rename this variant")
 
     ui.variantDelete = button(parent, "Delete", 56, 20, function()
         local variant = Core.Variant(state.categoryId)
@@ -473,6 +527,8 @@ function Edit.Build(parent)
         Edit.RefreshPages()
     end)
     ui.variantDelete:SetPoint("LEFT", ui.variantRename, "RIGHT", 3, 0)
+    IMI.Style.Tooltip(ui.variantDelete, "Delete this variant",
+        "A dungeon always keeps at least one.")
 
     ui.variantName = editBox(parent, 40)
     ui.variantName:SetPoint("LEFT", ui.variantDelete, "RIGHT", 8, 0)
@@ -491,8 +547,10 @@ function Edit.Build(parent)
 
     ui.tabEnemies = button(parent, "Enemies", 70, 20, function() showTab("enemies") end)
     ui.tabEnemies:SetPoint("TOPLEFT", 8, -52)
+    IMI.Style.Tooltip(ui.tabEnemies, "Enemies", "The callouts themselves, one card per enemy.")
     ui.tabPages = button(parent, "Pages", 62, 20, function() showTab("pages") end)
     ui.tabPages:SetPoint("LEFT", ui.tabEnemies, "RIGHT", 4, 0)
+    IMI.Style.Tooltip(ui.tabPages, "Pages", "Which enemies appear on which page in Run.")
 
     ui.counter = label(parent, "")
     ui.counter:SetPoint("TOPRIGHT", -10, -56)
@@ -562,6 +620,7 @@ function Edit.Build(parent)
         Edit.RefreshPages()
     end)
     pagePrev:SetPoint("TOPLEFT", 4, -2)
+    IMI.Style.Tooltip(pagePrev, "Previous page")
 
     ui.pageName = editBox(ui.pagesPanel, 40)
     ui.pageName:SetPoint("LEFT", pagePrev, "RIGHT", 8, 0)
@@ -582,6 +641,7 @@ function Edit.Build(parent)
         Edit.RefreshPages()
     end)
     pageNext:SetPoint("LEFT", ui.pageName, "RIGHT", 6, 0)
+    IMI.Style.Tooltip(pageNext, "Next page")
 
     ui.pageIndex = label(ui.pagesPanel, "")
     ui.pageIndex:SetPoint("LEFT", pageNext, "RIGHT", 10, 0)
@@ -593,6 +653,8 @@ function Edit.Build(parent)
         Edit.RefreshPages()
     end)
     delPage:SetPoint("TOPRIGHT", -4, -2)
+    IMI.Style.Tooltip(delPage, "Delete page",
+        "The enemies stay; only the page goes.")
 
     local pagesScroll = CreateFrame("ScrollFrame", nil, ui.pagesPanel, "UIPanelScrollFrameTemplate")
     pagesScroll:SetPoint("TOPLEFT", 0, -28)
@@ -635,7 +697,8 @@ function Edit.Build(parent)
     ui.addBox:SetScript("OnEnterPressed", commitAdd)
 
     -- Enter works, but a visible button is what tells you so.
-    ui.addBtn = button(parent, "Add", 50, 20, commitAdd)
+    ui.addBtn = button(parent, "Add", 50, 20, commitAdd,
+        { tip = "Add", tipDetail = "Adds what is typed in the box to the left." })
     ui.addBtn:SetPoint("BOTTOMLEFT", ui.addBox, "BOTTOMRIGHT", 6, 0)
 
     ui.addTarget = button(parent, "Add target", 78, 20, function()
@@ -648,6 +711,8 @@ function Edit.Build(parent)
         end
     end)
     ui.addTarget:SetPoint("LEFT", ui.addBtn, "RIGHT", 4, 0)
+    IMI.Style.Tooltip(ui.addTarget, "Add target",
+        "Adds whatever you have targeted, by its exact name. The keybind does the same.")
 
     local exportBtn = button(parent, "Export", 54, 20, function()
         if not state.categoryId then
@@ -660,6 +725,8 @@ function Edit.Build(parent)
         IMI.UI.ShowExport(("Export: %s"):format(Core.GetCategory(state.categoryId).name), str)
     end)
     exportBtn:SetPoint("LEFT", ui.addTarget, "RIGHT", 4, 0)
+    IMI.Style.Tooltip(exportBtn, "Export",
+        "A string you can copy out, to back up or to share.")
 
     local importBtn = button(parent, "Import", 54, 20, function()
         IMI.UI.ShowImport("Import", function(text)
@@ -672,6 +739,8 @@ function Edit.Build(parent)
         end)
     end)
     importBtn:SetPoint("LEFT", exportBtn, "RIGHT", 4, 0)
+    IMI.Style.Tooltip(importBtn, "Import",
+        "Paste a string in. It is added alongside what you have; nothing is overwritten.")
 
     Edit.RefreshSendHint()
     Edit.SetCategory(nil)

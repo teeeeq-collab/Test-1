@@ -54,6 +54,33 @@ its buttons are on screen and hiding those mid-fight is not allowed.
 Run shows the same list with none of this attached, so a slipped drag or a stray
 double-click mid-key cannot rearrange anything.
 
+### Undo and redo
+
+`<-` and `->` at the top right of Edit. They take back and put back anything
+that changed a dungeon — an added enemy, an edited line, a deleted page, a
+reordered list, a whole deleted dungeon.
+
+Undo also **goes to where the change was made**: the dungeon, the variant and
+the tab, and on the Pages tab the page itself. So a change coming back is on
+screen rather than somewhere you have to go and find.
+
+Thirty steps are kept. History lives in memory only, so it starts empty each
+time you log in — it is an editing convenience, not a backup. For a backup,
+Export.
+
+Settings are outside it, deliberately. Undo after nudging the opacity slider
+takes back the last thing you changed about a *dungeon*; the sliders have their
+own reset buttons.
+
+Both are refused in combat: a step can delete the dungeon Run currently has on
+screen, and hiding those buttons mid-fight is not allowed.
+
+### Hover text
+
+Buttons labelled with a symbol — `*`, `?`, `X`, `^`, `v`, `x`, `-`, `<`, `>` —
+say what they do when you hover them, with a second line for anything with a
+consequence worth knowing before clicking.
+
 ### Filling in the enemies
 
 The starter dungeons arrive empty of trash, deliberately. Trash names for the

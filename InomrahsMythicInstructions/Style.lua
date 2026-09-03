@@ -192,6 +192,39 @@ function Style.Button(b, text, opts)
     return b
 end
 
+--- A one-line label on hover, saying what a button does.
+---
+--- Hooked rather than set, because every styled button already owns OnEnter and
+--- OnLeave for its hover colour and replacing those would leave buttons that
+--- never light up. Guarded on GameTooltip existing so this stays testable
+--- outside the client, where there is no tooltip to borrow.
+function Style.Tooltip(frame, text, detail)
+    if not frame or not text then return frame end
+    frame.tooltipText = text
+    frame.tooltipDetail = detail
+
+    if frame.hasTooltip then return frame end
+    frame.hasTooltip = true
+
+    frame:HookScript("OnEnter", function(self)
+        if type(GameTooltip) ~= "table" or not self.tooltipText then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(self.tooltipText, 1, 1, 1)
+        if self.tooltipDetail then
+            -- Wrapped, because the second line is the "why", and a long one
+            -- running off the screen edge helps nobody.
+            GameTooltip:AddLine(self.tooltipDetail, 0.7, 0.7, 0.75, true)
+        end
+        GameTooltip:Show()
+    end)
+
+    frame:HookScript("OnLeave", function()
+        if type(GameTooltip) == "table" then GameTooltip:Hide() end
+    end)
+
+    return frame
+end
+
 --- A read-only row of text, as the note rows in the reference are.
 function Style.Row(frame)
     Style.Background(frame, Style.colors.row)

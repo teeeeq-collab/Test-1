@@ -15,6 +15,11 @@ loader:SetScript("OnEvent", function(self, event, name)
     InomrahsMythicInstructionsDB = Core.Init(InomrahsMythicInstructionsDB)
     UI.Init()
 
+    -- After the UI, because history asks it where the user is standing when an
+    -- edit happens, and that is the answer undo navigates back to.
+    IMI.History.Init(IMI.Edit.Context)
+    IMI.History.onChange = UI.RefreshHistoryButtons
+
     -- Arrows are secure handlers built with the UI; the pager they drive has to
     -- exist before they can reference it.
     local arrows = UI.Arrows()
@@ -142,8 +147,13 @@ SlashCmdList.INOMRAHSMI = function(arg)
             return
         end
         InomrahsMythicInstructionsDB = Core.Init({})
+        -- The database is a different table now, so the history built against
+        -- the old one describes states that no longer connect to anything.
+        -- Undoing a wipe is not a promise worth making from a debug command.
+        IMI.History.Init()
         UI.RefreshCategories()
-        Util.Print("data cleared.")
+        UI.RefreshHistoryButtons()
+        Util.Print("data cleared. undo history reset too.")
 
     else
         UI.Toggle()
