@@ -24,6 +24,7 @@ local sidebarCollapsed = false
 -- and is nil at run time, which luac passes without complaint.
 local layoutBody
 local layoutSidebar
+local combatWatcher
 local views, currentView
 local selected = { categoryId = nil }
 
@@ -105,6 +106,53 @@ local function skin(b, text)
     b:SetScript("OnEnter", function() bg:SetColorTexture(0.26, 0.26, 0.34, 0.95) end)
     b:SetScript("OnLeave", function() bg:SetColorTexture(0.16, 0.16, 0.21, 0.95) end)
     return b
+end
+
+--------------------------------------------------------------------------------
+-- Combat
+--
+-- The window has protected children — the callout buttons — and insecure code
+-- may not hide, move or resize a frame with those in it while in combat. That
+-- is not a bug to work around but the rule the whole design rests on.
+--
+-- Two things are worth having anyway, and the restricted environment allows
+-- both: closing the window and dragging it. So the X and the title bar do their
+-- work inside a secure snippet rather than from a script, and behave the same
+-- in a pull as out of one.
+--------------------------------------------------------------------------------
+
+local CLOSE_SNIPPET = [==[
+    local window = self:GetFrameRef("window")
+    if window then window:Hide() end
+]==]
+
+local DRAG_START_SNIPPET = [==[
+    local window = self:GetFrameRef("window")
+    if window then window:StartMoving() end
+]==]
+
+local DRAG_STOP_SNIPPET = [==[
+    local window = self:GetFrameRef("window")
+    if window then window:StopMovingOrSizing() end
+]==]
+
+local SIZE_START_SNIPPET = [==[
+    local window = self:GetFrameRef("window")
+    if window then window:StartSizing(self:GetAttribute("edge")) end
+]==]
+
+local SIZE_STOP_SNIPPET = DRAG_STOP_SNIPPET
+
+--- Points a secure handler at the window and gives it a snippet.
+---
+--- Returns false when the frame did not inherit its template — the failure that
+--- has broken this addon twice — so the caller can fall back to a plain script
+--- rather than shipping a control that does nothing.
+local function bindSecure(frame, window, attribute, snippet)
+    if type(frame.SetFrameRef) ~= "function" then return false end
+    frame:SetFrameRef("window", window)
+    frame:SetAttribute(attribute, snippet)
+    return true
 end
 
 --- A dropdown built from plain frames.
@@ -610,7 +658,25 @@ end
 -- Views
 --------------------------------------------------------------------------------
 
+-- Work asked for during a pull, to be carried out when it ends.
+local pendingView, pendingRelayout
+
 local function showView(name)
+    if name ~= currentView and InCombatLockdown() then
+        -- Run's pages are protected, and insecure code may neither hide nor
+        -- show a frame holding those in combat. The calls fail silently, so
+        -- what happened instead was half a switch: Edit drawn underneath Run's
+        -- callouts, both sets of text on screen at once.
+        --
+        -- Refusing outright would strand you in Edit for the rest of a pull, so
+        -- the switch is remembered and made the moment combat ends.
+        pendingView = name
+        UI.WatchCombat()
+        Util.Print(("|cffff4444can't switch to %s in combat.|r doing it when combat ends.")
+            :format(name))
+        return false
+    end
+
     for viewName, frame in pairs(views) do
         if viewName == name then frame:Show() else frame:Hide() end
     end
@@ -636,7 +702,46 @@ local function showView(name)
     end
 
     UI.RefreshSidebar()
+    return true
 end
+
+--- Waits for the end of combat, once, to carry out a switch that was refused.
+---
+--- The only game event this addon listens to. It reads nothing about the world
+--- — not the zone, not the keystone, not the fight — only that the restriction
+--- which blocked a button press has lifted.
+function UI.WatchCombat()
+    if not combatWatcher then
+        combatWatcher = CreateFrame("Frame")
+        combatWatcher:SetScript("OnEvent", function(self)
+            self:UnregisterAllEvents()
+
+            local wanted, relayout = pendingView, pendingRelayout
+            pendingView, pendingRelayout = nil, false
+
+            if wanted then
+                showView(wanted)
+                Util.Print(("switched to |cffffff00%s|r."):format(wanted))
+            elseif relayout then
+                UI.Relayout()
+            end
+        end)
+    end
+    combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+    return combatWatcher
+end
+
+function UI.PendingView() return pendingView end
+
+--- The controls that must work during a pull, for tests: whether they are
+--- secure is the whole of their behaviour and is invisible otherwise.
+function UI.CloseButton() return root and root.closeButton end
+function UI.TitleBar() return bar end
+function UI.ResizeGrips()
+    if not root then return {} end
+    return { root.gripRight, root.gripBottom, root.gripCorner }
+end
+function UI.PendingRelayout() return pendingRelayout == true end
 
 --- Divides the dungeon column between the list and the fixed stack under it.
 ---
@@ -722,7 +827,9 @@ function UI.Relayout()
 end
 
 function UI.CurrentView() return currentView end
-function UI.ShowView(name) showView(name) end
+--- Returns whether the switch actually happened: in combat it may only be
+--- remembered, and a caller that assumes it took would draw the wrong thing.
+function UI.ShowView(name) return showView(name) end
 
 --------------------------------------------------------------------------------
 -- Run
@@ -801,15 +908,27 @@ function UI.Init()
     IMI.Style.Border(root, IMI.Style.colors.gold)
 
     -- Bar --------------------------------------------------------------------
-    bar = CreateFrame("Frame", nil, root)
+    bar = CreateFrame("Frame", nil, root, "SecureHandlerDragTemplate")
     bar:SetPoint("TOPLEFT")
     bar:SetPoint("TOPRIGHT")
     bar:SetHeight(BAR_H)
     bar:EnableMouse(true)
     bar:RegisterForDrag("LeftButton")
-    bar:SetScript("OnDragStart", function() root:StartMoving() end)
+
+    local secureDrag = bindSecure(bar, root, "_ondragstart", DRAG_START_SNIPPET)
+        and bindSecure(bar, root, "_ondragstop", DRAG_STOP_SNIPPET)
+
+    if not secureDrag then
+        -- The template did not take. Dragging still works, just not in combat.
+        bar:SetScript("OnDragStart", function()
+            if not InCombatLockdown() then root:StartMoving() end
+        end)
+    end
+
+    -- Saving where it ended up is bookkeeping, not moving, so it stays here
+    -- whichever of the two did the moving.
     bar:SetScript("OnDragStop", function()
-        root:StopMovingOrSizing()
+        if not secureDrag then root:StopMovingOrSizing() end
         local point, _, rel, x, y = root:GetPoint()
         Core.Settings().point = { point = point, relativePoint = rel, x = x, y = y }
     end)
@@ -832,9 +951,25 @@ function UI.Init()
 
     bar.tabs = { run = runBtn, edit = editBtn }
 
-    local close = panelButton(bar, "X", 22, BAR_H - 4, function() root:Hide() end,
-        { tip = "Close window", tipDetail = "/imi opens it again. Nothing is lost." })
+    local close = CreateFrame("Button", nil, bar, "SecureHandlerClickTemplate")
+    close:SetSize(22, BAR_H - 4)
     close:SetPoint("RIGHT", -3, 0)
+    skin(close, "X")
+    close:RegisterForClicks("AnyUp", "AnyDown")
+    IMI.Style.Tooltip(close, "Close window",
+        "/imi opens it again out of combat. Nothing is lost.")
+
+    root.closeButton = close
+
+    if not bindSecure(close, root, "_onclick", CLOSE_SNIPPET) then
+        close:SetScript("OnClick", function()
+            if InCombatLockdown() then
+                Util.Print("|cffff4444can't close the window in combat.|r")
+                return
+            end
+            root:Hide()
+        end)
+    end
 
     local gear = panelButton(bar, "*", 22, BAR_H - 4, function()
         showView(currentView == "settings" and "run" or "settings")
@@ -865,28 +1000,42 @@ function UI.Init()
     --- One draggable edge. Invisible: an edge you can grab is a convention, and
     --- drawing it would mean three more lines competing with the gold rule.
     local function resizeGrip(direction, setPoints, tip)
-        local g = CreateFrame("Frame", nil, root)
+        local g = CreateFrame("Frame", nil, root, "SecureHandlerMouseUpDownTemplate")
         setPoints(g)
         g:EnableMouse(true)
         IMI.Style.Tooltip(g, tip)
+        g:SetAttribute("edge", direction)
 
-        g:SetScript("OnMouseDown", function()
-            -- Resizing moves Run's secure buttons, which is refused in combat,
-            -- and a half-applied resize is worse than none.
-            if InCombatLockdown() then
-                Util.Print("|cffff4444can't resize in combat.|r")
-                return
-            end
-            root:StartSizing(direction)
-        end)
+        -- Sizing from inside the restricted environment, for the same reason
+        -- the title bar drags from there: the window holds protected buttons,
+        -- and insecure code may not resize a frame holding those in combat.
+        local secure = bindSecure(g, root, "_onmousedown", SIZE_START_SNIPPET)
+            and bindSecure(g, root, "_onmouseup", SIZE_STOP_SNIPPET)
+
+        if not secure then
+            g:SetScript("OnMouseDown", function()
+                if InCombatLockdown() then
+                    Util.Print("|cffff4444can't resize in combat.|r")
+                    return
+                end
+                root:StartSizing(direction)
+            end)
+        end
 
         g:SetScript("OnMouseUp", function()
-            root:StopMovingOrSizing()
+            if not secure then root:StopMovingOrSizing() end
+
             local settings = Core.Settings()
             settings.width, settings.height = root:GetWidth(), root:GetHeight()
-            -- The panel is wider or narrower now, so whatever is in it has to
-            -- be laid out again against the new width.
-            UI.Relayout()
+
+            -- The panel is a different width now, so what is in it has to be
+            -- laid out again. Rebuilding the callouts is refused in combat, so
+            -- in a pull the frames stretch and the re-flow waits for the end of
+            -- it. Nothing is lost either way.
+            if not UI.Relayout() then
+                pendingRelayout = true
+                UI.WatchCombat()
+            end
         end)
         return g
     end
@@ -909,6 +1058,10 @@ function UI.Init()
     end, "Drag to change both")
 
     collapse:SetScript("OnClick", function(self)
+        if InCombatLockdown() then
+            Util.Print("|cffff4444can't collapse the window in combat.|r")
+            return
+        end
         if body:IsShown() then
             body:Hide(); self:SetText("+"); root:SetHeight(BAR_H)
         else

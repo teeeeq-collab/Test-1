@@ -1002,5 +1002,113 @@ check("panel text is bounded on both sides", function()
     if hint.maxLines ~= 2 then error("the send hint is not held to two lines") end
 end)
 
+--------------------------------------------------------------------------------
+-- Combat. The window holds protected buttons, so insecure code may not hide,
+-- move or resize it during a pull. What used to happen instead was half a
+-- switch, with Edit drawn underneath Run's callouts.
+--------------------------------------------------------------------------------
+local stub = require("wowstub")
+
+check("a view switch in combat waits rather than half-happening", function()
+    IMI.Core.Init({})
+    IMI.Core.AddCategory("Somewhere")
+    IMI.UI.Show("run")
+
+    stub.inCombat = true
+    local switched = IMI.UI.ShowView("edit")
+    stub.inCombat = false
+
+    if switched then error("the switch claimed to happen in combat") end
+    if IMI.UI.CurrentView() ~= "run" then
+        error("the view changed anyway, which is the half-switch: " .. tostring(IMI.UI.CurrentView()))
+    end
+    if IMI.UI.PendingView() ~= "edit" then error("the switch was dropped instead of remembered") end
+
+    -- And it has to actually happen when the pull ends.
+    local watcher = IMI.UI.WatchCombat()
+    if not watcher:IsEventRegistered("PLAYER_REGEN_ENABLED") then
+        error("nothing is waiting for combat to end")
+    end
+    watcher:GetScript("OnEvent")(watcher)
+
+    if IMI.UI.CurrentView() ~= "edit" then error("the remembered switch never happened") end
+    if IMI.UI.PendingView() then error("the switch stayed pending after being made") end
+    if watcher:IsEventRegistered("PLAYER_REGEN_ENABLED") then
+        error("still listening after the work was done")
+    end
+end)
+
+check("switching to the view you are already on is not refused", function()
+    IMI.UI.Show("edit")
+    stub.inCombat = true
+    local ok = IMI.UI.ShowView("edit")
+    stub.inCombat = false
+    if not ok then error("re-selecting the current view was refused in combat") end
+end)
+
+-- Closing and dragging are done inside a secure snippet, which is allowed in
+-- combat where a plain script is not.
+check("close and drag go through the restricted environment", function()
+    local closeBtn = IMI.UI.CloseButton()
+    if not closeBtn then error("no close button") end
+    if closeBtn:GetFrameRef("window") ~= IMI.UI.root then
+        error("the close button does not point at the window")
+    end
+    if not tostring(closeBtn:GetAttribute("_onclick")):find("Hide", 1, true) then
+        error("the close button has no snippet, so it cannot close in combat")
+    end
+
+    local titleBar = IMI.UI.TitleBar()
+    if titleBar:GetFrameRef("window") ~= IMI.UI.root then
+        error("the title bar does not point at the window")
+    end
+    if not tostring(titleBar:GetAttribute("_ondragstart")):find("StartMoving", 1, true) then
+        error("dragging is not secure, so the window cannot be moved in combat")
+    end
+
+    for _, grip in ipairs(IMI.UI.ResizeGrips()) do
+        if not tostring(grip:GetAttribute("_onmousedown")):find("StartSizing", 1, true) then
+            error("a resize edge is not secure, so it cannot resize in combat")
+        end
+        if not grip:GetAttribute("edge") then error("a resize edge does not say which edge") end
+    end
+end)
+
+check("a resize during a pull re-flows when the pull ends", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Resized")
+    local e = IMI.Core.AddEnemy(cat.id, "Mob")
+    IMI.Core.AddLine(cat.id, e.id, "", "/p kick")
+    IMI.UI.Show("run")
+    IMI.UI.SelectCategory(cat.id)
+
+    stub.inCombat = true
+    local grip = IMI.UI.ResizeGrips()[1]
+    grip:GetScript("OnMouseUp")(grip)
+    stub.inCombat = false
+
+    -- The size is kept whatever happens; only the re-flow waits.
+    if not IMI.Core.Settings().width then error("the new size was not saved") end
+    if not IMI.UI.PendingRelayout() then error("the re-flow was dropped rather than deferred") end
+
+    local watcher = IMI.UI.WatchCombat()
+    watcher:GetScript("OnEvent")(watcher)
+    if IMI.UI.PendingRelayout() then error("the re-flow stayed pending") end
+end)
+
+check("collapsing and folding the list are refused in combat, not half-done", function()
+    IMI.Core.Init({})
+    IMI.Core.AddCategory("Something")
+    IMI.UI.Show("edit")
+
+    local before = IMI.UI.SidebarCollapsed()
+    stub.inCombat = true
+    local toggled = IMI.UI.ToggleSidebar()
+    stub.inCombat = false
+
+    if toggled then error("the list folded in combat, which moves Run's buttons") end
+    if IMI.UI.SidebarCollapsed() ~= before then error("it folded anyway") end
+end)
+
 realPrint(("\n%d passed, %d failed"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

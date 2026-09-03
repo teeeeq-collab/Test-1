@@ -105,6 +105,15 @@ local function newFrame(frameType, name, parent, template)
     f.SetAttribute  = function(self, k, v) self.attributes[k] = v end
     f.GetAttribute  = function(self, k) return self.attributes[k] end
     f.SetFrameRef   = function(self, k, v) self.attributes["ref:" .. k] = v end
+    -- Event registration, so a test can fire what the client would.
+    f.events        = nil
+    f.RegisterEvent = function(self, e)
+        self.events = self.events or {}
+        self.events[e] = true
+    end
+    f.UnregisterEvent = function(self, e) if self.events then self.events[e] = nil end end
+    f.UnregisterAllEvents = function(self) self.events = nil end
+    f.IsEventRegistered = function(self, e) return (self.events and self.events[e]) == true end
     f.GetFrameRef   = function(self, k) return self.attributes["ref:" .. k] end
     f.SetScript     = function(self, e, fn) self.scripts[e] = fn end
     f.GetScript     = function(self, e) return self.scripts[e] end
@@ -157,7 +166,10 @@ end
 function M.install()
     _G.UIParent   = newFrame("Frame", "UIParent")
     _G.CreateFrame = function(t, n, p, tpl) return newFrame(t, n, p, tpl) end
-    _G.InCombatLockdown = function() return false end
+    -- Settable, so a test can ask what the interface does during a pull. Every
+    -- combat rule in this addon is a branch on this one call.
+    M.inCombat = false
+    _G.InCombatLockdown = function() return M.inCombat end
     _G.UnitExists = function() return false end
     _G.UnitName   = function() return nil end
     _G.GetTime    = function() return 0 end

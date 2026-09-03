@@ -39,6 +39,15 @@ causes that look identical from outside:
 | text present, no click line | the click is not landing |
 | click line prints, nothing sent | the action is being refused |
 
+## Worth verifying in game
+
+The close button, the title-bar drag and the three resize edges now do their
+work inside the restricted environment, which is what lets them run in combat.
+That the restricted environment permits `StartMoving`, `StopMovingOrSizing` and
+`StartSizing` is the one assumption here that was not measured with the probe —
+everything else in `DESIGN.md` was. If any of the three misbehaves in a pull,
+that assumption is where to look first.
+
 ## Also open
 
 - **Interface clarity.** Reported as "could be clearer" after the sidebar

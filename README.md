@@ -56,6 +56,27 @@ hover text.
 Lists answer the **mouse wheel**, and their scroll bars appear only when there
 is something to scroll.
 
+### In combat
+
+The window holds the callout buttons, which are protected: the game does not let
+an addon hide, move or resize a frame containing those while you are in combat.
+That restriction is the whole reason the callouts work at all, so it is worked
+with rather than around.
+
+**Works in a pull:** pressing callouts, the page arrows, closing the window with
+the **X**, dragging it by the title bar, and dragging its edges to resize. These
+go through the game's restricted environment, which is allowed to do what a
+plain addon script is not.
+
+**Waits for the end of the pull:** switching between Run, Edit and Settings. Ask
+for it during combat and it is remembered and done the moment combat drops —
+it used to half-happen, drawing Edit underneath Run's callouts. A resize during
+combat keeps the new size immediately; only the re-flow of the callouts waits.
+
+**Refused in a pull:** collapsing the window to its bar, folding the dungeon
+list away, undo and redo, and reopening the window with `/imi` once it is
+closed. Each says so rather than failing quietly.
+
 ### The dungeon list
 
 The list on the left is the same in Run and Edit, but only Edit lets you change
