@@ -38,6 +38,9 @@ local function defaultSettings()
         buttonScale = 1.0,
         textScale   = 1.0,
         point       = nil,   -- filled in when the frame is first dragged
+        width       = nil,   -- and these when it is first resized
+        height      = nil,
+        sidebarCollapsed = false,
     }
 end
 
@@ -543,8 +546,15 @@ function Core.SetLine(catId, enemyId, lineId, caption, body)
     local line = Core.GetLine(catId, enemyId, lineId)
     if not line then return false end
 
-    if caption ~= nil then line.caption = caption end
-    if body ~= nil then line.body = Util.TrimToChars(body) end
+    local newCaption = (caption ~= nil) and caption or line.caption
+    local newBody    = (body ~= nil) and Util.TrimToChars(body) or line.body
+
+    -- Clicking into a box and back out again is not an edit. Recording it
+    -- anyway put a step on the undo stack that undid nothing and counted
+    -- against the "edits since export" warning.
+    if newCaption == line.caption and newBody == line.body then return true end
+
+    line.caption, line.body = newCaption, newBody
     edited()
     return true
 end

@@ -81,6 +81,16 @@ local function newFrame(frameType, name, parent, template)
         return #tostring(self.text or "") * (self.fontSize or 10) * 0.5
     end
     f.GetStringHeight = function(self) return (self.fontSize or 10) * 1.2 end
+    -- Scrolling, enough to check the wheel clamps at both ends.
+    f.verticalScroll     = 0
+    f.scrollRange        = 100
+    f.GetVerticalScroll  = function(self) return self.verticalScroll end
+    f.SetVerticalScroll  = function(self, v) self.verticalScroll = v end
+    f.GetVerticalScrollRange = function(self) return self.scrollRange end
+    -- Focus, so a refresh can tell which box is being typed into.
+    f.HasFocus      = function(self) return self.focused == true end
+    f.SetFocus      = function(self) self.focused = true end
+    f.ClearFocus    = function(self) self.focused = false end
     f.SetMaxLines   = function(self, v) self.maxLines = v end
     -- Screen geometry. Modelled because the unmodelled-method fallback returns
     -- the frame itself, and the drag maths would then do arithmetic on a table

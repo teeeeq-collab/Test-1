@@ -25,6 +25,11 @@ local ui = {}
 
 local ROW_H, CARD_GAP, INDENT = 22, 8, 14
 
+-- A callout is one line of macro text, but it is often longer than one line of
+-- panel. Two lines when you are only reading it, more while you are typing,
+-- because the box you are editing is the one you need to see all of.
+local LINES_IDLE, LINES_EDITING = 2, 6
+
 --------------------------------------------------------------------------------
 -- Widgets
 --------------------------------------------------------------------------------
@@ -56,6 +61,64 @@ local function editBox(parent, maxLetters)
     eb:SetMaxLetters(maxLetters or 64)
     eb:SetScript("OnEscapePressed", eb.ClearFocus)
     return eb
+end
+
+--- A box that shows its text wrapped instead of scrolling it sideways.
+---
+--- Multi-line, which is what makes it wrap, with one consequence handled: in a
+--- multi-line box Enter inserts a newline rather than committing, and a newline
+--- in a macro body would break the macro. So a newline arriving from the
+--- keyboard is turned back into what Enter used to do — tidy the text, save,
+--- and let go. The body can therefore never contain one, whatever the client
+--- does with the key.
+local function growingBox(parent, maxLetters, onCommit)
+    local eb = editBox(parent, maxLetters)
+    eb:SetMultiLine(true)
+
+    eb:SetScript("OnTextChanged", function(self, userInput)
+        local text = self:GetText() or ""
+        if userInput and text:find("[\r\n]") then
+            local flat = text:gsub("%s*[\r\n]+%s*", " "):gsub("%s+$", "")
+            self:SetText(flat)
+            if onCommit then onCommit(self) end
+            self:ClearFocus()
+            return
+        end
+        if self.onTextUpdate then self.onTextUpdate(self) end
+    end)
+
+    return eb
+end
+
+--- How tall a box has to be for the text in it, in whole lines.
+---
+--- Measured against the box's own width with the font it is actually using,
+--- because how much fits depends on the text scale and on which characters they
+--- are. One hidden font string does the measuring for every box.
+local measureFS
+local function boxHeight(parent, eb, text, maxLines)
+    if not measureFS then
+        measureFS = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        measureFS:Hide()
+    end
+
+    local file, size, flags = eb:GetFont()
+    if file and size then measureFS:SetFont(file, size, flags) end
+    measureFS:SetText(text or "")
+
+    local textWidth = measureFS:GetStringWidth()
+    local lineHeight = measureFS:GetStringHeight()
+    if type(lineHeight) ~= "number" or lineHeight <= 0 then return ROW_H - 2, 1 end
+
+    local available = (eb:GetWidth() or 200) - 12
+    local lines = 1
+    if type(textWidth) == "number" and available > 0 and textWidth > available then
+        lines = math.min(maxLines, math.ceil(textWidth / available))
+    end
+
+    -- The single-line height is what every other row uses, so a one-line box
+    -- still lines up with the buttons beside it.
+    return math.max(ROW_H - 2, lines * lineHeight + 6), lines
 end
 
 --- Pools reuse frames, because frames cannot be destroyed. Every field a pooled
@@ -109,10 +172,16 @@ local function updateCounter(eb)
     ui.counter:Show()
 end
 
+--- The character counter follows whichever box has focus.
+---
+--- Left as a hook rather than three SetScripts: the box owns OnTextChanged, for
+--- turning a typed newline back into a commit, and the focus scripts are rebuilt
+--- on every refresh. Setting them here as well meant whichever ran last won,
+--- which is not a thing to leave to file order.
 local function attachCounter(eb)
-    eb:SetScript("OnEditFocusGained", function(self) updateCounter(self) end)
-    eb:SetScript("OnEditFocusLost", function() if ui.counter then ui.counter:Hide() end end)
-    eb:SetScript("OnTextChanged", function(self) if self:HasFocus() then updateCounter(self) end end)
+    eb.onTextUpdate = function(self)
+        if self:HasFocus() then updateCounter(self) end
+    end
 end
 
 --------------------------------------------------------------------------------
@@ -205,10 +274,12 @@ function Edit.RefreshEnemies()
         -- Lines ----------------------------------------------------------------
         for _, line in ipairs(enemy.lines) do
             local box = acquire(linePool, li, function()
-                local eb = editBox(ui.enemyList, Util.MAX_MACRO_CHARS)
+                local eb = growingBox(ui.enemyList, Util.MAX_MACRO_CHARS, function(self)
+                    if self.commit then self.commit(self) end
+                end)
                 eb.del = button(eb, "-", 20, 18, nil, { danger = true,
                     tip = "Delete this line" })
-                eb.del:SetPoint("LEFT", eb, "RIGHT", 6, 0)
+                eb.del:SetPoint("TOPLEFT", eb, "TOPRIGHT", 6, -1)
                 attachCounter(eb)
                 return eb
             end)
@@ -217,17 +288,30 @@ function Edit.RefreshEnemies()
             box:ClearAllPoints()
             box:SetPoint("TOPLEFT", ui.enemyList, "TOPLEFT", 10 + INDENT, y)
             box:SetWidth(width - 140 - INDENT)
-            box:SetText(line.body or "")
+
+            -- Not while it is being typed into: SetText moves the caret to the
+            -- end, and a relayout happens the moment a box gains focus.
+            if not box:HasFocus() then box:SetText(line.body or "") end
 
             -- Committed on Enter and on losing focus, so clicking away keeps
             -- what was typed rather than discarding it.
             local function commit(self)
                 Core.SetLine(state.categoryId, enemy.id, line.id, nil, self:GetText())
             end
+            box.commit = commit
             box:SetScript("OnEnterPressed", function(self) commit(self) self:ClearFocus() end)
+
+            -- Gaining or losing focus changes how many lines this box shows, so
+            -- everything below it moves. Refresh does not disturb the box being
+            -- typed into, which is what makes it safe to call from here.
+            box:SetScript("OnEditFocusGained", function(self)
+                updateCounter(self)
+                Edit.RefreshEnemies()
+            end)
             box:SetScript("OnEditFocusLost", function(self)
                 commit(self)
                 if ui.counter then ui.counter:Hide() end
+                Edit.RefreshEnemies()
             end)
 
             box.del:SetScript("OnClick", function()
@@ -235,7 +319,11 @@ function Edit.RefreshEnemies()
                 Edit.RefreshEnemies()
             end)
 
-            y = y - ROW_H
+            local boxH = boxHeight(ui.enemyList, box, box:GetText(),
+                box:HasFocus() and LINES_EDITING or LINES_IDLE)
+            box:SetHeight(boxH)
+
+            y = y - boxH - 2
         end
 
         -- Per-enemy controls ---------------------------------------------------
@@ -270,6 +358,7 @@ function Edit.RefreshEnemies()
 
     ui.enemyEmpty:SetShown(#Core.Enemies(state.categoryId) == 0)
     ui.enemyList:SetHeight(math.max(20, math.abs(y) + 10))
+    IMI.Style.RefreshScrollBar(ui.enemyScroll, math.abs(y) + 10)
 end
 
 --------------------------------------------------------------------------------
@@ -386,6 +475,7 @@ function Edit.RefreshPages()
 
     releaseFrom(pagePool, pi)
     ui.pageList:SetHeight(math.max(20, math.abs(y) + 10))
+    IMI.Style.RefreshScrollBar(ui.pagesScroll, math.abs(y) + 10)
 end
 
 --------------------------------------------------------------------------------
@@ -432,6 +522,9 @@ function Edit.SetCategory(catId)
 end
 
 function Edit.Category() return state.categoryId end
+
+--- The line boxes as laid out, for tests: their heights are the behaviour.
+function Edit.LineBoxes() return linePool end
 
 --- Where the editor is standing. Recorded with every change, so undo can put
 --- the editor back on the page the change was made on rather than leaving you
@@ -598,6 +691,7 @@ function Edit.Build(parent)
     ui.enemyEmpty:SetPoint("TOPLEFT", 10, -42)
 
     local enemyScroll = CreateFrame("ScrollFrame", nil, ui.enemiesPanel, "UIPanelScrollFrameTemplate")
+    ui.enemyScroll = IMI.Style.WheelScroll(enemyScroll)
     enemyScroll:SetPoint("TOPLEFT", 0, -40)
     enemyScroll:SetPoint("BOTTOMRIGHT", -24, 0)
     ui.enemyList = CreateFrame("Frame", nil, enemyScroll)
@@ -657,6 +751,7 @@ function Edit.Build(parent)
         "The enemies stay; only the page goes.")
 
     local pagesScroll = CreateFrame("ScrollFrame", nil, ui.pagesPanel, "UIPanelScrollFrameTemplate")
+    ui.pagesScroll = IMI.Style.WheelScroll(pagesScroll)
     pagesScroll:SetPoint("TOPLEFT", 0, -28)
     pagesScroll:SetPoint("BOTTOMRIGHT", -24, 0)
     ui.pageList = CreateFrame("Frame", nil, pagesScroll)
@@ -669,7 +764,7 @@ function Edit.Build(parent)
 
     ui.addBox = editBox(parent, 64)
     ui.addBox:SetPoint("BOTTOMLEFT", 14, 12)
-    ui.addBox:SetPoint("BOTTOMRIGHT", -230, 12)
+    -- The right edge is set once the buttons beside it exist, below.
 
     local function commitAdd()
         local text = ui.addBox:GetText()
@@ -699,7 +794,10 @@ function Edit.Build(parent)
     -- Enter works, but a visible button is what tells you so.
     ui.addBtn = button(parent, "Add", 50, 20, commitAdd,
         { tip = "Add", tipDetail = "Adds what is typed in the box to the left." })
-    ui.addBtn:SetPoint("BOTTOMLEFT", ui.addBox, "BOTTOMRIGHT", 6, 0)
+    -- Chained from the right edge of the panel, not from the box on the left.
+    -- Anchored the other way the row's width was a sum of six numbers that had
+    -- to come to less than the gap left for it, and it did not: Import hung off
+    -- the side of the panel.
 
     ui.addTarget = button(parent, "Add target", 78, 20, function()
         local name, why = IMI.Capture.AddTarget("target")
@@ -710,7 +808,6 @@ function Edit.Build(parent)
             Util.Print("|cffff4444" .. (why or "could not add") .. "|r")
         end
     end)
-    ui.addTarget:SetPoint("LEFT", ui.addBtn, "RIGHT", 4, 0)
     IMI.Style.Tooltip(ui.addTarget, "Add target",
         "Adds whatever you have targeted, by its exact name. The keybind does the same.")
 
@@ -724,7 +821,6 @@ function Edit.Build(parent)
         Edit.RefreshStaleMarker()
         IMI.UI.ShowExport(("Export: %s"):format(Core.GetCategory(state.categoryId).name), str)
     end)
-    exportBtn:SetPoint("LEFT", ui.addTarget, "RIGHT", 4, 0)
     IMI.Style.Tooltip(exportBtn, "Export",
         "A string you can copy out, to back up or to share.")
 
@@ -738,7 +834,12 @@ function Edit.Build(parent)
             return what, err
         end)
     end)
-    importBtn:SetPoint("LEFT", exportBtn, "RIGHT", 4, 0)
+    importBtn:SetPoint("BOTTOMRIGHT", -10, 12)
+    exportBtn:SetPoint("RIGHT", importBtn, "LEFT", -4, 0)
+    ui.addTarget:SetPoint("RIGHT", exportBtn, "LEFT", -4, 0)
+    ui.addBtn:SetPoint("RIGHT", ui.addTarget, "LEFT", -4, 0)
+    ui.addBox:SetPoint("BOTTOMRIGHT", ui.addBtn, "BOTTOMLEFT", -6, 0)
+
     IMI.Style.Tooltip(importBtn, "Import",
         "Paste a string in. It is added alongside what you have; nothing is overwritten.")
 

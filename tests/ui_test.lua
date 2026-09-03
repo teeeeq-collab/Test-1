@@ -729,5 +729,196 @@ check("a short callout keeps a single-line button", function()
     end
 end)
 
+--------------------------------------------------------------------------------
+-- Window shape: resizing, the collapsing list, and text scale reaching all of it.
+--------------------------------------------------------------------------------
+
+check("the window remembers its size, and refuses one too small to use", function()
+    IMI.Core.Init({})
+    local s = IMI.Core.Settings()
+
+    s.width, s.height = 900, 500
+    IMI.UI.ApplySettings()
+    if IMI.UI.root:GetWidth() ~= 900 or IMI.UI.root:GetHeight() ~= 500 then
+        error("the saved size was not applied")
+    end
+
+    -- A size from an older version or a hand-edited file must not produce a
+    -- window with no room in it.
+    s.width, s.height = 40, 20
+    IMI.UI.ApplySettings()
+    if IMI.UI.root:GetWidth() < 520 or IMI.UI.root:GetHeight() < 260 then
+        error("a nonsense size was accepted: " .. tostring(IMI.UI.root:GetWidth()))
+    end
+
+    s.width, s.height = nil, nil
+    IMI.UI.ApplySettings()
+end)
+
+check("the dungeon list collapses and comes back", function()
+    IMI.Core.Init({})
+    IMI.Core.AddCategory("Something")
+    IMI.UI.Show("edit")
+
+    if IMI.UI.SidebarCollapsed() then error("it started collapsed") end
+    IMI.UI.ToggleSidebar()
+    if not IMI.UI.SidebarCollapsed() then error("it did not collapse") end
+    if not IMI.Core.Settings().sidebarCollapsed then error("the state was not remembered") end
+
+    IMI.UI.ToggleSidebar()
+    if IMI.UI.SidebarCollapsed() then error("it did not come back") end
+
+    -- And the handle has to survive the trip, or there is no way to reopen it.
+    IMI.UI.ToggleSidebar()
+    IMI.UI.ApplySettings()
+    if not IMI.UI.SidebarCollapsed() then error("a reload lost the collapsed state") end
+    IMI.UI.ToggleSidebar()
+end)
+
+-- The bug in the screenshot: Settings hides the list, but the content panel was
+-- still anchored to it, so the panel's own left border stood in the middle of
+-- the page, drawn through the sliders.
+check("Settings gets the whole window, with no border through it", function()
+    IMI.Core.Init({})
+    IMI.UI.Show("settings")
+
+    local content = IMI.UI.ContentPanel()
+    local anchor = content.points[1]
+    if not anchor then error("the content panel is not anchored") end
+    if anchor.rel == IMI.UI.Sidebar() then
+        error("Settings still anchors the panel to the hidden dungeon list")
+    end
+    if IMI.UI.Sidebar():IsShown() then error("the dungeon list is showing in Settings") end
+
+    IMI.UI.Show("edit")
+    if not IMI.UI.Sidebar():IsShown() then error("the list did not come back in Edit") end
+end)
+
+check("text scale reaches text outside Run", function()
+    IMI.Core.Init({})
+    local header = IMI.Style.Header(UIParent, "A heading")
+    local _, base = header:GetFont()
+
+    IMI.Style.SetTextScale(1.5)
+    local _, scaled = header:GetFont()
+    if not (scaled > base) then
+        error(("a heading did not scale: %s then %s"):format(tostring(base), tostring(scaled)))
+    end
+
+    -- Twice at the same scale must give the same answer, not compound.
+    IMI.Style.SetTextScale(1.5)
+    local _, again = header:GetFont()
+    if again ~= scaled then error("scaling twice compounded: " .. tostring(again)) end
+
+    -- Something built after the setting changed must come up at that size.
+    local late = IMI.Style.Label(UIParent, "Made later")
+    local _, lateSize = late:GetFont()
+    if lateSize ~= scaled then
+        error(("a later label came up unscaled: %s vs %s")
+            :format(tostring(lateSize), tostring(scaled)))
+    end
+
+    IMI.Style.SetTextScale(1)
+    local _, restored = header:GetFont()
+    if restored ~= base then error("scaling back did not restore the size") end
+end)
+
+check("the wheel scrolls, and stops at both ends", function()
+    local scroll = CreateFrame("ScrollFrame", nil, UIParent)
+    IMI.Style.WheelScroll(scroll, 20)
+    local wheel = scroll:GetScript("OnMouseWheel")
+    if not wheel then error("the wheel was not wired up") end
+
+    scroll.verticalScroll, scroll.scrollRange = 50, 100
+    wheel(scroll, -1)
+    if scroll.verticalScroll ~= 70 then error("wheeling down did not scroll") end
+    wheel(scroll, 1)
+    if scroll.verticalScroll ~= 50 then error("wheeling up did not scroll back") end
+
+    for _ = 1, 20 do wheel(scroll, -1) end
+    if scroll.verticalScroll ~= 100 then error("scrolled past the end of the list") end
+    for _ = 1, 20 do wheel(scroll, 1) end
+    if scroll.verticalScroll ~= 0 then error("scrolled above the top of the list") end
+end)
+
+check("a long callout line grows its box, and more while being typed into", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Growing")
+    local e = IMI.Core.AddEnemy(cat.id, "Mob")
+    local short = IMI.Core.AddLine(cat.id, e.id, "", "/p kick")
+    -- Long enough to need more than the two lines shown when idle, so that
+    -- "more while editing" is actually being asked for.
+    IMI.Core.AddLine(cat.id, e.id, "",
+        "/p Prio kick the Envenom on the caster, stack behind the pillar for the cone, "
+        .. "then spread wide for the bleed and save a stop for the second cast after that")
+
+    IMI.UI.Show("edit")
+    IMI.Edit.SetCategory(cat.id)
+    IMI.Edit.ShowTab("enemies")
+
+    local boxes = IMI.Edit.LineBoxes()
+    local shortH, longH = boxes[1]:GetHeight(), boxes[2]:GetHeight()
+    if longH <= shortH then
+        error(("the long line did not grow its box: %s vs %s")
+            :format(tostring(longH), tostring(shortH)))
+    end
+
+    -- Idle it shows two lines; being typed into it shows more.
+    local idleH = longH
+    boxes[2]:SetFocus()
+    IMI.Edit.RefreshEnemies()
+    if IMI.Edit.LineBoxes()[2]:GetHeight() <= idleH then
+        error("the box did not grow further while being edited")
+    end
+
+    boxes[2]:ClearFocus()
+    IMI.Edit.RefreshEnemies()
+    if IMI.Edit.LineBoxes()[2]:GetHeight() ~= idleH then
+        error("the box did not shrink back after editing")
+    end
+    if short == nil then error("the short line vanished") end
+end)
+
+-- A newline in a macro body would break the macro, so it can never get there:
+-- one arriving from the keyboard is turned back into what Enter used to do.
+check("a typed newline commits instead of reaching the macro", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Newlines")
+    local e = IMI.Core.AddEnemy(cat.id, "Mob")
+    local line = IMI.Core.AddLine(cat.id, e.id, "", "before")
+
+    IMI.UI.Show("edit")
+    IMI.Edit.SetCategory(cat.id)
+    IMI.Edit.ShowTab("enemies")
+
+    local box = IMI.Edit.LineBoxes()[1]
+    box:SetFocus()
+    box:SetText("first\nsecond")
+    box:GetScript("OnTextChanged")(box, true)
+
+    local stored = IMI.Core.GetLine(cat.id, e.id, line.id).body
+    if stored:find("[\r\n]") then error("a newline reached the macro body: " .. stored) end
+    if stored ~= "first second" then error("the text was not joined up: " .. stored) end
+    if box:HasFocus() then error("the box kept focus, so Enter did not commit") end
+end)
+
+-- Clicking into a box and out again is not an edit.
+check("a box you did not change records no edit", function()
+    IMI.Core.Init({})
+    IMI.History.Init(IMI.Edit.Context)
+    local cat = IMI.Core.AddCategory("Untouched")
+    local e = IMI.Core.AddEnemy(cat.id, "Mob")
+    local line = IMI.Core.AddLine(cat.id, e.id, "", "/p unchanged")
+
+    local before = IMI.Core.EditsSinceExport()
+    IMI.Core.SetLine(cat.id, e.id, line.id, nil, "/p unchanged")
+    if IMI.Core.EditsSinceExport() ~= before then
+        error("re-saving the same text counted as an edit")
+    end
+
+    IMI.Core.SetLine(cat.id, e.id, line.id, nil, "/p changed")
+    if IMI.Core.EditsSinceExport() == before then error("a real change was not counted") end
+end)
+
 realPrint(("\n%d passed, %d failed"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

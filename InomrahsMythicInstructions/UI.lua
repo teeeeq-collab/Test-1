@@ -17,6 +17,12 @@ local UI = IMI.UI
 local Core, Runtime, Util = IMI.Core, IMI.Runtime, IMI.Util
 
 local root, bar, body, sidebar, content, confirmFrame
+local sidebarCollapsed = false
+
+-- Declared here because ApplySettings and showView both call it and both are
+-- written above it. A local used before its declaration resolves to a global
+-- and is nil at run time, which luac passes without complaint.
+local layoutBody
 local views, currentView
 local selected = { categoryId = nil }
 
@@ -44,6 +50,15 @@ local ROW_H, ROW_PITCH, LIST_TOP = 22, 24, 4
 -- bar, and whatever sits at the row's right edge — the delete button — is drawn
 -- behind it and cannot be clicked. That shipped once.
 local ROW_W = SIDE_W - 36
+
+-- The strip down the left of the content panel that holds the collapse handle,
+-- and the width of the invisible edges you grab to resize the window.
+local GRIP = 12
+
+-- Small enough to still be a panel, large enough that the sidebar plus one
+-- column of callouts still fits.
+local MIN_W, MIN_H = 520, 260
+local DEFAULT_W, DEFAULT_H = 760, 380
 
 --------------------------------------------------------------------------------
 -- Widgets
@@ -150,6 +165,21 @@ function UI.ApplySettings()
     if InCombatLockdown() then return false end   -- SetScale is blocked in combat
     root:SetScale(s.scale or 1)
     root:SetAlpha(s.opacity or 1)
+
+    -- Clamped on the way in as well as while dragging: a size from an older
+    -- version, or a hand-edited saved variable, should not be able to produce a
+    -- window too small to use.
+    local w = math.max(MIN_W, tonumber(s.width) or DEFAULT_W)
+    local h = math.max(MIN_H, tonumber(s.height) or DEFAULT_H)
+    root:SetSize(w, h)
+
+    -- Text scale is the whole interface, not just the callout buttons. It used
+    -- to reach only the text Runtime set a font on, which was Run and nothing
+    -- else.
+    IMI.Style.SetTextScale(s.textScale or 1)
+
+    sidebarCollapsed = s.sidebarCollapsed == true
+    layoutBody()
     return true
 end
 
@@ -559,15 +589,7 @@ function UI.RefreshSidebar()
     sidebar.hint:SetShown(editable and #Core.Categories() > 0)
     sidebar.list:SetHeight(math.max(20, math.abs(y)))
 
-    -- A scrollbar for a list that fits is clutter, and its arrows land in the
-    -- gutter beside the rows where they read as buttons belonging to them.
-    -- Typed rather than trusted: the scroll template's fields are Blizzard's,
-    -- and this asks for one by name.
-    local scrollBar = sidebar.scroll and sidebar.scroll.ScrollBar
-    if type(scrollBar) == "table" then
-        local visible = sidebar.scroll:GetHeight()
-        scrollBar:SetShown(type(visible) == "number" and math.abs(y) > visible)
-    end
+    IMI.Style.RefreshScrollBar(sidebar.scroll, math.abs(y))
 end
 
 local function commitNewCategory()
@@ -597,7 +619,7 @@ local function showView(name)
     if name ~= "run" then Runtime.HideAll() end
 
     currentView = name
-    sidebar:SetShown(name ~= "settings")
+    layoutBody()
     sidebar.newBtn:SetShown(name == "edit")
 
     if bar and bar.tabs then
@@ -613,6 +635,69 @@ local function showView(name)
     end
 
     UI.RefreshSidebar()
+end
+
+--- Where the content panel starts, and whether the dungeon list is beside it.
+---
+--- One function rather than a SetPoint at each call site: Settings hides the
+--- list, collapsing hides the list, and the two got different answers. The
+--- panel's own left border was left standing in the middle of the Settings
+--- page, drawn straight through the sliders.
+function layoutBody()
+    local wanted = (currentView ~= "settings") and not sidebarCollapsed
+    sidebar:SetShown(wanted)
+
+    content:ClearAllPoints()
+    if wanted then
+        content:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", 6, 0)
+    else
+        content:SetPoint("TOPLEFT", body, "TOPLEFT", GRIP + 6, -6)
+    end
+    content:SetPoint("BOTTOMRIGHT", -6, 6)
+
+    -- The handle stays put whether the list is there or not: it is the way back
+    -- as much as the way in, so it cannot travel with what it hides.
+    if body.sidebarToggle then
+        body.sidebarToggle:SetShown(currentView ~= "settings")
+        body.sidebarToggle:SetText(sidebarCollapsed and ">" or "<")
+        IMI.Style.Tooltip(body.sidebarToggle,
+            sidebarCollapsed and "Show the dungeon list" or "Hide the dungeon list",
+            "Gives the panel the whole window.")
+    end
+end
+
+--- Folds the dungeon list away for more room. Out of combat only: the content
+--- panel resizing moves Run's secure buttons, and that is refused mid-fight.
+function UI.ToggleSidebar()
+    if InCombatLockdown() then
+        Util.Print("|cffff4444not while in combat.|r")
+        return false
+    end
+
+    sidebarCollapsed = not sidebarCollapsed
+    Core.Settings().sidebarCollapsed = sidebarCollapsed
+    layoutBody()
+    UI.Relayout()
+    return true
+end
+
+function UI.SidebarCollapsed() return sidebarCollapsed end
+
+--- The two panels, for tests: how they are anchored is the thing that went
+--- wrong, and it is not visible from outside any other way.
+function UI.ContentPanel() return content end
+function UI.Sidebar() return sidebar end
+
+--- Re-lays whatever the content panel is showing, after its width changed.
+function UI.Relayout()
+    if InCombatLockdown() then return false end
+
+    if currentView == "run" and selected.categoryId then
+        UI.OpenRun(selected.categoryId)
+    elseif currentView == "edit" then
+        IMI.Edit.Refresh()
+    end
+    return true
 end
 
 function UI.CurrentView() return currentView end
@@ -685,7 +770,7 @@ end
 
 function UI.Init()
     root = CreateFrame("Frame", "InomrahsMIFrame", UIParent)
-    root:SetSize(760, 380)
+    root:SetSize(DEFAULT_W, DEFAULT_H)
     root:SetPoint("CENTER")
     root:SetMovable(true)
     root:EnableMouse(true)
@@ -746,6 +831,62 @@ function UI.Init()
     body:SetPoint("TOPLEFT", bar, "BOTTOMLEFT")
     body:SetPoint("BOTTOMRIGHT")
 
+    -- Resizing ---------------------------------------------------------------
+    root:SetResizable(true)
+    -- The bounds call was renamed; ask for whichever this client has rather
+    -- than picking one and having no minimum at all on the other.
+    if root.SetResizeBounds then
+        root:SetResizeBounds(MIN_W, MIN_H)
+    elseif root.SetMinResize then
+        root:SetMinResize(MIN_W, MIN_H)
+    end
+
+    --- One draggable edge. Invisible: an edge you can grab is a convention, and
+    --- drawing it would mean three more lines competing with the gold rule.
+    local function resizeGrip(direction, setPoints, tip)
+        local g = CreateFrame("Frame", nil, root)
+        setPoints(g)
+        g:EnableMouse(true)
+        IMI.Style.Tooltip(g, tip)
+
+        g:SetScript("OnMouseDown", function()
+            -- Resizing moves Run's secure buttons, which is refused in combat,
+            -- and a half-applied resize is worse than none.
+            if InCombatLockdown() then
+                Util.Print("|cffff4444can't resize in combat.|r")
+                return
+            end
+            root:StartSizing(direction)
+        end)
+
+        g:SetScript("OnMouseUp", function()
+            root:StopMovingOrSizing()
+            local settings = Core.Settings()
+            settings.width, settings.height = root:GetWidth(), root:GetHeight()
+            -- The panel is wider or narrower now, so whatever is in it has to
+            -- be laid out again against the new width.
+            UI.Relayout()
+        end)
+        return g
+    end
+
+    root.gripRight = resizeGrip("RIGHT", function(g)
+        g:SetPoint("TOPRIGHT", 0, -BAR_H)
+        g:SetPoint("BOTTOMRIGHT", 0, GRIP)
+        g:SetWidth(GRIP)
+    end, "Drag to change the width")
+
+    root.gripBottom = resizeGrip("BOTTOM", function(g)
+        g:SetPoint("BOTTOMLEFT")
+        g:SetPoint("BOTTOMRIGHT", -GRIP, 0)
+        g:SetHeight(GRIP)
+    end, "Drag to change the height")
+
+    root.gripCorner = resizeGrip("BOTTOMRIGHT", function(g)
+        g:SetPoint("BOTTOMRIGHT")
+        g:SetSize(GRIP, GRIP)
+    end, "Drag to change both")
+
     collapse:SetScript("OnClick", function(self)
         if body:IsShown() then
             body:Hide(); self:SetText("+"); root:SetHeight(BAR_H)
@@ -800,6 +941,7 @@ function UI.Init()
 
     local listScroll = CreateFrame("ScrollFrame", nil, sidebar, "UIPanelScrollFrameTemplate")
     sidebar.scroll = listScroll
+    IMI.Style.WheelScroll(listScroll)
     listScroll:SetPoint("TOPLEFT", 0, -24)
     listScroll:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", -24, 106)
     sidebar.list = CreateFrame("Frame", nil, listScroll)
@@ -830,6 +972,12 @@ function UI.Init()
     content = CreateFrame("Frame", nil, body)
     content:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", 6, 0)
     content:SetPoint("BOTTOMRIGHT", -6, 6)
+
+    -- On the divider between the two, which is where what it does is.
+    body.sidebarToggle = panelButton(body, "<", GRIP, 44, function()
+        UI.ToggleSidebar()
+    end)
+    body.sidebarToggle:SetPoint("RIGHT", content, "LEFT", -1, 0)
 
     IMI.Style.Panel(content)
 
@@ -1082,6 +1230,7 @@ local function ensureStringWindow()
 
     local scroll = CreateFrame("ScrollFrame", "InomrahsMIStringScroll", f,
         "UIPanelScrollFrameTemplate")
+    IMI.Style.WheelScroll(scroll)
     scroll:SetPoint("TOPLEFT", 14, -32)
     scroll:SetPoint("BOTTOMRIGHT", -34, 44)
 

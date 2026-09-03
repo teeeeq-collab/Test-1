@@ -34,6 +34,24 @@ skeleton each. `/imi demo` instead creates one sample dungeon with content in it
 covering the shapes that matter — a one-line enemy, a two-line one, a boss laid
 out three across, and one enemy shared between two pages.
 
+### The window
+
+Drag the **right edge** for width, the **bottom edge** for height, the
+**bottom-right corner** for both. The size is remembered. The dungeon list keeps
+its width — everything you gain goes to the panel beside it.
+
+The **`<` on the divider** folds the dungeon list away when you want the whole
+window for the panel. That is remembered too.
+
+Both are out-of-combat only: they move Run's buttons, and that is refused
+mid-fight.
+
+**Text scale** in Settings now covers the whole addon, not just the callout
+buttons in Run.
+
+Lists answer the **mouse wheel**, and their scroll bars appear only when there
+is something to scroll.
+
 ### The dungeon list
 
 The list on the left is the same in Run and Edit, but only Edit lets you change
@@ -54,6 +72,13 @@ its buttons are on screen and hiding those mid-fight is not allowed.
 
 Run shows the same list with none of this attached, so a slipped drag or a stray
 double-click mid-key cannot rearrange anything.
+
+### Writing a callout
+
+The line boxes wrap rather than scrolling sideways: two lines when you are
+reading them, up to six while you are typing into one, and the card grows to
+make room. A newline can never reach the macro — pressing Enter tidies the text,
+saves, and lets go, exactly as it did before.
 
 ### Undo and redo
 

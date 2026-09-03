@@ -44,6 +44,55 @@ Style.colors = {
 local function unpackColor(c) return c[1], c[2], c[3], c[4] end
 
 --------------------------------------------------------------------------------
+-- Text scale
+--
+-- Every font string and edit box this file makes is remembered, so one setting
+-- can resize all of them. Without the register the setting could only reach the
+-- text Runtime happened to set a font on, which was the callout buttons and
+-- nothing else.
+--------------------------------------------------------------------------------
+
+local scaled = {}
+local currentTextScale = 1
+
+--- Sets a font string's size from the text scale.
+---
+--- The unscaled size is remembered the first time. Reading the current size and
+--- multiplying by the scale looks equivalent and is not: these outlive a
+--- rebuild, so each pass would multiply an already-scaled size again and the
+--- text would grow without limit.
+function Style.ApplyTextScale(fs, scale)
+    if not fs then return end
+
+    if not fs.baseFont then
+        local file, size, flags = fs:GetFont()
+        if not (file and size) then return end
+        fs.baseFont = { file = file, size = size, flags = flags }
+    end
+
+    local base = fs.baseFont
+    fs:SetFont(base.file, base.size * (scale or 1), base.flags)
+end
+
+--- Remembers a font string so the scale can reach it later, and brings it to
+--- the scale already in force — a frame built after the setting was changed
+--- must not come up at the wrong size.
+function Style.Scaled(fs)
+    if not fs then return fs end
+    scaled[#scaled + 1] = fs
+    if currentTextScale ~= 1 then Style.ApplyTextScale(fs, currentTextScale) end
+    return fs
+end
+
+function Style.SetTextScale(scale)
+    currentTextScale = tonumber(scale) or 1
+    for _, fs in ipairs(scaled) do Style.ApplyTextScale(fs, currentTextScale) end
+    return currentTextScale
+end
+
+function Style.TextScale() return currentTextScale end
+
+--------------------------------------------------------------------------------
 -- Primitives
 --------------------------------------------------------------------------------
 
@@ -100,14 +149,14 @@ function Style.Header(parent, text)
     local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     fs:SetText(text or "")
     fs:SetTextColor(unpackColor(Style.colors.goldText))
-    return fs
+    return Style.Scaled(fs)
 end
 
 function Style.Label(parent, text, dim)
     local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     fs:SetText(text or "")
     fs:SetTextColor(unpackColor(dim and Style.colors.textDim or Style.colors.text))
-    return fs
+    return Style.Scaled(fs)
 end
 
 --------------------------------------------------------------------------------
@@ -150,6 +199,8 @@ function Style.Button(b, text, opts)
 
     label:SetText(text or "")
     label:SetTextColor(unpackColor(Style.colors.text))
+
+    Style.Scaled(label)
 
     b.bg, b.label = bg, label
     b.selected, b.enabled = false, true
@@ -238,6 +289,42 @@ function Style.Tooltip(frame, text, detail)
     return frame
 end
 
+--- Makes a scroll frame answer the mouse wheel.
+---
+--- The scroll templates ship with a bar and no wheel, which means a list you
+--- can see is too long has to be dragged by a thin bar at its edge. Clamped at
+--- both ends rather than left to the client, because a scroll frame will
+--- happily scroll past its content and leave the list apparently empty.
+function Style.WheelScroll(scroll, step)
+    step = step or 24
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(self, delta)
+        local current, range = self:GetVerticalScroll(), self:GetVerticalScrollRange()
+        if type(current) ~= "number" or type(range) ~= "number" then return end
+
+        local target = current - (delta or 0) * step
+        if target < 0 then target = 0 end
+        if target > range then target = range end
+        self:SetVerticalScroll(target)
+    end)
+    return scroll
+end
+
+--- Shows a scroll frame's bar only when there is something to scroll.
+---
+--- A bar for a list that fits is clutter, and these templates put their arrows
+--- in the gutter beside the rows where they read as buttons belonging to them.
+--- Typed rather than trusted: the field is Blizzard's, and this asks for one by
+--- name.
+function Style.RefreshScrollBar(scroll, contentHeight)
+    local bar = scroll and scroll.ScrollBar
+    if type(bar) ~= "table" then return end
+
+    local visible = scroll:GetHeight()
+    bar:SetShown(type(visible) == "number" and type(contentHeight) == "number"
+        and contentHeight > visible)
+end
+
 --- A read-only row of text, as the note rows in the reference are.
 function Style.Row(frame)
     Style.Background(frame, Style.colors.row)
@@ -249,6 +336,10 @@ end
 --- everything else, so a field reads as part of the panel rather than sitting
 --- on top of it.
 function Style.EditBox(eb)
+    -- Registered like a font string: an edit box has the same GetFont/SetFont
+    -- pair, and text you are typing into should be the size of the text beside
+    -- it.
+    Style.Scaled(eb)
     Style.Background(eb, Style.colors.window)
     Style.Border(eb, Style.colors.rowEdge)
     eb:SetTextColor(unpackColor(Style.colors.text))

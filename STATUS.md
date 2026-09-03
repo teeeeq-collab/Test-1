@@ -13,6 +13,8 @@ that produced it.
 - Renaming, reordering and deleting dungeons in the Edit sidebar
 - Undo and redo across everything Edit changes; hover text on the symbol buttons
 - Run callouts take a second line when they need it, and truncate past that
+- Resizable window, collapsible dungeon list, wheel-scrolling lists
+- Text scale across the whole interface, not only Run
 
 ## Known to have been broken, now fixed
 

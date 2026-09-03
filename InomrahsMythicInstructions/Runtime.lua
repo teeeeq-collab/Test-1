@@ -177,23 +177,10 @@ end
 --- Lay one page out: enemy cards left to right, wrapping at the container edge,
 --- each card a name over its lines. An enemy's perRow decides whether its lines
 --- stack or fill across, which is what makes a boss compact.
---- Sets a font string's size from the text-scale setting.
----
---- The unscaled size is remembered the first time. Reading the current size and
---- multiplying by the scale looks equivalent and is not: these font strings are
---- pooled and outlive a rebuild, so each rebuild multiplied an already-scaled
---- size again. At scale 1.3 the text went 13, 16.9, 21.97, 28.6 across four
---- rebuilds — every time a dungeon was opened. It went unnoticed because the
---- default scale is 1, where multiplying repeatedly changes nothing.
-local function applyTextScale(fs, scale)
-    if not fs.baseFont then
-        local file, size, flags = fs:GetFont()
-        if not (file and size) then return end
-        fs.baseFont = { file = file, size = size, flags = flags }
-    end
-    local base = fs.baseFont
-    fs:SetFont(base.file, base.size * (scale or 1), base.flags)
-end
+-- The callout buttons and enemy headers are scaled here rather than through
+-- Style's register, because they are rebuilt per dungeon and the scale has to
+-- be applied as they are laid out anyway.
+local applyTextScale = IMI.Style.ApplyTextScale
 
 --- How many lines a label will take on a button this wide, and how tall a line
 --- is at the current text scale.
