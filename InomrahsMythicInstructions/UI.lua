@@ -16,7 +16,7 @@ IMI.UI = {}
 local UI = IMI.UI
 local Core, Runtime, Util = IMI.Core, IMI.Runtime, IMI.Util
 
-local root, bar, body, sidebar, content
+local root, bar, body, sidebar, content, confirmFrame
 local views, currentView
 local selected = { categoryId = nil }
 
@@ -38,6 +38,12 @@ local BAR_H, SIDE_W = 24, 168
 -- slot the cursor is over by dividing by the pitch, so these three have to be
 -- the numbers actually used to lay the rows out, not a second copy of them.
 local ROW_H, ROW_PITCH, LIST_TOP = 22, 24, 4
+
+-- The list is a scroll child 24 narrower than the sidebar, because the scroll
+-- template puts its bar in that gutter. A row wider than this reaches under the
+-- bar, and whatever sits at the row's right edge — the delete button — is drawn
+-- behind it and cannot be clicked. That shipped once.
+local ROW_W = SIDE_W - 36
 
 --------------------------------------------------------------------------------
 -- Widgets
@@ -156,10 +162,6 @@ local sidebarRows = {}
 -- back up.
 local dragState = { id = nil, target = nil }
 
--- Deleting a dungeon throws away every variant, enemy, line and page inside it
--- — far more than any other delete in this addon. So the button arms on the
--- first click and deletes on the second, and only ever one row is armed.
-local armedRow = nil
 
 local function selectCategory(id)
     -- Opening a different dungeon ends the previous one's route memory.
@@ -199,12 +201,77 @@ local function clearRun()
     if views.run.variant then views.run.variant:Hide() end
 end
 
-local function disarmDelete()
-    if armedRow then
-        armedRow.del:SetText("x")
-        armedRow = nil
+--- Asks a yes/no over the panel, and calls back only on yes.
+---
+--- Built once and refilled rather than created per question: frames cannot be
+--- destroyed, so a dialog made on demand would leak one every time it was
+--- asked for.
+---
+--- Escape closes it through UISpecialFrames rather than a key handler of its
+--- own. That distinction matters: a handler would have to swallow keys the
+--- client would otherwise deliver, and this panel is on screen during a pull —
+--- the last thing it should be able to do is eat an interrupt. UISpecialFrames
+--- is the client closing its own dialog, and only while one is open.
+function UI.Confirm(opts)
+    opts = opts or {}
+
+    if not confirmFrame then
+        -- Swallows clicks aimed at the panel underneath, so what is being asked
+        -- about cannot be changed or deleted twice while the question is up.
+        local blocker = CreateFrame("Frame", "InomrahsMIConfirm", root)
+        blocker:SetAllPoints(root)
+        blocker:SetFrameStrata("FULLSCREEN_DIALOG")
+        blocker:EnableMouse(true)
+        blocker:Hide()
+
+        local d = CreateFrame("Frame", nil, blocker)
+        d:SetSize(320, 140)
+        d:SetPoint("CENTER", root, "CENTER", 0, 0)
+        d:SetFrameStrata("FULLSCREEN_DIALOG")
+        d:SetFrameLevel(blocker:GetFrameLevel() + 10)
+        IMI.Style.Panel(d, IMI.Style.colors.dialog)
+
+        d.title = IMI.Style.Header(d, "")
+        d.title:SetPoint("TOP", 0, -12)
+
+        d.body = fontString(d, "")
+        d.body:SetPoint("TOPLEFT", 16, -38)
+        d.body:SetPoint("TOPRIGHT", -16, -38)
+        d.body:SetJustifyH("LEFT")
+        d.body:SetJustifyV("TOP")
+
+        -- The destructive answer sits on the right, away from where the cursor
+        -- lands coming off the button that opened this.
+        d.accept = panelButton(d, "", 96, 22)
+        d.accept:SetPoint("BOTTOMRIGHT", -14, 14)
+
+        d.cancel = panelButton(d, "Cancel", 96, 22, function() blocker:Hide() end)
+        d.cancel:SetPoint("RIGHT", d.accept, "LEFT", -8, 0)
+
+        blocker.dialog = d
+        confirmFrame = blocker
+
+        if type(UISpecialFrames) == "table" then
+            table.insert(UISpecialFrames, "InomrahsMIConfirm")
+        end
     end
+
+    local d = confirmFrame.dialog
+    d.title:SetText(opts.title or "Are you sure?")
+    d.body:SetText(opts.body or "")
+    d.accept:SetText(opts.accept or "OK")
+    d.accept:SetDanger(opts.danger)
+    d.accept:SetScript("OnClick", function()
+        confirmFrame:Hide()
+        if opts.onAccept then opts.onAccept() end
+    end)
+
+    confirmFrame:Show()
+    return confirmFrame
 end
+
+--- The confirmation, for tests: its two buttons are the only way past it.
+function UI.ConfirmFrame() return confirmFrame end
 
 local function deleteCategory(id)
     -- Run has this dungeon's secure buttons on screen and hiding those is
@@ -282,7 +349,7 @@ local function dragUpdate()
     line:ClearAllPoints()
     line:SetPoint("TOPLEFT", sidebar.list, "TOPLEFT", 6,
         -(LIST_TOP + (slot - 1) * ROW_PITCH) + 1)
-    line:SetWidth(SIDE_W - 16)
+    line:SetWidth(ROW_W)
     line:Show()
 end
 
@@ -297,7 +364,7 @@ local function endDrag()
 end
 
 local function newSidebarRow()
-    local row = panelButton(sidebar.list, "", SIDE_W - 16, ROW_H, nil,
+    local row = panelButton(sidebar.list, "", ROW_W, ROW_H, nil,
         { justify = "LEFT" })
 
     -- Leaves room for the delete button, so a long dungeon name stops short of
@@ -312,12 +379,6 @@ local function newSidebarRow()
     -- they would be somewhere under the row's own background, which reads as
     -- the button simply not being there.
     row.del:SetFrameLevel(row:GetFrameLevel() + 2)
-
-    -- Moving off the button is the answer "no": nothing stays armed behind your
-    -- back waiting for an unrelated click to land on it. Hooked once here and
-    -- not per refresh, because HookScript appends rather than replaces and a
-    -- pooled row would collect one more of these every time the list redrew.
-    row.del:HookScript("OnLeave", disarmDelete)
 
     -- Renaming happens on the row itself, so a name is edited where it is read
     -- rather than in a field somewhere else that has to say which row it means.
@@ -335,7 +396,6 @@ local function newSidebarRow()
 end
 
 function UI.RefreshSidebar()
-    disarmDelete()
     for _, row in ipairs(sidebarRows) do row:Hide() end
 
     -- Rearranging and deleting belong to Edit. In Run the list is a way in and
@@ -358,16 +418,15 @@ function UI.RefreshSidebar()
         row:SetScript("OnClick", function() selectCategory(cat.id) end)
 
         row.del:SetShown(editable)
-        row.del:SetText("x")
-        row.del:SetScript("OnClick", function(self)
-            if armedRow ~= row then
-                disarmDelete()
-                armedRow = row
-                self:SetText("?")
-                return
-            end
-            armedRow = nil
-            deleteCategory(cat.id)
+        row.del:SetScript("OnClick", function()
+            UI.Confirm({
+                title = "Delete dungeon",
+                body = ("Delete |cffffff00%s|r?\n\nThis removes every variant, enemy, line and page in it. It cannot be undone.")
+                    :format(cat.name),
+                accept = "Delete",
+                danger = true,
+                onAccept = function() deleteCategory(cat.id) end,
+            })
         end)
 
         row:SetScript("OnDoubleClick", editable and function()
@@ -416,6 +475,16 @@ function UI.RefreshSidebar()
     sidebar.empty:SetShown(#Core.Categories() == 0)
     sidebar.hint:SetShown(editable and #Core.Categories() > 0)
     sidebar.list:SetHeight(math.max(20, math.abs(y)))
+
+    -- A scrollbar for a list that fits is clutter, and its arrows land in the
+    -- gutter beside the rows where they read as buttons belonging to them.
+    -- Typed rather than trusted: the scroll template's fields are Blizzard's,
+    -- and this asks for one by name.
+    local scrollBar = sidebar.scroll and sidebar.scroll.ScrollBar
+    if type(scrollBar) == "table" then
+        local visible = sidebar.scroll:GetHeight()
+        scrollBar:SetShown(type(visible) == "number" and math.abs(y) > visible)
+    end
 end
 
 local function commitNewCategory()
@@ -639,6 +708,7 @@ function UI.Init()
     sidebar.newName:Hide()
 
     local listScroll = CreateFrame("ScrollFrame", nil, sidebar, "UIPanelScrollFrameTemplate")
+    sidebar.scroll = listScroll
     listScroll:SetPoint("TOPLEFT", 0, -24)
     listScroll:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", -24, 106)
     sidebar.list = CreateFrame("Frame", nil, listScroll)

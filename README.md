@@ -43,8 +43,8 @@ it. In Edit each row can be:
   keeps the change, Escape abandons it.
 - **reordered** — drag a row up or down. An orange line shows where it will
   land; drop past either end to send it to the top or the bottom.
-- **deleted** — the red `x` at the right of the row. It arms on the first click
-  and reads `?`; the second click deletes. Moving off the button cancels.
+- **deleted** — the red `x` at the right of the row. It asks first, naming the
+  dungeon, with **Cancel** and **Delete**. Escape is the same as Cancel.
 
 Deleting a dungeon takes every variant, enemy, line and page in it, and nothing
 undoes that — export the profile first if you might want it back. The one time

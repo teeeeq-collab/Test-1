@@ -53,6 +53,7 @@ local function newFrame(frameType, name, parent, template)
     f.GetHeight     = function(self) return self.height end
     f.SetHeight     = function(self, h) self.height = h end
     f.SetWidth      = function(self, w) self.width = w end
+    f.SetSize       = function(self, w, h) self.width, self.height = w, h end
     f.GetScale      = function(self) return self.scale end
     f.SetScale      = function(self, v) self.scale = v end
     f.SetAlpha      = function(self, v) self.alpha = v end

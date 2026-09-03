@@ -280,6 +280,26 @@ check("a drop lands in the row under the cursor", function()
     if IMI.UI.DropIndex(top, 0, 0) ~= 1 then error("an empty list should still answer") end
 end)
 
+-- The bug that shipped: rows were laid out at the sidebar's width rather than
+-- the scroll child's, so the delete button at a row's right edge sat under the
+-- scroll bar, drawn over and impossible to click.
+check("a row fits inside the list it scrolls in", function()
+    IMI.Core.Init({})
+    IMI.Core.AddCategory("Altar of Fangs")
+    IMI.UI.Show("edit")
+    IMI.UI.RefreshSidebar()
+
+    local row = IMI.UI.SidebarRows()[1]
+    local list = row.parent                    -- the scroll child, per the stub
+    local rowRight = 6 + row:GetWidth()        -- rows are inset 6 from the left
+    if rowRight > list:GetWidth() then
+        error(("a row reaches %d into a list %d wide"):format(rowRight, list:GetWidth()))
+    end
+
+    -- And the button has to be inside the row, not hanging off its edge.
+    if row.del:GetWidth() >= row:GetWidth() then error("the delete button is not inside its row") end
+end)
+
 check("renaming a dungeon on its row", function()
     IMI.Core.Init({})
     local a = IMI.Core.AddCategory("Typo Hall")
@@ -339,9 +359,17 @@ check("dragging a row moves the dungeon", function()
     end
 end)
 
--- Deleting a dungeon costs everything in it, so one click arms and the second
--- deletes. A single click must never be enough.
-check("deleting takes two clicks", function()
+-- Deleting a dungeon costs everything in it, so the button asks first and the
+-- answer has to be given on the dialog. The x alone must never delete.
+local function pressDelete(row)
+    row.del:GetScript("OnClick")(row.del)
+    local dialog = IMI.UI.ConfirmFrame()
+    if not dialog then error("the delete button asked nothing") end
+    if not dialog:IsShown() then error("the confirmation is not on screen") end
+    return dialog.dialog
+end
+
+check("deleting asks before it acts", function()
     IMI.Core.Init({})
     local doomed = IMI.Core.AddCategory("Doomed")
     IMI.Core.AddCategory("Survivor")
@@ -351,28 +379,57 @@ check("deleting takes two clicks", function()
     local row = IMI.UI.SidebarRows()[1]
     if not row.del:IsShown() then error("no delete button in the edit view") end
 
-    row.del:GetScript("OnClick")(row.del)
-    if IMI.Core.GetCategory(doomed.id) == nil then error("one click deleted it") end
-    if row.del:GetText() ~= "?" then error("the armed button does not say so") end
+    local d = pressDelete(row)
+    if IMI.Core.GetCategory(doomed.id) == nil then error("it deleted without asking") end
+    -- The question has to name the dungeon: two rows look alike from a dialog.
+    if not tostring(d.body:GetText()):find("Doomed", 1, true) then
+        error("the question does not say which dungeon: " .. tostring(d.body:GetText()))
+    end
+    if d.accept:GetText() ~= "Delete" then error("the accepting button is not labelled Delete") end
+    if d.cancel:GetText() ~= "Cancel" then error("there is no Cancel") end
 
-    row.del:GetScript("OnClick")(row.del)
-    if IMI.Core.GetCategory(doomed.id) ~= nil then error("the second click did not delete") end
+    d.accept:GetScript("OnClick")(d.accept)
+    if IMI.Core.GetCategory(doomed.id) ~= nil then error("confirming did not delete") end
+    if IMI.UI.ConfirmFrame():IsShown() then error("the dialog stayed up after answering") end
     if #IMI.Core.Categories() ~= 1 then error("the wrong number of dungeons survived") end
 end)
 
-check("moving off the delete button disarms it", function()
+check("cancel keeps the dungeon", function()
     IMI.Core.Init({})
     local safe = IMI.Core.AddCategory("Safe")
     IMI.UI.Show("edit")
     IMI.UI.RefreshSidebar()
 
-    local row = IMI.UI.SidebarRows()[1]
-    row.del:GetScript("OnClick")(row.del)
-    row.del:GetScript("OnLeave")(row.del)      -- chained: repaint, then disarm
-    if row.del:GetText() ~= "x" then error("the button stayed armed after leaving it") end
+    local d = pressDelete(IMI.UI.SidebarRows()[1])
+    d.cancel:GetScript("OnClick")(d.cancel)
 
-    row.del:GetScript("OnClick")(row.del)      -- so this only re-arms
-    if IMI.Core.GetCategory(safe.id) == nil then error("a disarmed button still deleted") end
+    if IMI.Core.GetCategory(safe.id) == nil then error("cancel deleted it anyway") end
+    if IMI.UI.ConfirmFrame():IsShown() then error("cancel left the dialog up") end
+
+    -- And the cancelled answer must not be waiting to fire on the next question.
+    local again = IMI.Core.AddCategory("Also safe")
+    IMI.UI.RefreshSidebar()
+    pressDelete(IMI.UI.SidebarRows()[2])
+    IMI.UI.ConfirmFrame():Hide()
+    if IMI.Core.GetCategory(again.id) == nil then error("a stale answer deleted a dungeon") end
+end)
+
+-- The reused dialog must answer for the row that opened it, not the one before.
+check("the dialog rebinds to each dungeon", function()
+    IMI.Core.Init({})
+    local first = IMI.Core.AddCategory("First")
+    local second = IMI.Core.AddCategory("Second")
+    IMI.UI.Show("edit")
+    IMI.UI.RefreshSidebar()
+
+    local d = pressDelete(IMI.UI.SidebarRows()[1])
+    d.cancel:GetScript("OnClick")(d.cancel)
+
+    d = pressDelete(IMI.UI.SidebarRows()[2])
+    d.accept:GetScript("OnClick")(d.accept)
+
+    if IMI.Core.GetCategory(second.id) ~= nil then error("the second dungeon survived") end
+    if IMI.Core.GetCategory(first.id) == nil then error("it deleted the dungeon from the earlier question") end
 end)
 
 check("deleting the open dungeon selects its neighbour", function()
@@ -385,9 +442,8 @@ check("deleting the open dungeon selects its neighbour", function()
     IMI.UI.SidebarRows()[1]:GetScript("OnClick")()
     if IMI.UI.SelectedCategory() ~= first.id then error("clicking a row did not select it") end
 
-    local row = IMI.UI.SidebarRows()[1]
-    row.del:GetScript("OnClick")(row.del)
-    row.del:GetScript("OnClick")(row.del)
+    local d = pressDelete(IMI.UI.SidebarRows()[1])
+    d.accept:GetScript("OnClick")(d.accept)
 
     if IMI.UI.SelectedCategory() ~= second.id then
         error("deleting the selected dungeon left the selection dangling")
@@ -400,10 +456,9 @@ check("deleting the last dungeon leaves nothing selected", function()
     IMI.UI.Show("edit")
     IMI.UI.RefreshSidebar()
 
-    local row = IMI.UI.SidebarRows()[1]
     IMI.UI.SidebarRows()[1]:GetScript("OnClick")()
-    row.del:GetScript("OnClick")(row.del)
-    row.del:GetScript("OnClick")(row.del)
+    local d = pressDelete(IMI.UI.SidebarRows()[1])
+    d.accept:GetScript("OnClick")(d.accept)
 
     if #IMI.Core.Categories() ~= 0 then error("the dungeon survived") end
     if IMI.UI.SelectedCategory() ~= nil then error("something is still selected") end

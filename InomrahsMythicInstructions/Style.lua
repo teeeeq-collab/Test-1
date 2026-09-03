@@ -21,6 +21,9 @@ Style.colors = {
     window      = { 0.055, 0.055, 0.075, 0.96 },
     panel       = { 0.085, 0.085, 0.115, 0.98 },
     bar         = { 0.10,  0.09,  0.13,  1.00 },
+    -- Fully opaque, unlike the window: a question you must answer should not
+    -- show the thing it is asking about faintly through itself.
+    dialog      = { 0.07,  0.07,  0.095, 1.00 },
 
     gold        = { 0.78,  0.63,  0.30,  1.00 },
     goldText    = { 1.00,  0.82,  0.20,  1.00 },
@@ -137,6 +140,9 @@ function Style.Button(b, text, opts)
 
     b.bg, b.label = bg, label
     b.selected, b.enabled = false, true
+    -- Read from the button rather than the options table it was built with, so
+    -- a reused button can become the dangerous one and back again.
+    b.danger = opts.danger
 
     local function repaint()
         if not b.enabled then
@@ -152,7 +158,7 @@ function Style.Button(b, text, opts)
             bg:SetColorTexture(unpackColor(
                 b.hovered and Style.colors.rowHover or Style.colors.row))
             label:SetTextColor(unpackColor(
-                opts.danger and Style.colors.danger or Style.colors.text))
+                b.danger and Style.colors.danger or Style.colors.text))
             Style.SetBorderColor(b, Style.colors.rowEdge)
         end
     end
@@ -169,6 +175,11 @@ function Style.Button(b, text, opts)
     b.SetEnabled = function(self, enabled)
         self.enabled = not not enabled
         if nativeSetEnabled then nativeSetEnabled(self, enabled) end
+        repaint()
+    end
+
+    b.SetDanger = function(self, on)
+        self.danger = not not on
         repaint()
     end
 
