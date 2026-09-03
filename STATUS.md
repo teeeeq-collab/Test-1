@@ -11,22 +11,22 @@ that produced it.
 - Export and import strings
 - `/imi starter` (the eight Season 2 dungeons), `Add target` keybind
 
-## Not yet confirmed working
+## Known to have been broken, now fixed
 
-**Pressing a callout button sends nothing.** This is the open item.
+**Callout buttons sent nothing** (v0.7 and earlier). Two differences from the
+probe's proven-working button were the cause: `RegisterForClicks("AnyUp")` where
+the probe registered both directions, and a missing `EnableMouse(true)`. Both
+corrected in v0.8, and buttons have since been reported posting to party chat in
+a normal dungeon.
 
-Ruled out so far: it happens on `/p`, `/i` and `/say`, so it is not a chat
-restriction; the buttons render and carry labels, so the layout and the data are
-fine; a follower dungeon behaves the same as a real one.
+Not yet exercised inside a live keystone or during a boss encounter. The probe
+measured that path as working, so this is expected to hold, but it is inference
+from the probe rather than observation of the addon.
 
-Two differences from the probe's proven-working button were found and corrected
-in v0.8 — `RegisterForClicks("AnyUp")` where the probe used both directions, and
-a missing `EnableMouse(true)`. Whether that fixed it is unconfirmed.
-
-`/imi debug` exists for exactly this. Run it with a dungeon open in Run: it
-prints each visible button's `type` and full macro text, and hooks a one-off
-click reporter. That separates the three causes that look identical from
-outside:
+`/imi debug` remains, and is the tool for it if a button ever goes quiet again.
+Run it with a dungeon open in Run: it prints each visible button's `type` and
+full macro text, and hooks a one-off click reporter, which separates the three
+causes that look identical from outside:
 
 | Symptom | Cause |
 | ------- | ----- |
