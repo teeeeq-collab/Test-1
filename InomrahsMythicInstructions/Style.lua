@@ -139,12 +139,14 @@ function Style.Button(b, text, opts)
     -- A label anchored on both sides wraps when the text is too long, and a
     -- button is a fixed height, so the extra lines spill out over whatever is
     -- underneath. A long dungeon name did exactly that to the two rows below
-    -- it. One line that runs out of room ends in an ellipsis instead; pass
-    -- wrap = true to ask for the old behaviour deliberately.
-    if not opts.wrap then
-        label:SetWordWrap(false)
-        label:SetMaxLines(1)
-    end
+    -- it in the sidebar.
+    --
+    -- So a label is held to a line count and ends in an ellipsis past it. One
+    -- line is the default; a caller that has made room for more says how many,
+    -- and is then responsible for the height that needs.
+    local maxLines = opts.maxLines or 1
+    label:SetWordWrap(maxLines > 1)
+    label:SetMaxLines(maxLines)
 
     label:SetText(text or "")
     label:SetTextColor(unpackColor(Style.colors.text))

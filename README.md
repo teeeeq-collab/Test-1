@@ -76,6 +76,15 @@ own reset buttons.
 Both are refused in combat: a step can delete the dungeon Run currently has on
 screen, and hiding those buttons mid-fight is not allowed.
 
+### How much text fits on a button
+
+A callout too long for one line gets a second, and the button grows to hold it.
+Past two lines it ends in an ellipsis — hovering shows the whole thing, and a
+button tall enough for a paragraph stops being something you hit by sight.
+
+The enemy name above a card stays on one line and truncates, so it cannot wrap
+down onto its own buttons.
+
 ### Hover text
 
 Buttons labelled with a symbol — `*`, `?`, `X`, `^`, `v`, `x`, `-`, `<`, `>` —

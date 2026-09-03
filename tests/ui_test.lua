@@ -628,5 +628,106 @@ check("hover text does not cost the hover colour", function()
     if b.hovered then error("the button stayed hovered after leaving") end
 end)
 
+--------------------------------------------------------------------------------
+-- Run buttons: a callout too long for one line gets a second, and the button
+-- grows to hold it rather than clipping.
+--------------------------------------------------------------------------------
+
+check("a long callout gets a second line, and the room for it", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Two-liners")
+
+    local short = IMI.Core.AddEnemy(cat.id, "Short")
+    IMI.Core.AddLine(cat.id, short.id, "", "/p kick")
+
+    local long = IMI.Core.AddEnemy(cat.id, "Long")
+    IMI.Core.AddLine(cat.id, long.id, "",
+        "/p Prio kick the Envenom, stack behind the pillar for the cone, then spread")
+
+    local page = IMI.Core.AddPage(cat.id, "One")
+    IMI.Core.AddEnemyToPage(cat.id, page.id, short.id)
+    IMI.Core.AddEnemyToPage(cat.id, page.id, long.id)
+
+    local container = CreateFrame("Frame", nil, UIParent)
+    IMI.Runtime.EnsureManager(container)
+    local ok, err = IMI.Runtime.Build(container, cat.id, IMI.Core.Settings())
+    if not ok then error(tostring(err)) end
+
+    local buttons = IMI.Runtime.PageButtons(1)
+    if not buttons or not buttons[1] or not buttons[2] then error("the page has no buttons") end
+
+    local shortH, longH = buttons[1]:GetHeight(), buttons[2]:GetHeight()
+    if longH <= shortH then
+        error(("the long callout did not get a taller button: %s vs %s")
+            :format(tostring(longH), tostring(shortH)))
+    end
+
+    -- Two lines, not however many the text wants: past that it ellipsises, and
+    -- a button tall enough for a paragraph stops being hittable by sight.
+    if longH > shortH * 2 then
+        error(("the button grew past two lines: %s vs %s"):format(tostring(longH), tostring(shortH)))
+    end
+
+    if buttons[2].label.maxLines ~= 2 then error("the callout label is not held to two lines") end
+    if buttons[2].label.wordWrap ~= true then error("the callout label does not wrap") end
+end)
+
+-- The bug this caught: text scale was applied by reading the current size and
+-- multiplying, on font strings that outlive a rebuild. At 1.3 the text went 13,
+-- 16.9, 21.97, 28.6 across four rebuilds — every time a dungeon was opened.
+check("text scale does not compound across rebuilds", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Scaled")
+    local e = IMI.Core.AddEnemy(cat.id, "Mob")
+    IMI.Core.AddLine(cat.id, e.id, "", "/p kick")
+    local page = IMI.Core.AddPage(cat.id, "One")
+    IMI.Core.AddEnemyToPage(cat.id, page.id, e.id)
+
+    IMI.Core.Settings().textScale = 1.3
+    local container = CreateFrame("Frame", nil, UIParent)
+    IMI.Runtime.EnsureManager(container)
+
+    local sizes = {}
+    for i = 1, 4 do
+        if not IMI.Runtime.Build(container, cat.id, IMI.Core.Settings()) then
+            error("build refused")
+        end
+        local _, size = IMI.Runtime.PageButtons(1)[1].label:GetFont()
+        sizes[i] = size
+    end
+    IMI.Core.Settings().textScale = 1.0
+
+    for i = 2, 4 do
+        if sizes[i] ~= sizes[1] then
+            error(("rebuild %d changed the font size: %s then %s")
+                :format(i, tostring(sizes[1]), tostring(sizes[i])))
+        end
+    end
+
+    -- And it must actually be scaled, not merely stable at the unscaled size.
+    if not (sizes[1] > 10) then
+        error("text scale was not applied at all: " .. tostring(sizes[1]))
+    end
+end)
+
+check("a short callout keeps a single-line button", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Short only")
+    local e = IMI.Core.AddEnemy(cat.id, "Mob")
+    IMI.Core.AddLine(cat.id, e.id, "", "/p kick")
+    local page = IMI.Core.AddPage(cat.id, "One")
+    IMI.Core.AddEnemyToPage(cat.id, page.id, e.id)
+
+    local container = CreateFrame("Frame", nil, UIParent)
+    IMI.Runtime.EnsureManager(container)
+    if not IMI.Runtime.Build(container, cat.id, IMI.Core.Settings()) then error("build refused") end
+
+    -- 22 is the unscaled button height; a short label must not inflate it.
+    if IMI.Runtime.PageButtons(1)[1]:GetHeight() ~= 22 then
+        error("a short callout got a taller button than it needs: "
+            .. tostring(IMI.Runtime.PageButtons(1)[1]:GetHeight()))
+    end
+end)
+
 realPrint(("\n%d passed, %d failed"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

@@ -67,6 +67,20 @@ local function newFrame(frameType, name, parent, template)
     end
     f.ClearAllPoints = function(self) self.points = {} end
     f.SetWordWrap   = function(self, v) self.wordWrap = v end
+    -- Enough of a font model to answer "does this text fit on one line", which
+    -- is a real decision the layout makes. Half the point size per character is
+    -- not any real font's metrics, but it is monotonic in length and in size,
+    -- which is what the code under test actually depends on.
+    f.SetFont       = function(self, file, size, flags)
+        self.fontFile, self.fontSize, self.fontFlags = file, size, flags
+    end
+    f.GetFont       = function(self)
+        return self.fontFile or "Fonts/FRIZQT__.TTF", self.fontSize or 10, self.fontFlags or ""
+    end
+    f.GetStringWidth  = function(self)
+        return #tostring(self.text or "") * (self.fontSize or 10) * 0.5
+    end
+    f.GetStringHeight = function(self) return (self.fontSize or 10) * 1.2 end
     f.SetMaxLines   = function(self, v) self.maxLines = v end
     -- Screen geometry. Modelled because the unmodelled-method fallback returns
     -- the frame itself, and the drag maths would then do arithmetic on a table

@@ -108,7 +108,7 @@ end
 --- with its leading chat command stripped, so
 ---   "/p Prio kick <Piercing Hiss>"  ->  "Prio kick <Piercing Hiss>"
 --- Multi-line bodies fall back to their first line.
-function Util.ButtonLabel(line)
+function Util.ButtonLabel(line, maxChars)
     if not line then return "" end
 
     local caption = line.caption
@@ -120,7 +120,11 @@ function Util.ButtonLabel(line)
     local firstLine = body:match("^[^\n]*") or ""
 
     local stripped = firstLine:match("^/%a+%s+(.*)$") or firstLine
-    return Util.Shorten(stripped, 26)
+    -- Room for two lines on a button, not one. This is a sanity bound, not the
+    -- visual limit: the label itself ends in an ellipsis at whatever the button
+    -- actually fits, which depends on the font size and the text scale and so
+    -- cannot be decided here in characters.
+    return Util.Shorten(stripped, maxChars or 60)
 end
 
 --- Trim for display. A button is a label, not a place to read a sentence; the

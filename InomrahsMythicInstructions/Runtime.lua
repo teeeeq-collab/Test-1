@@ -43,6 +43,12 @@ local built = {
 --------------------------------------------------------------------------------
 
 local BUTTON_W, BUTTON_H = 150, 22
+
+-- A callout that does not fit on one line gets a second, because half a
+-- sentence is a worse prompt mid-pull than a slightly taller button. Past two
+-- it ends in an ellipsis: the tooltip carries the whole line, and a button tall
+-- enough for a paragraph stops being something you hit by sight.
+local MAX_LABEL_LINES = 2
 local CARD_GAP, LINE_GAP = 10, 3
 local HEADER_H = 16
 
@@ -158,7 +164,7 @@ local function acquireButton(pageIndex, page, buttonIndex)
 
     -- Same appearance as every other button, from the same place, so a callout
     -- does not look like a different kind of control from the ones around it.
-    IMI.Style.Button(button, "", { justify = "LEFT" })
+    IMI.Style.Button(button, "", { justify = "LEFT", maxLines = MAX_LABEL_LINES })
 
     pool[buttonIndex] = button
     return button
@@ -171,6 +177,57 @@ end
 --- Lay one page out: enemy cards left to right, wrapping at the container edge,
 --- each card a name over its lines. An enemy's perRow decides whether its lines
 --- stack or fill across, which is what makes a boss compact.
+--- Sets a font string's size from the text-scale setting.
+---
+--- The unscaled size is remembered the first time. Reading the current size and
+--- multiplying by the scale looks equivalent and is not: these font strings are
+--- pooled and outlive a rebuild, so each rebuild multiplied an already-scaled
+--- size again. At scale 1.3 the text went 13, 16.9, 21.97, 28.6 across four
+--- rebuilds — every time a dungeon was opened. It went unnoticed because the
+--- default scale is 1, where multiplying repeatedly changes nothing.
+local function applyTextScale(fs, scale)
+    if not fs.baseFont then
+        local file, size, flags = fs:GetFont()
+        if not (file and size) then return end
+        fs.baseFont = { file = file, size = size, flags = flags }
+    end
+    local base = fs.baseFont
+    fs:SetFont(base.file, base.size * (scale or 1), base.flags)
+end
+
+--- How many lines a label will take on a button this wide, and how tall a line
+--- is at the current text scale.
+---
+--- Measured rather than guessed from a character count: how much fits depends
+--- on the font, the size, the text-scale setting and which characters they are
+--- — "iiiiiiii" and "WWWWWWWW" are not the same width. GetStringWidth reports
+--- the unwrapped width, which is exactly the question being asked.
+---
+--- One hidden font string per page does the measuring, so this costs no frames.
+local function measureLabel(page, text, available, textScale)
+    local m = page.measure
+    if not m then
+        m = page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        m:Hide()
+        page.measure = m
+    end
+
+    applyTextScale(m, textScale)
+    m:SetText(text or "")
+
+    local textWidth, lineHeight = m:GetStringWidth(), m:GetStringHeight()
+    if type(lineHeight) ~= "number" or lineHeight <= 0 then
+        -- No client to ask. One line, and a height that will not collapse.
+        return 1, 12 * (textScale or 1)
+    end
+
+    local lines = 1
+    if type(textWidth) == "number" and available > 0 and textWidth > available then
+        lines = math.min(MAX_LABEL_LINES, math.ceil(textWidth / available))
+    end
+    return lines, lineHeight
+end
+
 local function layoutPage(page, pageIndex, catId, pageData, width, settings)
     local enemies = Core.PageEnemies(catId, pageData.id)
     local buttonIndex = 0
@@ -185,8 +242,23 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
         local cols   = math.min(perRow, math.max(1, #lines))
         local rows   = math.ceil(#lines / cols)
 
+        -- One height for the whole card, taken from its longest label, so the
+        -- buttons under an enemy stay a grid rather than a ragged stack. The
+        -- insets match Style.Button's left and right label anchors.
+        local textScale = (settings and settings.textScale) or 1
+        local available = bw - 14
+        local cardLines = 1
+        for _, line in ipairs(lines) do
+            local needed = measureLabel(page, Util.ButtonLabel(line), available, textScale)
+            if needed > cardLines then cardLines = needed end
+        end
+
+        local _, lineHeight = measureLabel(page, "Ag", available, textScale)
+        local cardBH = bh
+        if cardLines > 1 then cardBH = bh + (cardLines - 1) * lineHeight end
+
         local cardW = cols * bw + (cols - 1) * LINE_GAP
-        local cardH = HEADER_H + rows * bh + (rows - 1) * LINE_GAP
+        local cardH = HEADER_H + rows * cardBH + (rows - 1) * LINE_GAP
 
         -- Wrap when the card would overhang. Auto-wrap keeps left-to-right
         -- order and only chooses where to break.
@@ -208,10 +280,12 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
         header:SetWidth(cardW)
         header:SetJustifyH("LEFT")
         header:SetText(enemy.name)
-        local hFile, hSize, hFlags = header:GetFont()
-        if hFile and hSize then
-            header:SetFont(hFile, hSize * ((settings and settings.textScale) or 1), hFlags)
-        end
+        applyTextScale(header, textScale)
+        -- Held to one line for the same reason the buttons are held to two: a
+        -- long name anchored across the card width would wrap down onto the
+        -- callouts underneath it.
+        header:SetWordWrap(false)
+        header:SetMaxLines(1)
         header:Show()
 
         for i, line in ipairs(lines) do
@@ -222,10 +296,10 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
             local row = math.floor((i - 1) / cols)
 
             button:ClearAllPoints()
-            button:SetSize(bw, bh)
+            button:SetSize(bw, cardBH)
             button:SetPoint("TOPLEFT", page, "TOPLEFT",
                 x + col * (bw + LINE_GAP),
-                y - HEADER_H - row * (bh + LINE_GAP))
+                y - HEADER_H - row * (cardBH + LINE_GAP))
 
             -- The whole point: the line's text, on the button, set now, while
             -- we are out of combat and allowed to. Plain text gains the chosen
@@ -241,11 +315,7 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
             -- Text scale is separate from button scale on purpose: a bigger hit
             -- target and a bigger caption are different needs, and one should
             -- not force the other.
-            local textScale = (settings and settings.textScale) or 1
-            local fontFile, fontSize, fontFlags = button.label:GetFont()
-            if fontFile and fontSize then
-                button.label:SetFont(fontFile, fontSize * textScale, fontFlags)
-            end
+            applyTextScale(button.label, textScale)
 
             button:SetScript("OnEnter", function(self)
                 self.hovered = true
@@ -345,6 +415,12 @@ end
 
 function Runtime.BuiltCategory()
     return built.categoryId
+end
+
+--- One page's buttons, for tests: the layout's sizing is not visible any other
+--- way from outside.
+function Runtime.PageButtons(pageIndex)
+    return frames.buttons[pageIndex]
 end
 
 function Runtime.PageCount()

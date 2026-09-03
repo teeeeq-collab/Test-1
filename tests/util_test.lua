@@ -55,7 +55,16 @@ ck("a full line composes exactly to the cap",
    U.CharLen(U.ComposeMacro(longest, "/p")) == 255,
    U.CharLen(U.ComposeMacro(longest, "/p")))
 
-ck("labels are shortened", U.CharLen(U.ButtonLabel({ body = plain })) <= 26,
+-- A bound, not the visual limit: a Run button fits two lines and the font
+-- string ellipsises at whatever it actually holds, which depends on the text
+-- scale and cannot be decided here in characters.
+ck("labels are bounded", U.CharLen(U.ButtonLabel({ body = plain })) <= 60,
    U.ButtonLabel({ body = plain }))
+ck("a caller can ask for a shorter one",
+   U.CharLen(U.ButtonLabel({ body = plain }, 20)) <= 20,
+   U.ButtonLabel({ body = plain }, 20))
+-- Two lines are only useful if there is enough text left to fill them.
+ck("enough survives for a second line",
+   U.CharLen(U.ButtonLabel({ body = plain })) > 26, U.ButtonLabel({ body = plain }))
 ck("captions are never shortened away", U.ButtonLabel({ caption = "Strat" }) == "Strat")
 print("\ncomposing: all ok")
