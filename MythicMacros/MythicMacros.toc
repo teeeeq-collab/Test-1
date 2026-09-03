@@ -10,6 +10,7 @@ Libs/LibDeflate/LibDeflate.lua
 Libs/LibSerialize/LibSerialize.lua
 
 Util.lua
+Style.lua
 Core.lua
 Runtime.lua
 UI.lua

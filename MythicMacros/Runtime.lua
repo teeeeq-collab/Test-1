@@ -156,18 +156,9 @@ local function acquireButton(pageIndex, page, buttonIndex)
     button:EnableMouse(true)
     button:SetAttribute("type", "macro")
 
-    local bg = button:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.13, 0.13, 0.18, 0.92)
-    button.bg = bg
-
-    button.label = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    button.label:SetPoint("LEFT", 6, 0)
-    button.label:SetPoint("RIGHT", -6, 0)
-    button.label:SetJustifyH("LEFT")
-
-    button:SetScript("OnEnter", function() bg:SetColorTexture(0.22, 0.22, 0.30, 0.95) end)
-    button:SetScript("OnLeave", function() bg:SetColorTexture(0.13, 0.13, 0.18, 0.92) end)
+    -- Same appearance as every other button, from the same place, so a callout
+    -- does not look like a different kind of control from the ones around it.
+    MM.Style.Button(button, "", { justify = "LEFT" })
 
     pool[buttonIndex] = button
     return button
@@ -209,6 +200,7 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
         if not header then
             page.headers = page.headers or {}
             header = page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            header:SetTextColor(unpack(MM.Style.colors.goldText))
             page.headers[enemy.id] = header
         end
         header:ClearAllPoints()
@@ -256,14 +248,16 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
             end
 
             button:SetScript("OnEnter", function(self)
-                self.bg:SetColorTexture(0.22, 0.22, 0.30, 0.95)
+                self.hovered = true
+                self:Repaint()
                 GameTooltip:SetOwner(self, "ANCHOR_TOP")
                 GameTooltip:AddLine(enemy.name, 1, 0.82, 0)
                 GameTooltip:AddLine(self.macroText or "", 1, 1, 1, true)
                 GameTooltip:Show()
             end)
             button:SetScript("OnLeave", function(self)
-                self.bg:SetColorTexture(0.13, 0.13, 0.18, 0.92)
+                self.hovered = false
+                self:Repaint()
                 GameTooltip:Hide()
             end)
 

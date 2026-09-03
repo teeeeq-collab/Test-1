@@ -66,6 +66,8 @@ local function newFrame(frameType, name, parent, template)
     f.HookScript    = function(self, e, fn) self.scripts[e] = fn end
     f.GetText       = function(self) return self.text or "" end
     f.SetText       = function(self, t) self.text = t end
+    f.SetTextColor  = function(self, r, g, b, a) self.color = { r, g, b, a } end
+    f.SetColorTexture = function(self, r, g, b, a) self.color = { r, g, b, a } end
     f.CreateFontString = function(self) return newFrame("FontString", nil, self) end
     f.CreateTexture    = function(self) return newFrame("Texture", nil, self) end
     f.GetObjectType    = function(self) return frameType end

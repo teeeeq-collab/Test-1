@@ -40,13 +40,14 @@ local BAR_H, SIDE_W = 24, 168
 local function fontString(parent, text, template)
     local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontNormalSmall")
     fs:SetText(text or "")
+    fs:SetTextColor(unpack(MM.Style.colors.text))
     return fs
 end
 
-local function panelButton(parent, text, w, h, onClick)
-    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+local function panelButton(parent, text, w, h, onClick, opts)
+    local b = CreateFrame("Button", nil, parent)
     b:SetSize(w, h or 20)
-    b:SetText(text)
+    MM.Style.Button(b, text, opts)
     if onClick then b:SetScript("OnClick", onClick) end
     return b
 end
@@ -89,9 +90,8 @@ function UI.Dropdown(parent, width)
     dd.list:SetFrameStrata("DIALOG")
     dd.list:Hide()
 
-    local listBg = dd.list:CreateTexture(nil, "BACKGROUND")
-    listBg:SetAllPoints()
-    listBg:SetColorTexture(0.08, 0.08, 0.11, 0.98)
+    MM.Style.Background(dd.list, MM.Style.colors.window)
+    MM.Style.Border(dd.list, MM.Style.colors.gold)
 
     dd.rows = {}
 
@@ -102,7 +102,8 @@ function UI.Dropdown(parent, width)
         for i, item in ipairs(items) do
             local row = self.rows[i]
             if not row then
-                row = panelButton(self.list, "", (width or 150) - 6, 18)
+                row = panelButton(self.list, "", (width or 150) - 6, 18, nil,
+                    { justify = "LEFT" })
                 self.rows[i] = row
             end
             row:SetPoint("TOPLEFT", 3, y)
@@ -171,7 +172,8 @@ function UI.RefreshSidebar()
     for i, cat in ipairs(Core.Categories()) do
         local row = sidebarRows[i]
         if not row then
-            row = panelButton(sidebar.list, "", SIDE_W - 16, 22)
+            row = panelButton(sidebar.list, "", SIDE_W - 16, 22, nil,
+                { justify = "LEFT" })
             sidebarRows[i] = row
         end
         row:SetPoint("TOPLEFT", sidebar.list, "TOPLEFT", 6, y)
@@ -311,9 +313,8 @@ function UI.Init()
     root:EnableMouse(true)
     root:SetClampedToScreen(true)
 
-    local rootBg = root:CreateTexture(nil, "BACKGROUND")
-    rootBg:SetAllPoints()
-    rootBg:SetColorTexture(0.05, 0.05, 0.07, 0.92)
+    MM.Style.Background(root, MM.Style.colors.window)
+    MM.Style.Border(root, MM.Style.colors.gold)
 
     -- Bar --------------------------------------------------------------------
     bar = CreateFrame("Frame", nil, root)
@@ -329,9 +330,7 @@ function UI.Init()
         Core.Settings().point = { point = point, relativePoint = rel, x = x, y = y }
     end)
 
-    local barBg = bar:CreateTexture(nil, "BACKGROUND")
-    barBg:SetAllPoints()
-    barBg:SetColorTexture(0.10, 0.09, 0.14, 0.95)
+    MM.Style.Background(bar, MM.Style.colors.bar)
 
     local collapse = panelButton(bar, "-", 22, BAR_H - 4)
     collapse:SetPoint("LEFT", 3, 0)
@@ -357,7 +356,7 @@ function UI.Init()
     local info = panelButton(bar, "?", 22, BAR_H - 4, function() UI.ShowHelp() end)
     info:SetPoint("RIGHT", gear, "LEFT", -2, 0)
 
-    bar.title = fontString(bar, "Inomrah's Mythic Instructions", "GameFontNormal")
+    bar.title = MM.Style.Header(bar, "Inomrah's Mythic Instructions")
     bar.title:SetPoint("CENTER", bar, "CENTER", 0, 0)
 
     body = CreateFrame("Frame", nil, root)
@@ -378,11 +377,9 @@ function UI.Init()
     sidebar:SetPoint("BOTTOMLEFT", 6, 6)
     sidebar:SetWidth(SIDE_W)
 
-    local sideBg = sidebar:CreateTexture(nil, "BACKGROUND")
-    sideBg:SetAllPoints()
-    sideBg:SetColorTexture(0.09, 0.09, 0.13, 0.95)
+    MM.Style.Panel(sidebar)
 
-    sidebar.header = fontString(sidebar, "Dungeons", "GameFontNormal")
+    sidebar.header = MM.Style.Header(sidebar, "Dungeons")
     sidebar.header:SetPoint("TOP", 0, -6)
 
     -- Pinned to the bottom, so they stay put however long the list grows.
@@ -406,7 +403,9 @@ function UI.Init()
     end)
     sidebar.newBtn:SetPoint("BOTTOMLEFT", sidebar.back, "TOPLEFT", 0, 4)
 
-    sidebar.newName = CreateFrame("EditBox", nil, sidebar, "InputBoxTemplate")
+    sidebar.newName = CreateFrame("EditBox", nil, sidebar)
+    sidebar.newName:SetFontObject("ChatFontNormal")
+    MM.Style.EditBox(sidebar.newName)
     sidebar.newName:SetSize(SIDE_W - 22, 20)
     sidebar.newName:SetPoint("BOTTOMLEFT", sidebar.newBtn, "TOPLEFT", 5, 4)
     sidebar.newName:SetAutoFocus(false)
@@ -432,9 +431,7 @@ function UI.Init()
     content:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", 6, 0)
     content:SetPoint("BOTTOMRIGHT", -6, 6)
 
-    local contentBg = content:CreateTexture(nil, "BACKGROUND")
-    contentBg:SetAllPoints()
-    contentBg:SetColorTexture(0.09, 0.09, 0.13, 0.95)
+    MM.Style.Panel(content)
 
     views = {}
 
@@ -442,7 +439,9 @@ function UI.Init()
     views.run = CreateFrame("Frame", nil, content)
     views.run:SetAllPoints()
 
-    views.run.title = fontString(views.run, "", "GameFontNormalLarge")
+    views.run.title = MM.Style.Header(views.run, "")
+    views.run.title:SetFontObject("GameFontNormalLarge")
+    views.run.title:SetTextColor(unpack(MM.Style.colors.goldText))
     views.run.title:SetPoint("TOP", 0, -6)
 
     local nextBtn = CreateFrame("Button", "MythicMacrosNext", views.run, "SecureHandlerClickTemplate")
@@ -523,7 +522,9 @@ function UI.BuildSettings(parent)
         slider:SetValueStep(0.01)
         slider:SetObeyStepOnDrag(true)
 
-        local box = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+        local box = CreateFrame("EditBox", nil, parent)
+        box:SetFontObject("ChatFontNormal")
+        MM.Style.EditBox(box)
         box:SetSize(46, 20)
         box:SetPoint("LEFT", slider, "RIGHT", 16, 0)
         box:SetAutoFocus(false)

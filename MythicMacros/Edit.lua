@@ -29,10 +29,10 @@ local ROW_H, CARD_GAP, INDENT = 22, 8, 14
 -- Widgets
 --------------------------------------------------------------------------------
 
-local function button(parent, text, w, h, onClick)
-    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+local function button(parent, text, w, h, onClick, opts)
+    local b = CreateFrame("Button", nil, parent)
     b:SetSize(w, h or 20)
-    b:SetText(text)
+    MM.Style.Button(b, text, opts)
     if onClick then b:SetScript("OnClick", onClick) end
     return b
 end
@@ -40,11 +40,14 @@ end
 local function label(parent, text, template)
     local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontNormalSmall")
     fs:SetText(text or "")
+    fs:SetTextColor(unpack(MM.Style.colors.text))
     return fs
 end
 
 local function editBox(parent, maxLetters)
-    local eb = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+    local eb = CreateFrame("EditBox", nil, parent)
+    eb:SetFontObject("ChatFontNormal")
+    MM.Style.EditBox(eb)
     eb:SetHeight(20)
     eb:SetAutoFocus(false)
     eb:SetMaxLetters(maxLetters or 64)
@@ -152,7 +155,7 @@ function Edit.RefreshEnemies()
             eb.up:SetPoint("LEFT", eb, "RIGHT", 6, 0)
             eb.down = button(eb, "v", 20, 18)
             eb.down:SetPoint("LEFT", eb.up, "RIGHT", 2, 0)
-            eb.del = button(eb, "x", 20, 18)
+            eb.del = button(eb, "x", 20, 18, nil, { danger = true })
             eb.del:SetPoint("LEFT", eb.down, "RIGHT", 2, 0)
             return eb
         end)
@@ -199,7 +202,7 @@ function Edit.RefreshEnemies()
         for _, line in ipairs(enemy.lines) do
             local box = acquire(linePool, li, function()
                 local eb = editBox(ui.enemyList, Util.MAX_MACRO_CHARS)
-                eb.del = button(eb, "-", 20, 18)
+                eb.del = button(eb, "-", 20, 18, nil, { danger = true })
                 eb.del:SetPoint("LEFT", eb, "RIGHT", 6, 0)
                 attachCounter(eb)
                 return eb
@@ -430,7 +433,9 @@ function Edit.Category() return state.categoryId end
 --------------------------------------------------------------------------------
 
 function Edit.Build(parent)
-    ui.title = label(parent, "", "GameFontNormalLarge")
+    ui.title = MM.Style.Header(parent, "")
+    ui.title:SetFontObject("GameFontNormalLarge")
+    ui.title:SetTextColor(unpack(MM.Style.colors.goldText))
     ui.title:SetPoint("TOP", 0, -6)
 
     ui.prompt = label(parent, "Pick a dungeon on the left, or make one with New dungeon.")

@@ -9,7 +9,8 @@ for _, f in ipairs({
     "Libs/LibStub/LibStub", "Libs/LibDeflate/LibDeflate", "Libs/LibSerialize/LibSerialize",
 }) do loadfile("MythicMacros/" .. f .. ".lua")() end
 
-for _, f in ipairs({ "Util", "Core", "Runtime", "UI", "Edit", "Export", "Starter", "Capture" }) do
+for _, f in ipairs({ "Util", "Style", "Core", "Runtime", "UI", "Edit",
+                     "Export", "Starter", "Capture" }) do
     local chunk, err = loadfile("MythicMacros/" .. f .. ".lua")
     if not chunk then realPrint("  FAIL loading " .. f .. ": " .. tostring(err)); os.exit(1) end
     chunk("MythicMacros", MM)
@@ -157,6 +158,41 @@ check("Run offers the variant chooser", function()
     MM.UI.ShowView("run")
     if not MM.UI.OpenRun(cat.id) then error("OpenRun refused") end
     MM.UI.RefreshVariantChooser(cat.id)
+end)
+
+-- Selection is shown by colour alone now, so a test that only checked the row
+-- exists would not notice it had stopped being marked. Asserted at the style
+-- layer, where the behaviour lives, rather than through the sidebar, whose
+-- selection depends on whatever ran before.
+check("selection is the accent, and only selection", function()
+    local accent = MM.Style.colors.accent
+    local plain, chosen = CreateFrame("Button", nil, UIParent),
+                          CreateFrame("Button", nil, UIParent)
+    MM.Style.Button(plain, "one")
+    MM.Style.Button(chosen, "two")
+
+    local function isAccent(f)
+        return f.bg.color and f.bg.color[1] == accent[1] and f.bg.color[2] == accent[2]
+    end
+
+    if isAccent(plain) or isAccent(chosen) then error("accent before anything was selected") end
+
+    chosen:LockHighlight()
+    if not isAccent(chosen) then error("selected button is not accented") end
+    if isAccent(plain) then error("an unselected button became accented") end
+
+    chosen:UnlockHighlight()
+    if isAccent(chosen) then error("accent survived deselection") end
+end)
+
+check("a disabled button reads as disabled", function()
+    local b = CreateFrame("Button", nil, UIParent)
+    MM.Style.Button(b, "off")
+    b:SetEnabled(false)
+    local dim = MM.Style.colors.textDim
+    if not (b.label.color and b.label.color[1] == dim[1]) then
+        error("disabled button kept its normal text colour")
+    end
 end)
 
 check("stale marker", function() MM.Edit.RefreshStaleMarker() end)
