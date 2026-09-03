@@ -23,6 +23,7 @@ local sidebarCollapsed = false
 -- written above it. A local used before its declaration resolves to a global
 -- and is nil at run time, which luac passes without complaint.
 local layoutBody
+local layoutSidebar
 local views, currentView
 local selected = { categoryId = nil }
 
@@ -57,7 +58,7 @@ local GRIP = 12
 
 -- Small enough to still be a panel, large enough that the sidebar plus one
 -- column of callouts still fits.
-local MIN_W, MIN_H = 520, 260
+local MIN_W, MIN_H = 560, 300
 local DEFAULT_W, DEFAULT_H = 760, 380
 
 --------------------------------------------------------------------------------
@@ -586,7 +587,7 @@ function UI.RefreshSidebar()
     end
 
     sidebar.empty:SetShown(#Core.Categories() == 0)
-    sidebar.hint:SetShown(editable and #Core.Categories() > 0)
+    layoutSidebar(editable, #Core.Categories() > 0)
     sidebar.list:SetHeight(math.max(20, math.abs(y)))
 
     IMI.Style.RefreshScrollBar(sidebar.scroll, math.abs(y))
@@ -635,6 +636,26 @@ local function showView(name)
     end
 
     UI.RefreshSidebar()
+end
+
+--- Divides the dungeon column between the list and the fixed stack under it.
+---
+--- The stack is Back, New dungeon, the name box and the hint, and it does not
+--- shrink. In a short window it ate into the list and the hint ended up drawn
+--- across the last dungeon. The hint is what gives way: it explains two
+--- gestures, and a list you cannot read is the worse trade. The gestures stay
+--- reachable on the column's heading.
+function layoutSidebar(editable, hasRows)
+    local height = sidebar:GetHeight()
+    local roomy = type(height) ~= "number" or height > 300
+
+    local showHint = editable and hasRows and roomy
+    sidebar.hint:SetShown(showHint)
+
+    sidebar.scroll:ClearAllPoints()
+    sidebar.scroll:SetPoint("TOPLEFT", 0, -24)
+    sidebar.scroll:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", -24,
+        showHint and 106 or 82)
 end
 
 --- Where the content panel starts, and whether the dungeon list is beside it.
@@ -905,6 +926,16 @@ function UI.Init()
 
     sidebar.header = IMI.Style.Header(sidebar, "Dungeons")
     sidebar.header:SetPoint("TOP", 0, -6)
+    -- Says the same as the hint below the list, which is dropped when the
+    -- window is too short to hold both it and the list.
+    sidebar.headerHit = CreateFrame("Frame", nil, sidebar)
+    sidebar.headerHit:SetPoint("TOPLEFT", 0, -2)
+    sidebar.headerHit:SetPoint("TOPRIGHT", 0, -2)
+    sidebar.headerHit:SetHeight(20)
+    sidebar.headerHit:EnableMouse(true)
+    IMI.Style.Tooltip(sidebar.headerHit, "Dungeons",
+        "In Edit: double-click a name to rename it, drag a row to reorder, "
+        .. "and the red x deletes.")
 
     -- Pinned to the bottom, so they stay put however long the list grows.
     sidebar.back = panelButton(sidebar, "Back", SIDE_W - 16, 22, function()

@@ -49,6 +49,10 @@ mid-fight.
 **Text scale** in Settings now covers the whole addon, not just the callout
 buttons in Run.
 
+Made short enough, the dungeon column drops the hint under the list rather than
+squeezing the list — the same two gestures are on the **Dungeons** heading's
+hover text.
+
 Lists answer the **mouse wheel**, and their scroll bars appear only when there
 is something to scroll.
 

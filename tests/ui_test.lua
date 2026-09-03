@@ -920,5 +920,87 @@ check("a box you did not change records no edit", function()
     if IMI.Core.EditsSinceExport() == before then error("a real change was not counted") end
 end)
 
+--------------------------------------------------------------------------------
+-- Nothing overhangs the panel it is in, and nothing overlaps the list.
+--------------------------------------------------------------------------------
+
+-- Anchoring right to left is only correct if every button in the chain already
+-- exists: a nil relativeTo silently anchors to the parent instead, which puts
+-- the row back where it was overhanging.
+check("rows anchored from the right chain to real frames", function()
+    IMI.Core.Init({})
+    IMI.UI.Show("edit")
+
+    local function anchoredTo(frame)
+        local p = frame.points[#frame.points]
+        return p and p.rel
+    end
+
+    local row = IMI.Edit.VariantRow()
+    if anchoredTo(row.rename) ~= row.delete then
+        error("Rename is not anchored to Delete")
+    end
+    if anchoredTo(row.new) ~= row.rename then
+        error("New is not anchored to Rename")
+    end
+
+    local bottom = IMI.Edit.AddRow()
+    if anchoredTo(bottom.export) ~= bottom.import then error("Export is not anchored to Import") end
+    if anchoredTo(bottom.addTarget) ~= bottom.export then
+        error("Add target is not anchored to Export")
+    end
+    if anchoredTo(bottom.add) ~= bottom.addTarget then error("Add is not anchored to Add target") end
+    if anchoredTo(bottom.box) ~= bottom.add then error("the name box is not anchored to Add") end
+end)
+
+-- The bug in the screenshot: the fixed stack at the bottom of the dungeon
+-- column does not shrink, so in a short window the hint under it was drawn
+-- across the last dungeon in the list.
+check("the dungeon list keeps its room in a short window", function()
+    IMI.Core.Init({})
+    IMI.Core.AddCategory("One")
+    IMI.UI.Show("edit")
+
+    local sidebar = IMI.UI.Sidebar()
+
+    sidebar.height = 400
+    IMI.UI.RefreshSidebar()
+    if not sidebar.hint:IsShown() then error("the hint is missing when there is room for it") end
+
+    sidebar.height = 200
+    IMI.UI.RefreshSidebar()
+    if sidebar.hint:IsShown() then
+        error("the hint is still drawn in a window with no room for it")
+    end
+
+    -- Whatever the height, the list has to end above the stack rather than
+    -- running under it.
+    local anchor = sidebar.scroll.points[#sidebar.scroll.points]
+    if not anchor or anchor.point ~= "BOTTOMRIGHT" then
+        error("the list has no bottom anchor")
+    end
+    if not (anchor.y and anchor.y >= 82) then
+        error("the list runs into the buttons below it: " .. tostring(anchor and anchor.y))
+    end
+
+    -- The gestures the hint describes must stay reachable without it.
+    if not sidebar.headerHit.tooltipText then
+        error("with the hint gone, nothing says how to rename or reorder")
+    end
+end)
+
+check("panel text is bounded on both sides", function()
+    IMI.Core.Init({})
+    IMI.UI.Show("edit")
+    local hint = IMI.Edit.SendHint()
+
+    local sides = {}
+    for _, p in ipairs(hint.points) do sides[p.point] = true end
+    if not (sides.TOPLEFT and sides.TOPRIGHT) then
+        error("the send hint has no right edge, so it runs off the panel")
+    end
+    if hint.maxLines ~= 2 then error("the send hint is not held to two lines") end
+end)
+
 realPrint(("\n%d passed, %d failed"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

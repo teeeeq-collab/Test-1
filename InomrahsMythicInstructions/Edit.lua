@@ -523,6 +523,19 @@ end
 
 function Edit.Category() return state.categoryId end
 
+--- Rows whose anchoring is the behaviour under test: both chain right to left
+--- from a panel edge, and both were overhanging before they did.
+function Edit.VariantRow()
+    return { new = ui.variantNew, rename = ui.variantRename, delete = ui.variantDelete }
+end
+
+function Edit.AddRow()
+    return { box = ui.addBox, add = ui.addBtn, addTarget = ui.addTarget,
+             export = ui.exportBtn, import = ui.importBtn }
+end
+
+function Edit.SendHint() return ui.sendHint end
+
 --- The line boxes as laid out, for tests: their heights are the behaviour.
 function Edit.LineBoxes() return linePool end
 
@@ -590,13 +603,13 @@ function Edit.Build(parent)
     ui.variantLabel = label(parent, "Variant")
     ui.variantLabel:SetPoint("TOPLEFT", 8, -28)
 
-    ui.variant = IMI.UI.Dropdown(parent, 130)
+    ui.variant = IMI.UI.Dropdown(parent, 120)
     ui.variant:SetPoint("LEFT", ui.variantLabel, "RIGHT", 6, 0)
 
     ui.variantNew = button(parent, "New", 42, 20, function() Edit.ShowVariantDialog() end,
         { tip = "New variant",
           tipDetail = "A second set of enemies and pages for the same dungeon." })
-    ui.variantNew:SetPoint("LEFT", ui.variant, "RIGHT", 6, 0)
+
 
     ui.variantRename = button(parent, "Rename", 62, 20, function()
         local variant = Core.Variant(state.categoryId)
@@ -605,7 +618,6 @@ function Edit.Build(parent)
         ui.variantName:Show()
         ui.variantName:SetFocus()
     end)
-    ui.variantRename:SetPoint("LEFT", ui.variantNew, "RIGHT", 3, 0)
     IMI.Style.Tooltip(ui.variantRename, "Rename this variant")
 
     ui.variantDelete = button(parent, "Delete", 56, 20, function()
@@ -619,13 +631,21 @@ function Edit.Build(parent)
         Edit.RefreshEnemies()
         Edit.RefreshPages()
     end)
-    ui.variantDelete:SetPoint("LEFT", ui.variantRename, "RIGHT", 3, 0)
+    -- Right to left from the panel edge, and only once all three exist:
+    -- anchoring to a button that has not been made yet silently anchors to the
+    -- parent instead. Chained the other way the row's width was a sum that had
+    -- to come to less than the panel's, and in a narrow window it did not.
+    ui.variantDelete:SetPoint("TOPRIGHT", -8, -28)
+    ui.variantRename:SetPoint("RIGHT", ui.variantDelete, "LEFT", -3, 0)
+    ui.variantNew:SetPoint("RIGHT", ui.variantRename, "LEFT", -3, 0)
     IMI.Style.Tooltip(ui.variantDelete, "Delete this variant",
         "A dungeon always keeps at least one.")
 
     ui.variantName = editBox(parent, 40)
-    ui.variantName:SetPoint("LEFT", ui.variantDelete, "RIGHT", 8, 0)
-    ui.variantName:SetWidth(140)
+    -- Over the chooser it renames, rather than in a sixth column the row has no
+    -- room for. It is only on screen while a rename is in progress.
+    ui.variantName:SetPoint("TOPLEFT", ui.variant, "TOPLEFT", 0, 0)
+    ui.variantName:SetPoint("BOTTOMRIGHT", ui.variant, "BOTTOMRIGHT", 0, 0)
     ui.variantName:Hide()
     ui.variantName:SetScript("OnEnterPressed", function(self)
         local variant = Core.Variant(state.categoryId)
@@ -657,8 +677,14 @@ function Edit.Build(parent)
     ui.enemiesPanel:SetPoint("TOPLEFT", 6, -76)
     ui.enemiesPanel:SetPoint("BOTTOMRIGHT", -6, 58)
 
+    -- Bounded on both sides and allowed two lines. With only a left anchor it
+    -- ran off the panel and was cut off mid-sentence in a narrow window.
     ui.sendHint = label(ui.enemiesPanel, "")
     ui.sendHint:SetPoint("TOPLEFT", 10, -4)
+    ui.sendHint:SetPoint("TOPRIGHT", -10, -4)
+    ui.sendHint:SetJustifyH("LEFT")
+    ui.sendHint:SetWordWrap(true)
+    ui.sendHint:SetMaxLines(2)
 
     -- Sorting is a view, not a rewrite. Changing how the list is displayed
     -- should never quietly discard an arrangement someone built by hand, so
@@ -668,7 +694,7 @@ function Edit.Build(parent)
         s.enemySort = (s.enemySort == "name") and "manual" or "name"
         Edit.RefreshEnemies()
     end)
-    ui.sortBtn:SetPoint("TOPLEFT", 10, -20)
+    ui.sortBtn:SetPoint("TOPLEFT", ui.sendHint, "BOTTOMLEFT", 0, -4)
 
     ui.sortDirBtn = button(ui.enemiesPanel, "", 90, 18, function()
         local s = Core.Settings()
@@ -688,11 +714,13 @@ function Edit.Build(parent)
 
     ui.enemyEmpty = label(ui.enemiesPanel,
         "|cffaaaaaaNo enemies yet. Name one below, or target a mob and use Add target.|r")
-    ui.enemyEmpty:SetPoint("TOPLEFT", 10, -42)
+    ui.enemyEmpty:SetPoint("TOPLEFT", ui.sortBtn, "BOTTOMLEFT", 0, -6)
+    ui.enemyEmpty:SetPoint("RIGHT", ui.enemiesPanel, "RIGHT", -10, 0)
+    ui.enemyEmpty:SetJustifyH("LEFT")
 
     local enemyScroll = CreateFrame("ScrollFrame", nil, ui.enemiesPanel, "UIPanelScrollFrameTemplate")
     ui.enemyScroll = IMI.Style.WheelScroll(enemyScroll)
-    enemyScroll:SetPoint("TOPLEFT", 0, -40)
+    enemyScroll:SetPoint("TOPLEFT", ui.sortBtn, "BOTTOMLEFT", -10, -6)
     enemyScroll:SetPoint("BOTTOMRIGHT", -24, 0)
     ui.enemyList = CreateFrame("Frame", nil, enemyScroll)
     ui.enemyList:SetSize(470, 40)
@@ -811,7 +839,7 @@ function Edit.Build(parent)
     IMI.Style.Tooltip(ui.addTarget, "Add target",
         "Adds whatever you have targeted, by its exact name. The keybind does the same.")
 
-    local exportBtn = button(parent, "Export", 54, 20, function()
+    ui.exportBtn = button(parent, "Export", 54, 20, function()
         if not state.categoryId then
             Util.Print("|cffff4444pick a dungeon first.|r") return
         end
@@ -824,7 +852,7 @@ function Edit.Build(parent)
     IMI.Style.Tooltip(exportBtn, "Export",
         "A string you can copy out, to back up or to share.")
 
-    local importBtn = button(parent, "Import", 54, 20, function()
+    ui.importBtn = button(parent, "Import", 54, 20, function()
         IMI.UI.ShowImport("Import", function(text)
             local what, err = IMI.Export.Import(text)
             if what then
@@ -834,6 +862,7 @@ function Edit.Build(parent)
             return what, err
         end)
     end)
+    local exportBtn, importBtn = ui.exportBtn, ui.importBtn
     importBtn:SetPoint("BOTTOMRIGHT", -10, 12)
     exportBtn:SetPoint("RIGHT", importBtn, "LEFT", -4, 0)
     ui.addTarget:SetPoint("RIGHT", exportBtn, "LEFT", -4, 0)
