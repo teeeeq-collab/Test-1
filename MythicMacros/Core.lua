@@ -45,6 +45,34 @@ local function defaultProfile()
     return { categories = {} }
 end
 
+local function newVariant(name)
+    return {
+        id      = Util.NewId("var"),
+        name    = name or "Default",
+        enemies = {},
+        pages   = {},
+    }
+end
+
+--- Move a category from holding enemies and pages directly to holding variants
+--- that hold them.
+---
+--- Runs in place and only when the old shape is found, so it is safe on every
+--- load and cannot touch data that has already moved. Whatever was there
+--- becomes the first variant rather than being rebuilt, so nothing is lost and
+--- nothing has to be re-entered.
+local function migrateCategory(cat)
+    if cat.variants then return end
+
+    local first = newVariant("Default")
+    first.enemies = cat.enemies or {}
+    first.pages   = cat.pages or {}
+
+    cat.variants = { first }
+    cat.activeVariant = first.id
+    cat.enemies, cat.pages = nil, nil
+end
+
 --- Called once, on load. Never destroys existing data: every field is filled in
 --- only if absent, so a partially written or older file is repaired rather than
 --- replaced.
@@ -63,6 +91,12 @@ function Core.Init(db)
 
     if not db.profiles[db.activeProfile] then
         db.profiles[db.activeProfile] = defaultProfile()
+    end
+
+    for _, profile in pairs(db.profiles) do
+        for _, cat in ipairs(profile.categories or {}) do
+            migrateCategory(cat)
+        end
     end
 
     -- Edits since the last export. Surfaced in Edit so an overdue backup is
@@ -152,15 +186,143 @@ function Core.Categories()
 end
 
 function Core.AddCategory(name)
+    local first = newVariant("Default")
     local cat = {
-        id      = Util.NewId("cat"),
-        name    = name or "New category",
-        enemies = {},
-        pages   = {},
+        id            = Util.NewId("cat"),
+        name          = name or "New category",
+        variants      = { first },
+        activeVariant = first.id,
     }
     table.insert(Core.Categories(), cat)
     edited()
     return cat
+end
+
+--------------------------------------------------------------------------------
+-- Variants
+--
+-- A dungeon holds several complete sets of enemies and pages -- one per
+-- strategy, key level, or whatever else changes the calls. They share nothing:
+-- editing one cannot disturb another, which is the entire point of having them
+-- rather than one set with conditional text.
+--------------------------------------------------------------------------------
+
+function Core.Variants(catId)
+    local cat = Core.GetCategory(catId)
+    return cat and cat.variants or {}
+end
+
+--- The variant everything else acts on. Falls back to the first, so a category
+--- whose active variant was deleted still resolves rather than going blank.
+function Core.Variant(catId, variantId)
+    local cat = Core.GetCategory(catId)
+    if not cat then return nil end
+    if variantId then return (Util.FindById(cat.variants, variantId)) end
+    return (Util.FindById(cat.variants, cat.activeVariant)) or cat.variants[1]
+end
+
+function Core.ActiveVariantId(catId)
+    local variant = Core.Variant(catId)
+    return variant and variant.id
+end
+
+function Core.SetActiveVariant(catId, variantId)
+    local cat = Core.GetCategory(catId)
+    if not cat or not Util.FindById(cat.variants, variantId) then return false end
+    cat.activeVariant = variantId
+    return true
+end
+
+--- Deep copy, because a variant that shared tables with the one it came from
+--- would not be a separate strategy at all: editing either would change both.
+local function copyVariantContents(source, target)
+    for _, enemy in ipairs(source.enemies) do
+        local copy = {
+            id     = Util.NewId("enemy"),
+            name   = enemy.name,
+            perRow = enemy.perRow,
+            lines  = {},
+        }
+        for _, line in ipairs(enemy.lines) do
+            copy.lines[#copy.lines + 1] = {
+                id      = Util.NewId("line"),
+                caption = line.caption,
+                body    = line.body,
+            }
+        end
+        target.enemies[#target.enemies + 1] = copy
+        -- Remember which new enemy each old one became, so page references can
+        -- be remapped instead of pointing back at the original variant.
+        enemy.__copyId = copy.id
+    end
+
+    for _, page in ipairs(source.pages) do
+        local copy = { id = Util.NewId("page"), name = page.name, enemyIds = {} }
+        for _, oldId in ipairs(page.enemyIds) do
+            local old = Util.FindById(source.enemies, oldId)
+            if old and old.__copyId then
+                copy.enemyIds[#copy.enemyIds + 1] = old.__copyId
+            end
+        end
+        target.pages[#target.pages + 1] = copy
+    end
+
+    for _, enemy in ipairs(source.enemies) do enemy.__copyId = nil end
+end
+
+--- `copyFromId` nil gives an empty variant; otherwise the named one is copied
+--- whole, enemies, lines, pages and all.
+function Core.AddVariant(catId, name, copyFromId)
+    local cat = Core.GetCategory(catId)
+    if not cat then return nil end
+
+    local variant = newVariant(name or ("Variant " .. (#cat.variants + 1)))
+
+    if copyFromId then
+        local source = Util.FindById(cat.variants, copyFromId)
+        if source then copyVariantContents(source, variant) end
+    end
+
+    table.insert(cat.variants, variant)
+    edited()
+    return variant
+end
+
+function Core.RenameVariant(catId, variantId, name)
+    local variant = Core.Variant(catId, variantId)
+    if not variant or not name or not name:match("%S") then return false end
+    variant.name = name
+    edited()
+    return true
+end
+
+--- Refuses to remove the last one: a dungeon with no variant has nowhere to
+--- keep anything, and the failure would surface later as an empty panel.
+function Core.DeleteVariant(catId, variantId)
+    local cat = Core.GetCategory(catId)
+    if not cat or #cat.variants <= 1 then return false end
+
+    local index = Util.IndexById(cat.variants, variantId)
+    if not index then return false end
+
+    table.remove(cat.variants, index)
+    if cat.activeVariant == variantId then
+        cat.activeVariant = cat.variants[1].id
+    end
+    edited()
+    return true
+end
+
+--- The active variant's contents. Everything below reads through these, so the
+--- rest of the addon never has to know variants exist.
+function Core.Enemies(catId)
+    local variant = Core.Variant(catId)
+    return variant and variant.enemies or {}
+end
+
+function Core.Pages(catId)
+    local variant = Core.Variant(catId)
+    return variant and variant.pages or {}
 end
 
 function Core.GetCategory(id)
@@ -206,7 +368,7 @@ function Core.AddEnemy(catId, name, perRow)
         perRow = perRow or 1,
         lines  = {},
     }
-    table.insert(cat.enemies, enemy)
+    table.insert(Core.Enemies(catId), enemy)
     edited()
     return enemy
 end
@@ -214,7 +376,7 @@ end
 function Core.GetEnemy(catId, enemyId)
     local cat = Core.GetCategory(catId)
     if not cat then return nil end
-    return (Util.FindById(cat.enemies, enemyId))
+    return (Util.FindById(Core.Enemies(catId), enemyId))
 end
 
 function Core.RenameEnemy(catId, enemyId, name)
@@ -240,11 +402,12 @@ function Core.DeleteEnemy(catId, enemyId)
     local cat = Core.GetCategory(catId)
     if not cat then return false end
 
-    local index = Util.IndexById(cat.enemies, enemyId)
+    local enemies = Core.Enemies(catId)
+    local index = Util.IndexById(enemies, enemyId)
     if not index then return false end
-    table.remove(cat.enemies, index)
+    table.remove(enemies, index)
 
-    for _, page in ipairs(cat.pages) do
+    for _, page in ipairs(Core.Pages(catId)) do
         for i = #page.enemyIds, 1, -1 do
             if page.enemyIds[i] == enemyId then
                 table.remove(page.enemyIds, i)
@@ -260,11 +423,12 @@ function Core.MoveEnemy(catId, enemyId, delta)
     local cat = Core.GetCategory(catId)
     if not cat then return nil end
 
-    local index = Util.IndexById(cat.enemies, enemyId)
+    local enemies = Core.Enemies(catId)
+    local index = Util.IndexById(enemies, enemyId)
     if not index then return nil end
 
     edited()
-    return Util.Move(cat.enemies, index, delta)
+    return Util.Move(enemies, index, delta)
 end
 
 --- Rewrites the stored order to match a sort.
@@ -281,18 +445,21 @@ function Core.SortEnemies(catId, mode, descending)
     local cat = Core.GetCategory(catId)
     if not cat then return false end
 
+    local variant = Core.Variant(catId)
+    if not variant then return false end
+
     if mode == "name" then
-        table.sort(cat.enemies, function(a, b)
+        table.sort(variant.enemies, function(a, b)
             return (a.name or ""):lower() < (b.name or ""):lower()
         end)
     end
 
     if descending then
         local reversed = {}
-        for i = #cat.enemies, 1, -1 do
-            reversed[#reversed + 1] = cat.enemies[i]
+        for i = #variant.enemies, 1, -1 do
+            reversed[#reversed + 1] = variant.enemies[i]
         end
-        cat.enemies = reversed
+        variant.enemies = reversed
     end
 
     edited()
@@ -305,7 +472,7 @@ function Core.EnemiesInOrder(catId, mode, descending)
     if not cat then return {} end
 
     local list = {}
-    for i, enemy in ipairs(cat.enemies) do list[i] = enemy end
+    for i, enemy in ipairs(Core.Enemies(catId)) do list[i] = enemy end
 
     if mode == "name" then
         table.sort(list, function(a, b)
@@ -392,10 +559,10 @@ function Core.AddPage(catId, name)
 
     local page = {
         id       = Util.NewId("page"),
-        name     = name or ("Section " .. (#cat.pages + 1)),
+        name     = name or ("Section " .. (#Core.Pages(catId) + 1)),
         enemyIds = {},
     }
-    table.insert(cat.pages, page)
+    table.insert(Core.Pages(catId), page)
     edited()
     return page
 end
@@ -403,7 +570,7 @@ end
 function Core.GetPage(catId, pageId)
     local cat = Core.GetCategory(catId)
     if not cat then return nil end
-    return (Util.FindById(cat.pages, pageId))
+    return (Util.FindById(Core.Pages(catId), pageId))
 end
 
 function Core.RenamePage(catId, pageId, name)
@@ -418,10 +585,11 @@ function Core.DeletePage(catId, pageId)
     local cat = Core.GetCategory(catId)
     if not cat then return false end
 
-    local index = Util.IndexById(cat.pages, pageId)
+    local pages = Core.Pages(catId)
+    local index = Util.IndexById(pages, pageId)
     if not index then return false end
 
-    table.remove(cat.pages, index)
+    table.remove(pages, index)
     edited()
     return true
 end
@@ -430,11 +598,12 @@ function Core.MovePage(catId, pageId, delta)
     local cat = Core.GetCategory(catId)
     if not cat then return nil end
 
-    local index = Util.IndexById(cat.pages, pageId)
+    local pages = Core.Pages(catId)
+    local index = Util.IndexById(pages, pageId)
     if not index then return nil end
 
     edited()
-    return Util.Move(cat.pages, index, delta)
+    return Util.Move(pages, index, delta)
 end
 
 --------------------------------------------------------------------------------
@@ -499,7 +668,7 @@ function Core.PageEnemies(catId, pageId)
 
     local out = {}
     for _, id in ipairs(page.enemyIds) do
-        local enemy = Util.FindById(cat.enemies, id)
+        local enemy = Util.FindById(Core.Enemies(catId), id)
         if enemy then out[#out + 1] = enemy end
     end
     return out
@@ -512,7 +681,7 @@ function Core.CategoryLines(catId)
     if not cat then return {} end
 
     local out = {}
-    for _, page in ipairs(cat.pages) do
+    for _, page in ipairs(Core.Pages(catId)) do
         for _, enemy in ipairs(Core.PageEnemies(catId, page.id)) do
             for _, line in ipairs(enemy.lines) do
                 out[#out + 1] = { page = page, enemy = enemy, line = line }

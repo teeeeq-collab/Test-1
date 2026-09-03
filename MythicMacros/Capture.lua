@@ -53,7 +53,7 @@ function Capture.AddTarget(unit)
     end
 
     local cat = Core.GetCategory(catId)
-    for _, enemy in ipairs(cat.enemies) do
+    for _, enemy in ipairs(Core.Enemies(catId)) do
         if enemy.name == name then
             return nil, ("%s is already in %s"):format(name, cat.name)
         end

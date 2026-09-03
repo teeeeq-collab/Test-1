@@ -302,7 +302,7 @@ function Runtime.Build(container, catId, settings)
     if not width or width < 1 then width = 600 end
 
     local tallest = 0
-    for index, pageData in ipairs(cat.pages) do
+    for index, pageData in ipairs(Core.Pages(catId)) do
         local page = acquirePage(container, index)
         manager:SetFrameRef("page" .. index, page)
         local height = layoutPage(page, index, catId, pageData, width, settings)
@@ -311,20 +311,20 @@ function Runtime.Build(container, catId, settings)
     end
 
     -- Retire pages the previous category needed and this one does not.
-    for index = #cat.pages + 1, #frames.pages do
+    for index = #Core.Pages(catId) + 1, #frames.pages do
         frames.pages[index]:Hide()
         manager:SetFrameRef("page" .. index, nil)
     end
 
-    manager:SetAttribute("pageCount", #cat.pages)
+    manager:SetAttribute("pageCount", #Core.Pages(catId))
     manager:SetAttribute("pageIndex", 1)
 
-    if frames.pages[1] and #cat.pages > 0 then
+    if frames.pages[1] and #Core.Pages(catId) > 0 then
         frames.pages[1]:Show()
     end
 
     built.categoryId = catId
-    built.pageCount  = #cat.pages
+    built.pageCount  = #Core.Pages(catId)
     return true, nil, tallest
 end
 

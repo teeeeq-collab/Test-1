@@ -71,15 +71,14 @@ end
 --- Shape validation. Deserialising safely says nothing about whether the
 --- contents make sense, so every field an import will touch is checked before
 --- anything is applied.
-local function validCategory(cat)
-    if type(cat) ~= "table" then return false, "not a category" end
-    if type(cat.name) ~= "string" then return false, "category has no name" end
-    if type(cat.enemies) ~= "table" then return false, "category has no enemies list" end
-    if type(cat.pages) ~= "table" then return false, "category has no pages list" end
+local function validVariant(variant, where)
+    if type(variant) ~= "table" then return false, where .. " is malformed" end
+    if type(variant.enemies) ~= "table" then return false, where .. " has no enemies list" end
+    if type(variant.pages) ~= "table" then return false, where .. " has no pages list" end
 
-    for _, enemy in ipairs(cat.enemies) do
+    for _, enemy in ipairs(variant.enemies) do
         if type(enemy) ~= "table" or type(enemy.name) ~= "string" then
-            return false, "an enemy is malformed"
+            return false, "an enemy in " .. where .. " is malformed"
         end
         if type(enemy.lines) ~= "table" then
             return false, ("enemy %q has no lines"):format(tostring(enemy.name))
@@ -91,10 +90,40 @@ local function validCategory(cat)
         end
     end
 
-    for _, page in ipairs(cat.pages) do
+    for _, page in ipairs(variant.pages) do
         if type(page) ~= "table" or type(page.enemyIds) ~= "table" then
-            return false, "a page is malformed"
+            return false, "a page in " .. where .. " is malformed"
         end
+    end
+
+    return true
+end
+
+--- A category's variants, whichever shape it arrived in.
+---
+--- Strings exported before variants existed carry enemies and pages at the top
+--- level. Those must keep importing: a backup is worth nothing if a later
+--- version refuses to read it.
+local function variantsOf(cat)
+    if type(cat.variants) == "table" and #cat.variants > 0 then
+        return cat.variants
+    end
+    return { { name = "Default", enemies = cat.enemies, pages = cat.pages } }
+end
+
+--- Shape validation. Deserialising safely says nothing about whether the
+--- contents make sense, so every field an import will touch is checked before
+--- anything is applied.
+local function validCategory(cat)
+    if type(cat) ~= "table" then return false, "not a category" end
+    if type(cat.name) ~= "string" then return false, "category has no name" end
+
+    local variants = variantsOf(cat)
+    if #variants == 0 then return false, "category has no contents" end
+
+    for i, variant in ipairs(variants) do
+        local ok, reason = validVariant(variant, ("variant %d"):format(i))
+        if not ok then return false, reason end
     end
 
     return true
@@ -156,24 +185,42 @@ end
 --- join two unrelated enemies into one.
 local function adoptCategory(source)
     local cat = Core.AddCategory(source.name)
-    local idMap = {}
+    local variants = variantsOf(source)
 
-    for _, enemy in ipairs(source.enemies) do
-        local new = Core.AddEnemy(cat.id, enemy.name, enemy.perRow)
-        idMap[enemy.id or ""] = new.id
-        for _, line in ipairs(enemy.lines) do
-            Core.AddLine(cat.id, new.id, line.caption, line.body)
+    for index, sourceVariant in ipairs(variants) do
+        -- AddCategory already made one, so the first import fills that rather
+        -- than leaving an empty Default in front of the real content.
+        local target
+        if index == 1 then
+            target = Core.Variant(cat.id)
+            if sourceVariant.name then
+                Core.RenameVariant(cat.id, target.id, sourceVariant.name)
+            end
+        else
+            target = Core.AddVariant(cat.id, sourceVariant.name or ("Variant " .. index))
+        end
+
+        Core.SetActiveVariant(cat.id, target.id)
+
+        local idMap = {}
+        for _, enemy in ipairs(sourceVariant.enemies or {}) do
+            local new = Core.AddEnemy(cat.id, enemy.name, enemy.perRow)
+            idMap[enemy.id or ""] = new.id
+            for _, line in ipairs(enemy.lines or {}) do
+                Core.AddLine(cat.id, new.id, line.caption, line.body)
+            end
+        end
+
+        for _, page in ipairs(sourceVariant.pages or {}) do
+            local newPage = Core.AddPage(cat.id, page.name)
+            for _, oldId in ipairs(page.enemyIds or {}) do
+                local newId = idMap[oldId]
+                if newId then Core.AddEnemyToPage(cat.id, newPage.id, newId) end
+            end
         end
     end
 
-    for _, page in ipairs(source.pages) do
-        local newPage = Core.AddPage(cat.id, page.name)
-        for _, oldId in ipairs(page.enemyIds) do
-            local newId = idMap[oldId]
-            if newId then Core.AddEnemyToPage(cat.id, newPage.id, newId) end
-        end
-    end
-
+    Core.SetActiveVariant(cat.id, Core.Variants(cat.id)[1].id)
     return cat
 end
 

@@ -260,7 +260,7 @@ function Edit.RefreshEnemies()
 
     releaseFrom(namePool, ni); releaseFrom(linePool, li); releaseFrom(btnPool, bi)
 
-    ui.enemyEmpty:SetShown(#cat.enemies == 0)
+    ui.enemyEmpty:SetShown(#Core.Enemies(state.categoryId) == 0)
     ui.enemyList:SetHeight(math.max(20, math.abs(y) + 10))
 end
 
@@ -282,13 +282,15 @@ function Edit.RefreshPages()
     end
 
     if not state.pageId or not Core.GetPage(state.categoryId, state.pageId) then
-        state.pageId = cat.pages[1] and cat.pages[1].id or nil
+        local pages = Core.Pages(state.categoryId)
+        state.pageId = pages[1] and pages[1].id or nil
     end
 
     local page = state.pageId and Core.GetPage(state.categoryId, state.pageId)
     ui.pageName:SetText(page and page.name or "")
     ui.pageIndex:SetText(page
-        and ("page %d of %d"):format(Util.IndexById(cat.pages, page.id) or 1, #cat.pages)
+        and ("page %d of %d"):format(Util.IndexById(Core.Pages(state.categoryId), page.id) or 1,
+            #Core.Pages(state.categoryId))
         or "no pages yet")
 
     local width = ui.pageList:GetWidth() or 460
@@ -345,7 +347,7 @@ function Edit.RefreshPages()
         end
 
         local header = false
-        for _, enemy in ipairs(cat.enemies) do
+        for _, enemy in ipairs(Core.Enemies(state.categoryId)) do
             if not isOn[enemy.id] then
                 if not header then
                     header = true
@@ -408,6 +410,14 @@ function Edit.SetCategory(catId)
     ui.tabEnemies:SetShown(cat ~= nil)
     ui.tabPages:SetShown(cat ~= nil)
 
+    ui.variantLabel:SetShown(cat ~= nil)
+    ui.variant:SetShown(cat ~= nil)
+    ui.variantNew:SetShown(cat ~= nil)
+    ui.variantRename:SetShown(cat ~= nil)
+    ui.variantDelete:SetShown(cat ~= nil)
+    if not cat then ui.variantName:Hide() end
+
+    Edit.RefreshVariants()
     if cat then showTab(state.tab) end
     Edit.RefreshSendHint()
     Edit.RefreshStaleMarker()
@@ -426,13 +436,61 @@ function Edit.Build(parent)
     ui.prompt = label(parent, "Pick a dungeon on the left, or make one with New dungeon.")
     ui.prompt:SetPoint("TOPLEFT", 12, -34)
 
+    -- Variants sit above the tabs, because which set you are editing is a level
+    -- above whether you are editing its enemies or its pages.
+    ui.variantLabel = label(parent, "Variant")
+    ui.variantLabel:SetPoint("TOPLEFT", 8, -28)
+
+    ui.variant = MM.UI.Dropdown(parent, 130)
+    ui.variant:SetPoint("LEFT", ui.variantLabel, "RIGHT", 6, 0)
+
+    ui.variantNew = button(parent, "New", 42, 20, function() Edit.ShowVariantDialog() end)
+    ui.variantNew:SetPoint("LEFT", ui.variant, "RIGHT", 6, 0)
+
+    ui.variantRename = button(parent, "Rename", 62, 20, function()
+        local variant = Core.Variant(state.categoryId)
+        if not variant then return end
+        ui.variantName:SetText(variant.name)
+        ui.variantName:Show()
+        ui.variantName:SetFocus()
+    end)
+    ui.variantRename:SetPoint("LEFT", ui.variantNew, "RIGHT", 3, 0)
+
+    ui.variantDelete = button(parent, "Delete", 56, 20, function()
+        local variant = Core.Variant(state.categoryId)
+        if not variant then return end
+        if not Core.DeleteVariant(state.categoryId, variant.id) then
+            Util.Print("|cffff4444a dungeon needs at least one variant.|r")
+            return
+        end
+        Edit.RefreshVariants()
+        Edit.RefreshEnemies()
+        Edit.RefreshPages()
+    end)
+    ui.variantDelete:SetPoint("LEFT", ui.variantRename, "RIGHT", 3, 0)
+
+    ui.variantName = editBox(parent, 40)
+    ui.variantName:SetPoint("LEFT", ui.variantDelete, "RIGHT", 8, 0)
+    ui.variantName:SetWidth(140)
+    ui.variantName:Hide()
+    ui.variantName:SetScript("OnEnterPressed", function(self)
+        local variant = Core.Variant(state.categoryId)
+        if variant then
+            Core.RenameVariant(state.categoryId, variant.id, self:GetText())
+        end
+        self:Hide()
+        self:ClearFocus()
+        Edit.RefreshVariants()
+    end)
+    ui.variantName:SetScript("OnEscapePressed", function(self) self:Hide() end)
+
     ui.tabEnemies = button(parent, "Enemies", 70, 20, function() showTab("enemies") end)
-    ui.tabEnemies:SetPoint("TOPLEFT", 8, -28)
+    ui.tabEnemies:SetPoint("TOPLEFT", 8, -52)
     ui.tabPages = button(parent, "Pages", 62, 20, function() showTab("pages") end)
     ui.tabPages:SetPoint("LEFT", ui.tabEnemies, "RIGHT", 4, 0)
 
     ui.counter = label(parent, "")
-    ui.counter:SetPoint("TOPRIGHT", -10, -32)
+    ui.counter:SetPoint("TOPRIGHT", -10, -56)
     ui.counter:Hide()
 
     ui.stale = label(parent, "")
@@ -440,7 +498,7 @@ function Edit.Build(parent)
 
     -- Enemies ------------------------------------------------------------------
     ui.enemiesPanel = CreateFrame("Frame", nil, parent)
-    ui.enemiesPanel:SetPoint("TOPLEFT", 6, -52)
+    ui.enemiesPanel:SetPoint("TOPLEFT", 6, -76)
     ui.enemiesPanel:SetPoint("BOTTOMRIGHT", -6, 58)
 
     ui.sendHint = label(ui.enemiesPanel, "")
@@ -485,16 +543,17 @@ function Edit.Build(parent)
 
     -- Pages --------------------------------------------------------------------
     ui.pagesPanel = CreateFrame("Frame", nil, parent)
-    ui.pagesPanel:SetPoint("TOPLEFT", 6, -52)
+    ui.pagesPanel:SetPoint("TOPLEFT", 6, -76)
     ui.pagesPanel:SetPoint("BOTTOMRIGHT", -6, 58)
     ui.pagesPanel:Hide()
 
     local pagePrev = button(ui.pagesPanel, "<", 22, 20, function()
         local cat = Core.GetCategory(state.categoryId)
-        if not cat or #cat.pages == 0 then return end
-        local i = (Util.IndexById(cat.pages, state.pageId) or 1) - 1
-        if i < 1 then i = #cat.pages end
-        state.pageId = cat.pages[i].id
+        local pages = Core.Pages(state.categoryId)
+        if not cat or #pages == 0 then return end
+        local i = (Util.IndexById(pages, state.pageId) or 1) - 1
+        if i < 1 then i = #pages end
+        state.pageId = pages[i].id
         Edit.RefreshPages()
     end)
     pagePrev:SetPoint("TOPLEFT", 4, -2)
@@ -510,10 +569,11 @@ function Edit.Build(parent)
 
     local pageNext = button(ui.pagesPanel, ">", 22, 20, function()
         local cat = Core.GetCategory(state.categoryId)
-        if not cat or #cat.pages == 0 then return end
-        local i = (Util.IndexById(cat.pages, state.pageId) or 1) + 1
-        if i > #cat.pages then i = 1 end
-        state.pageId = cat.pages[i].id
+        local pages = Core.Pages(state.categoryId)
+        if not cat or #pages == 0 then return end
+        local i = (Util.IndexById(pages, state.pageId) or 1) + 1
+        if i > #pages then i = 1 end
+        state.pageId = pages[i].id
         Edit.RefreshPages()
     end)
     pageNext:SetPoint("LEFT", ui.pageName, "RIGHT", 6, 0)
@@ -614,6 +674,98 @@ end
 
 --- Only appears once enough has changed to be worth losing. SavedVariables is
 --- not written until logout or a reload, and a crash takes everything since.
+--- Creating a variant asks the one question that matters: start blank, or start
+--- from what is already there. Copying the open variant covers the practical
+--- case, and picking a different source is a dropdown change away.
+function Edit.ShowVariantDialog()
+    if not state.categoryId then
+        Util.Print("|cffff4444pick a dungeon on the left first.|r")
+        return
+    end
+
+    if not ui.dialog then
+        local d = CreateFrame("Frame", nil, MM.UI.root, "BasicFrameTemplateWithInset")
+        d:SetSize(320, 130)
+        d:SetPoint("CENTER")
+        d:SetFrameStrata("FULLSCREEN_DIALOG")
+
+        d.title = d:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        d.title:SetPoint("TOP", d.TitleBg, "TOP", 0, -5)
+        d.title:SetText("New variant")
+
+        d.prompt = label(d, "Name")
+        d.prompt:SetPoint("TOPLEFT", 16, -34)
+
+        d.name = editBox(d, 40)
+        d.name:SetPoint("TOPLEFT", 60, -32)
+        d.name:SetWidth(230)
+
+        d.source = label(d, "")
+        d.source:SetPoint("TOPLEFT", 16, -58)
+
+        d.empty = button(d, "Start empty", 100, 22)
+        d.empty:SetPoint("BOTTOMLEFT", 16, 14)
+
+        d.copy = button(d, "Copy current", 110, 22)
+        d.copy:SetPoint("LEFT", d.empty, "RIGHT", 6, 0)
+
+        d.cancel = button(d, "Cancel", 70, 22, function() d:Hide() end)
+        d.cancel:SetPoint("LEFT", d.copy, "RIGHT", 6, 0)
+
+        ui.dialog = d
+    end
+
+    local d = ui.dialog
+    local current = Core.Variant(state.categoryId)
+    local suggested = ("Variant %d"):format(#Core.Variants(state.categoryId) + 1)
+
+    d.name:SetText(suggested)
+    d.source:SetText(("|cffaaaaaaCopying would start from|r |cffffff00%s|r")
+        :format(current and current.name or "?"))
+
+    local function create(copyFrom)
+        local variant = Core.AddVariant(state.categoryId, d.name:GetText(), copyFrom)
+        if variant then
+            Core.SetActiveVariant(state.categoryId, variant.id)
+            state.pageId = nil
+            Edit.RefreshVariants()
+            Edit.RefreshEnemies()
+            Edit.RefreshPages()
+        end
+        d:Hide()
+    end
+
+    d.empty:SetScript("OnClick", function() create(nil) end)
+    d.copy:SetScript("OnClick", function() create(current and current.id) end)
+
+    d:Show()
+    d.name:SetFocus()
+    d.name:HighlightText()
+end
+
+--- Fills the chooser and keeps the delete button honest about the last one.
+function Edit.RefreshVariants()
+    if not ui.variant then return end
+
+    local variants = state.categoryId and Core.Variants(state.categoryId) or {}
+    local items = {}
+    for _, variant in ipairs(variants) do
+        items[#items + 1] = { text = variant.name, value = variant.id }
+    end
+
+    ui.variant:SetItems(items, function(variantId)
+        Core.SetActiveVariant(state.categoryId, variantId)
+        state.pageId = nil
+        Edit.RefreshVariants()
+        Edit.RefreshEnemies()
+        Edit.RefreshPages()
+    end)
+
+    local current = state.categoryId and Core.Variant(state.categoryId)
+    ui.variant:SetText(current and current.name or "-")
+    ui.variantDelete:SetEnabled(#variants > 1)
+end
+
 --- Says where plain text goes, and that a slash command overrides it. Typing an
 --- instruction with no command was the failure that made a button look right
 --- and fire nothing, so the rule is stated where the typing happens.

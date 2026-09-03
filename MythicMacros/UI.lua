@@ -75,6 +75,56 @@ local function skin(b, text)
     return b
 end
 
+--- A dropdown built from plain frames.
+---
+--- WoW's own menu API was reworked in 12.x and this addon cannot verify which
+--- form is current from outside the game. A button and a list of buttons has no
+--- such risk, and behaves identically.
+function UI.Dropdown(parent, width)
+    local dd = panelButton(parent, "", width or 150, 20)
+
+    dd.list = CreateFrame("Frame", nil, dd)
+    dd.list:SetPoint("TOPLEFT", dd, "BOTTOMLEFT", 0, -2)
+    dd.list:SetWidth(width or 150)
+    dd.list:SetFrameStrata("DIALOG")
+    dd.list:Hide()
+
+    local listBg = dd.list:CreateTexture(nil, "BACKGROUND")
+    listBg:SetAllPoints()
+    listBg:SetColorTexture(0.08, 0.08, 0.11, 0.98)
+
+    dd.rows = {}
+
+    function dd:SetItems(items, onSelect)
+        for _, row in ipairs(self.rows) do row:Hide() end
+
+        local y = -2
+        for i, item in ipairs(items) do
+            local row = self.rows[i]
+            if not row then
+                row = panelButton(self.list, "", (width or 150) - 6, 18)
+                self.rows[i] = row
+            end
+            row:SetPoint("TOPLEFT", 3, y)
+            row:SetText(item.text)
+            row:SetScript("OnClick", function()
+                self.list:Hide()
+                onSelect(item.value, item)
+            end)
+            row:Show()
+            y = y - 20
+        end
+
+        self.list:SetHeight(math.max(10, math.abs(y) + 2))
+    end
+
+    dd:SetScript("OnClick", function(self)
+        if self.list:IsShown() then self.list:Hide() else self.list:Show() end
+    end)
+
+    return dd
+end
+
 UI.Skin = skin
 UI.FontString = fontString
 UI.PanelButton = panelButton
@@ -195,6 +245,36 @@ function UI.ShowView(name) showView(name) end
 --- Builds a dungeon's buttons and shows its pages. Refuses in combat, because
 --- this writes every button's macro text and combat forbids that. Nothing is
 --- half-written: the build either succeeds or changes nothing.
+--- Fills the variant chooser and rebuilds when one is picked. Switching variant
+--- rewrites every button, so it is the same out-of-combat operation as opening
+--- a dungeon, and refuses in combat for the same reason.
+function UI.RefreshVariantChooser(catId)
+    local dd = views.run.variant
+    if not dd then return end
+
+    local variants = Core.Variants(catId)
+    if #variants <= 1 then
+        -- One variant is the normal case; a chooser with a single entry is
+        -- clutter that explains nothing.
+        dd:Hide()
+        return
+    end
+
+    local items = {}
+    for _, variant in ipairs(variants) do
+        items[#items + 1] = { text = variant.name, value = variant.id }
+    end
+
+    dd:SetItems(items, function(variantId)
+        Core.SetActiveVariant(catId, variantId)
+        UI.OpenRun(catId)
+    end)
+
+    local current = Core.Variant(catId)
+    dd:SetText(current and current.name or "")
+    dd:Show()
+end
+
 function UI.OpenRun(catId)
     local ok, err = Runtime.Build(views.run.pages, catId, Core.Settings())
     if not ok then
@@ -206,6 +286,7 @@ function UI.OpenRun(catId)
     local cat = Core.GetCategory(catId)
     views.run.prompt:Hide()
     views.run.title:SetText(cat and cat.name or "")
+    UI.RefreshVariantChooser(catId)
     Runtime.ShowPage(lastPage[catId] or 1)
     return true
 end
@@ -312,6 +393,7 @@ function UI.Init()
         views.run.title:SetText("")
         views.run.prompt:SetText("Pick a dungeon on the left.")
         views.run.prompt:Show()
+        if views.run.variant then views.run.variant:Hide() end
         MM.Edit.SetCategory(nil)
         UI.RefreshSidebar()
     end)
@@ -374,6 +456,10 @@ function UI.Init()
     skin(prevBtn, "<")
 
     views.run.arrows = { prev = prevBtn, next = nextBtn }
+
+    views.run.variant = UI.Dropdown(views.run, 150)
+    views.run.variant:SetPoint("TOPLEFT", 10, -4)
+    views.run.variant:Hide()
 
     views.run.prompt = fontString(views.run, "Pick a dungeon on the left.")
     views.run.prompt:SetPoint("TOPLEFT", 12, -34)

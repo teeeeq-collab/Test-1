@@ -126,6 +126,39 @@ check("deleting a line leaves nothing behind", function()
     if visibleDeletes() ~= 0 then error("buttons survived their enemy") end
 end)
 
+check("variant controls across every state", function()
+    local cat = MM.Core.AddCategory("Variants in the UI")
+    local e = MM.Core.AddEnemy(cat.id, "Mob")
+    MM.Core.AddLine(cat.id, e.id, "", "/p call")
+    local pg = MM.Core.AddPage(cat.id, "Route")
+    MM.Core.AddEnemyToPage(cat.id, pg.id, e.id)
+
+    MM.UI.Show("edit")
+    MM.Edit.SetCategory(cat.id)
+    MM.Edit.RefreshVariants()
+
+    MM.Edit.ShowVariantDialog()               -- must build without a dungeon open failing
+    local copy = MM.Core.AddVariant(cat.id, "Copy", MM.Core.ActiveVariantId(cat.id))
+    MM.Core.SetActiveVariant(cat.id, copy.id)
+    MM.Edit.RefreshVariants()
+    MM.Edit.RefreshEnemies()
+    MM.Edit.RefreshPages()
+
+    if #MM.Core.Enemies(cat.id) ~= 1 then error("copied variant lost its enemy") end
+
+    MM.Core.DeleteVariant(cat.id, copy.id)
+    MM.Edit.RefreshVariants()
+    MM.Edit.RefreshEnemies()
+end)
+
+check("Run offers the variant chooser", function()
+    local cat = MM.Core.Categories()[6]
+    MM.Core.AddVariant(cat.id, "Alternative", MM.Core.ActiveVariantId(cat.id))
+    MM.UI.ShowView("run")
+    if not MM.UI.OpenRun(cat.id) then error("OpenRun refused") end
+    MM.UI.RefreshVariantChooser(cat.id)
+end)
+
 check("stale marker", function() MM.Edit.RefreshStaleMarker() end)
 check("settings apply", function() MM.UI.ApplySettings() end)
 
