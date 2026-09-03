@@ -58,6 +58,16 @@ local function newFrame(frameType, name, parent, template)
     f.SetScale      = function(self, v) self.scale = v end
     f.SetAlpha      = function(self, v) self.alpha = v end
     f.GetPoint      = function(self) return "CENTER", nil, "CENTER", 0, 0 end
+    -- Recorded, so a test can ask what a frame is anchored to. GetPoint stays
+    -- the fixed answer above: the addon reads it only to save the window's
+    -- position, and that wants a plausible tuple rather than this list.
+    f.SetPoint      = function(self, point, rel, relPoint, x, y)
+        self.points[#self.points + 1] =
+            { point = point, rel = rel, relPoint = relPoint, x = x, y = y }
+    end
+    f.ClearAllPoints = function(self) self.points = {} end
+    f.SetWordWrap   = function(self, v) self.wordWrap = v end
+    f.SetMaxLines   = function(self, v) self.maxLines = v end
     -- Screen geometry. Modelled because the unmodelled-method fallback returns
     -- the frame itself, and the drag maths would then do arithmetic on a table
     -- — an error the stub would be inventing rather than catching.

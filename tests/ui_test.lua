@@ -300,6 +300,44 @@ check("a row fits inside the list it scrolls in", function()
     if row.del:GetWidth() >= row:GetWidth() then error("the delete button is not inside its row") end
 end)
 
+-- The bug that shipped: a label anchored on both sides wraps, and a button is a
+-- fixed height, so a long dungeon name grew downwards over the two rows below
+-- it and made them unclickable.
+check("a long name truncates instead of growing over its neighbours", function()
+    IMI.Core.Init({})
+    IMI.Core.AddCategory("Short")
+    IMI.Core.AddCategory("Ultra mega super ruby life pools to the exxtreme max and no stop")
+    IMI.Core.AddCategory("After")
+    IMI.UI.Show("edit")
+    IMI.UI.RefreshSidebar()
+
+    local rows = IMI.UI.SidebarRows()
+    for i, row in ipairs({ rows[1], rows[2], rows[3] }) do
+        if row.label.wordWrap ~= false then
+            error(("row %d still wraps, so a long name spills over the rows below"):format(i))
+        end
+        if row.label.maxLines ~= 1 then error(("row %d is not held to one line"):format(i)) end
+        if row:GetHeight() ~= rows[1]:GetHeight() then
+            error(("row %d is a different height from the first"):format(i))
+        end
+    end
+
+    -- Truncated is only acceptable if the whole name is still reachable.
+    if rows[2].tooltipText ~= "Ultra mega super ruby life pools to the exxtreme max and no stop" then
+        error("a truncated name is not readable on hover: " .. tostring(rows[2].tooltipText))
+    end
+end)
+
+-- Undo left, redo right, as in every editor anyone has used.
+check("undo sits to the left of redo", function()
+    local buttons = IMI.UI.EditHistoryButtons()
+    local anchor = buttons.undo.points[#buttons.undo.points]
+    if not anchor then error("the undo button is not anchored to anything") end
+    if anchor.rel ~= buttons.redo or anchor.point ~= "RIGHT" or anchor.relPoint ~= "LEFT" then
+        error("undo is not anchored to the left of redo")
+    end
+end)
+
 check("renaming a dungeon on its row", function()
     IMI.Core.Init({})
     local a = IMI.Core.AddCategory("Typo Hall")

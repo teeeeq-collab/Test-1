@@ -474,12 +474,12 @@ end
 function Edit.Build(parent)
     -- Directly under the bar's icons, which is where the window's other
     -- whole-panel controls already live.
-    ui.undo = button(parent, "<-", 26, 20, function() IMI.UI.Undo() end,
-        { tip = "Undo" })
-    ui.undo:SetPoint("TOPRIGHT", -8, -5)
     ui.redo = button(parent, "->", 26, 20, function() IMI.UI.Redo() end,
         { tip = "Redo" })
-    ui.redo:SetPoint("RIGHT", ui.undo, "LEFT", -3, 0)
+    ui.redo:SetPoint("TOPRIGHT", -8, -5)
+    ui.undo = button(parent, "<-", 26, 20, function() IMI.UI.Undo() end,
+        { tip = "Undo" })
+    ui.undo:SetPoint("RIGHT", ui.redo, "LEFT", -3, 0)
     ui.undo:SetEnabled(false)
     ui.redo:SetEnabled(false)
     parent.history = { undo = ui.undo, redo = ui.redo }

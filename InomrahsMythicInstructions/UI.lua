@@ -493,6 +493,9 @@ function UI.RefreshSidebar()
 
         row:SetPoint("TOPLEFT", sidebar.list, "TOPLEFT", 6, y)
         row:SetText(cat.name)
+        -- The row truncates rather than wrapping, so hovering is how a long
+        -- name stays readable.
+        IMI.Style.Tooltip(row, cat.name)
         row:SetAlpha(1)
         row.rename:Hide()
         row:SetScript("OnClick", function() selectCategory(cat.id) end)

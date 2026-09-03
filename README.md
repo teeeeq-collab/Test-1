@@ -40,7 +40,8 @@ The list on the left is the same in Run and Edit, but only Edit lets you change
 it. In Edit each row can be:
 
 - **renamed** — double-click the name and type over it. Enter or clicking away
-  keeps the change, Escape abandons it.
+  keeps the change, Escape abandons it. A name too long for the row is cut off
+  with an ellipsis; hover the row to read the whole thing.
 - **reordered** — drag a row up or down. An orange line shows where it will
   land; drop past either end to send it to the top or the bottom.
 - **deleted** — the red `x` at the right of the row. It asks first, naming the

@@ -135,6 +135,17 @@ function Style.Button(b, text, opts)
     else
         label:SetAllPoints()
     end
+
+    -- A label anchored on both sides wraps when the text is too long, and a
+    -- button is a fixed height, so the extra lines spill out over whatever is
+    -- underneath. A long dungeon name did exactly that to the two rows below
+    -- it. One line that runs out of room ends in an ellipsis instead; pass
+    -- wrap = true to ask for the old behaviour deliberately.
+    if not opts.wrap then
+        label:SetWordWrap(false)
+        label:SetMaxLines(1)
+    end
+
     label:SetText(text or "")
     label:SetTextColor(unpackColor(Style.colors.text))
 
