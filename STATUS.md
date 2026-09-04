@@ -68,13 +68,20 @@ A check that stopped running says so instead of passing silently.
 After changing the addon: `lua5.1 tools/manifest.lua`, which `./tests/run.sh`
 will remind you about.
 
-## Worth verifying in game
+## Measured, no longer assumed
 
-Per-page keybinds rebind inside the restricted environment on every page flip,
-using `ClearBindings` and `SetBindingClick` on the pager. Those are the standard
-secure-handler binding calls, but like the move and resize snippets they were
-not measured with the probe. If a key fires the wrong page's callout after a
-flip in combat, that snippet is where to look.
+The self-test's first run in the client answered what stood here unverified for
+seven versions. `DESIGN.md` has the full list; the short version:
+
+- Showing, hiding and rebinding **do** work inside a snippet, so closing the
+  window from a key and the per-page keybinds both work during a pull.
+- Moving and resizing **are not available there at all**. The version that
+  assumed they were broke dragging and resizing outright, not just in combat,
+  because once a snippet is installed it is the only path.
+
+Still unmeasured: whether a key fires the right page's callout after a flip
+*during* combat. The calls exist; that they behave is inference until someone
+presses one mid-pull.
 
 
 The close button, the title-bar drag and the three resize edges now do their
