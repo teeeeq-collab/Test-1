@@ -1,0 +1,9 @@
+## Interface: 120100
+## Title: Inomrah's MI Self-Test
+## Notes: Checks Inomrah's Mythic Instructions against the live client. Not needed to play.
+## Author: Inomrah
+## Version: 0.1
+## Dependencies: InomrahsMythicInstructions
+## SavedVariables: InomrahsMISelfTestDB
+
+SelfTest.lua

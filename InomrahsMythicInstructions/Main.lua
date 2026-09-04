@@ -6,6 +6,16 @@ local ADDON, IMI = ...
 
 local Core, UI, Runtime, Util = IMI.Core, IMI.UI, IMI.Runtime, IMI.Util
 
+-- The addon's own table, on one global.
+--
+-- Everything else here is private to the addon. This is deliberate and it is
+-- one name: the self-test addon checks this one against the live client, and
+-- there is no way to look at a running addon's internals from outside without
+-- it. It is read-only in practice — nothing here changes behaviour when it is
+-- absent, so the addon works with the self-test uninstalled, which is how it
+-- will be installed almost always.
+_G.InomrahsMI = IMI
+
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
 loader:SetScript("OnEvent", function(self, event, name)

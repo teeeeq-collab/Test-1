@@ -85,6 +85,16 @@ local function panelButton(parent, text, w, h, onClick, opts)
     return b
 end
 
+--- Remembers what a frame was registered for, because the client offers no way
+--- to ask. A frame whose work is a snippet must accept one direction or it runs
+--- twice per press, and the self-test checks that inside the game where it
+--- actually matters.
+function UI.RegisterClicks(frame, ...)
+    frame:RegisterForClicks(...)
+    frame.__clickTypes = { ... }
+    return frame
+end
+
 --- Shared with Picker, which draws its own dialog but must not draw its own
 --- kind of button.
 function UI.PanelButton(...) return panelButton(...) end
@@ -1039,7 +1049,7 @@ function UI.Init()
     -- again on the way up. The page arrows have said so since they were
     -- written; this did not, and closing therefore lasted only as long as the
     -- key was held.
-    close:RegisterForClicks("AnyUp")
+    UI.RegisterClicks(close, "AnyUp")
     IMI.Style.Tooltip(close, "Close window",
         "/imi opens it again out of combat. Nothing is lost.")
 
@@ -1130,7 +1140,7 @@ function UI.Init()
         "SecureHandlerClickTemplate")
     toggleButton:SetSize(1, 1)
     toggleButton:SetPoint("TOPLEFT")
-    toggleButton:RegisterForClicks("AnyUp")
+    UI.RegisterClicks(toggleButton, "AnyUp")
     if not bindSecure(toggleButton, root, "_onclick", TOGGLE_SNIPPET) then
         toggleButton:SetScript("OnClick", function()
             if InCombatLockdown() then

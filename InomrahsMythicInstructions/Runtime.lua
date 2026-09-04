@@ -149,7 +149,7 @@ function Runtime.BindArrow(button, delta)
         return false
     end
 
-    button:RegisterForClicks("AnyUp")   -- one click type only: registering both
+    IMI.UI.RegisterClicks(button, "AnyUp")  -- one click type only: registering both
                                         -- up and down fires the action twice
     button:SetFrameRef("manager", manager)
     button:SetAttribute("delta", delta)
@@ -202,7 +202,7 @@ local function acquireButton(pageIndex, page, buttonIndex)
     -- earlier version registered only AnyUp, on the theory that both would
     -- double-send. The probe data said otherwise: two click records, one
     -- message. The theory lost to the measurement.
-    button:RegisterForClicks("AnyUp", "AnyDown")
+    IMI.UI.RegisterClicks(button, "AnyUp", "AnyDown")
     -- Explicit, not assumed. The probe's working buttons enabled the mouse and
     -- these did not, and a button that never receives the click is
     -- indistinguishable from one whose action is refused.

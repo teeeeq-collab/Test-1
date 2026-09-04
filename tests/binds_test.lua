@@ -227,8 +227,10 @@ ck("clearing it unbinds", bound["CTRL-M"] == nil)
 -- and again on the way up: the window closed while the key was held and
 -- reopened on release.
 --------------------------------------------------------------------------------
+-- Read from what the addon recorded, which is also what the in-game self-test
+-- reads: the client offers no way to ask a frame what it registered for.
 local function directions(frame)
-    return frame and frame.clickTypes and #frame.clickTypes or 0
+    return frame and frame.__clickTypes and #frame.__clickTypes or 0
 end
 
 ck("the toggle accepts one direction", directions(toggle) == 1, directions(toggle))
