@@ -61,6 +61,33 @@ local HEADER_H = 16
 -- back under the combat restriction this exists to avoid.
 --------------------------------------------------------------------------------
 
+--- Applies one page's keys, plus the two paging keys that carry across pages.
+---
+--- Written as a string once and pasted into both the flip snippet and the
+--- manager's own, because the restricted environment has no way to call a
+--- shared function: a snippet is a string, not a closure.
+local BIND_BODY = [[
+    m:ClearBindings()
+
+    local page = m:GetFrameRef("page" .. index)
+    if page then
+        local binds = page:GetAttribute("bindCount") or 0
+        for i = 1, binds do
+            local key = page:GetAttribute("bindKey" .. i)
+            local target = page:GetFrameRef("bindButton" .. i)
+            if key and target then
+                m:SetBindingClick(true, key, target)
+            end
+        end
+    end
+
+    local nextKey, nextButton = m:GetAttribute("nextKey"), m:GetFrameRef("nextButton")
+    if nextKey and nextButton then m:SetBindingClick(true, nextKey, nextButton) end
+
+    local prevKey, prevButton = m:GetAttribute("prevKey"), m:GetFrameRef("prevButton")
+    if prevKey and prevButton then m:SetBindingClick(true, prevKey, prevButton) end
+]]
+
 local FLIP_SNIPPET = [[
     local m = self:GetFrameRef("manager")
     if not m then return end
@@ -78,15 +105,30 @@ local FLIP_SNIPPET = [[
             if i == index then page:Show() else page:Hide() end
         end
     end
-]]
+]] .. BIND_BODY
+
+-- Run on the manager itself, so a page shown from outside combat rebinds by the
+-- same code path a flip does. Two implementations of "which keys are live" is
+-- exactly the pair that drifts.
+local REBIND_SNIPPET = [[
+    local m = self
+    local index = m:GetAttribute("pageIndex") or 1
+]] .. BIND_BODY
 
 local manager
+local arrowNames = {}
 
 local function ensureManager(parent)
     if manager then return manager end
     manager = CreateFrame("Frame", "InomrahsMIPager", parent, "SecureHandlerBaseTemplate")
     manager:SetSize(1, 1)
     manager:SetPoint("TOPLEFT")
+
+    -- Named so the manager can run it on itself when a page is shown from
+    -- outside the restricted environment.
+    if type(manager.SetAttribute) == "function" then
+        manager:SetAttribute("_rebind", REBIND_SNIPPET)
+    end
     return manager
 end
 
@@ -112,6 +154,11 @@ function Runtime.BindArrow(button, delta)
     button:SetFrameRef("manager", manager)
     button:SetAttribute("delta", delta)
     button:SetAttribute("_onclick", FLIP_SNIPPET)
+
+    -- Both directions are reachable from the manager, so a paging key can be
+    -- bound to one without knowing which frame the UI built.
+    manager:SetFrameRef(delta > 0 and "nextButton" or "prevButton", button)
+    arrowNames[delta > 0 and "next" or "prev"] = button:GetName()
     return true
 end
 
@@ -219,6 +266,13 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
     local enemies = Core.PageEnemies(catId, pageData.id)
     local buttonIndex = 0
 
+    -- Keys for this page, held two ways: as attributes, the only shape the
+    -- restricted environment can read, and as a plain list for the path used
+    -- out of combat. Both written here so the two cannot disagree.
+    local binds = Core.PageBinds(catId, pageData.id)
+    local bindCount = 0
+    page.bindList = {}
+
     local x, y, rowHeight = 0, 0, 0
     local scale = settings and settings.buttonScale or 1
     local bw, bh = BUTTON_W * scale, BUTTON_H * scale
@@ -299,6 +353,15 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
             button.label:SetText(Util.ButtonLabel(line))
             button.macroText = macro
 
+            local key = binds[line.id]
+            button.boundKey = key
+            if key then
+                bindCount = bindCount + 1
+                page:SetAttribute("bindKey" .. bindCount, key)
+                page:SetFrameRef("bindButton" .. bindCount, button)
+                page.bindList[bindCount] = { key = key, button = button }
+            end
+
             -- Text scale is separate from button scale on purpose: a bigger hit
             -- target and a bigger caption are different needs, and one should
             -- not force the other.
@@ -330,6 +393,14 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
     for i = buttonIndex + 1, #pool do
         pool[i]:Hide()
     end
+
+    -- Cleared past the count, so a page that lost a key does not keep firing
+    -- the one left in the attribute from its previous build.
+    page:SetAttribute("bindCount", bindCount)
+    for i = bindCount + 1, (page.lastBindCount or 0) do
+        page:SetAttribute("bindKey" .. i, nil)
+    end
+    page.lastBindCount = bindCount
 
     page.title:SetText(pageData.name or "")
     return math.abs(y) + rowHeight
@@ -374,6 +445,12 @@ function Runtime.Build(container, catId, settings)
         frames.pages[1]:Show()
     end
 
+    -- The paging keys are the same for every dungeon, so they are refreshed
+    -- with each build rather than left over from the last one.
+    local s = Core.Settings()
+    manager:SetAttribute("nextKey", s.pageNextKey)
+    manager:SetAttribute("prevKey", s.pagePrevKey)
+
     built.categoryId = catId
     built.pageCount  = #Core.Pages(catId)
     return true, nil, tallest
@@ -397,8 +474,66 @@ function Runtime.ShowPage(index)
     end
 
     manager:SetAttribute("pageIndex", index)
+    Runtime.ApplyBindings(index)
     return true
 end
+
+--- Makes this page's keys the live ones, out of combat.
+---
+--- Plain override bindings rather than the manager's snippet, because this path
+--- only ever runs out of combat and the plain API is one that certainly exists.
+--- Both paths own their bindings through the manager, so the snippet's
+--- ClearBindings takes these away as readily as its own.
+function Runtime.ApplyBindings(index)
+    if not manager or InCombatLockdown() then return false end
+    if type(ClearOverrideBindings) ~= "function"
+        or type(SetOverrideBindingClick) ~= "function" then
+        return false
+    end
+
+    ClearOverrideBindings(manager)
+
+    local page = frames.pages[tonumber(index) or 1]
+    for _, entry in ipairs(page and page.bindList or {}) do
+        local name = entry.button and entry.button:GetName()
+        if entry.key and name then
+            SetOverrideBindingClick(manager, true, entry.key, name)
+        end
+    end
+
+    -- The paging keys are the same on every page, so they are applied here
+    -- rather than stored per page.
+    local settings = Core.Settings()
+    if settings.pageNextKey and arrowNames.next then
+        SetOverrideBindingClick(manager, true, settings.pageNextKey, arrowNames.next)
+    end
+    if settings.pagePrevKey and arrowNames.prev then
+        SetOverrideBindingClick(manager, true, settings.pagePrevKey, arrowNames.prev)
+    end
+    return true
+end
+
+--- The keys that turn the page. Kept on the manager as well, because a flip in
+--- combat rebinds from there and cannot read a setting.
+function Runtime.SetPageKeys(nextKey, prevKey)
+    if not manager then return false end
+    manager:SetAttribute("nextKey", nextKey)
+    manager:SetAttribute("prevKey", prevKey)
+    return Runtime.ApplyBindings(Runtime.CurrentPage() or 1)
+end
+
+--- Every key this dungeon currently answers to, for showing conflicts.
+function Runtime.BoundKeys(index)
+    local page = frames.pages[tonumber(index) or 1]
+    local out = {}
+    for _, entry in ipairs(page and page.bindList or {}) do
+        out[entry.key] = true
+    end
+    return out
+end
+
+--- The pager, for tests: what is bound is owned by it.
+function Runtime.Manager() return manager end
 
 function Runtime.BuiltCategory()
     return built.categoryId

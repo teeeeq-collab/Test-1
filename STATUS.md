@@ -42,6 +42,13 @@ causes that look identical from outside:
 
 ## Worth verifying in game
 
+Per-page keybinds rebind inside the restricted environment on every page flip,
+using `ClearBindings` and `SetBindingClick` on the pager. Those are the standard
+secure-handler binding calls, but like the move and resize snippets they were
+not measured with the probe. If a key fires the wrong page's callout after a
+flip in combat, that snippet is where to look.
+
+
 The close button, the title-bar drag and the three resize edges now do their
 work inside the restricted environment, which is what lets them run in combat.
 That the restricted environment permits `StartMoving`, `StopMovingOrSizing` and

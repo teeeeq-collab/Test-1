@@ -43,6 +43,10 @@ local function defaultSettings()
         sidebarCollapsed = false,
         -- The user's own palette, by Style key. Empty means "as shipped".
         colors      = {},
+        -- Paging keys. Global rather than per page: a key that turned the page
+        -- on one page and did nothing on the next would be worse than none.
+        pageNextKey = nil,
+        pagePrevKey = nil,
     }
 end
 
@@ -621,10 +625,84 @@ function Core.AddPage(catId, name)
         id       = Util.NewId("page"),
         name     = name or ("Section " .. (#Core.Pages(catId) + 1)),
         enemyIds = {},
+        -- Keys are per page, by line: the same key calls a different thing on
+        -- each page of the route, which is the whole point of pages.
+        binds    = {},
     }
     table.insert(Core.Pages(catId), page)
     edited()
     return page
+end
+
+--------------------------------------------------------------------------------
+-- Keybinds
+--
+-- A key belongs to a page and names a line on it. Stored by line id rather than
+-- by position, so reordering enemies or deleting one does not silently move a
+-- key onto a different callout.
+--------------------------------------------------------------------------------
+
+--- The keys set on a page, as { [lineId] = key }. Always a table, so callers
+--- need not care whether the page predates this feature.
+function Core.PageBinds(catId, pageId)
+    local page = Core.GetPage(catId, pageId)
+    if not page then return {} end
+    page.binds = page.binds or {}
+    return page.binds
+end
+
+function Core.LineBind(catId, pageId, lineId)
+    return Core.PageBinds(catId, pageId)[lineId]
+end
+
+--- Sets or clears one key. A key can only mean one thing on a page, so taking
+--- it from whatever held it is part of assigning it — leaving both would make
+--- which one fires depend on table order.
+function Core.SetLineBind(catId, pageId, lineId, key)
+    local page = Core.GetPage(catId, pageId)
+    if not page or not lineId then return false end
+    page.binds = page.binds or {}
+
+    if key == nil or key == "" then
+        if page.binds[lineId] == nil then return true end
+        page.binds[lineId] = nil
+        edited()
+        return true
+    end
+
+    local taken
+    for otherId, otherKey in pairs(page.binds) do
+        if otherKey == key and otherId ~= lineId then taken = otherId end
+    end
+    if taken then page.binds[taken] = nil end
+
+    if page.binds[lineId] == key and not taken then return true end
+    page.binds[lineId] = key
+    edited()
+    return true
+end
+
+--- Drops keys pointing at lines that no longer exist. Deleting a line leaves
+--- its key behind otherwise, and it would come back the moment a new line
+--- happened to be given the same id.
+function Core.PruneBinds(catId, pageId)
+    local page = Core.GetPage(catId, pageId)
+    if not page or not page.binds then return 0 end
+
+    local live = {}
+    for _, enemy in ipairs(Core.PageEnemies(catId, pageId)) do
+        for _, line in ipairs(enemy.lines) do live[line.id] = true end
+    end
+
+    local removed = 0
+    for lineId in pairs(page.binds) do
+        if not live[lineId] then
+            page.binds[lineId] = nil
+            removed = removed + 1
+        end
+    end
+    if removed > 0 then edited() end
+    return removed
 end
 
 function Core.GetPage(catId, pageId)

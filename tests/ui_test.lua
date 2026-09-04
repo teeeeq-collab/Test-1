@@ -10,7 +10,7 @@ for _, f in ipairs({
 }) do loadfile("InomrahsMythicInstructions/" .. f .. ".lua")() end
 
 for _, f in ipairs({ "Util", "Color", "Style", "Core", "History", "Runtime", "UI",
-                     "Picker", "Edit", "Export", "Starter", "Capture" }) do
+                     "Picker", "Binds", "Edit", "Export", "Starter", "Capture" }) do
     local chunk, err = loadfile("InomrahsMythicInstructions/" .. f .. ".lua")
     if not chunk then realPrint("  FAIL loading " .. f .. ": " .. tostring(err)); os.exit(1) end
     chunk("InomrahsMythicInstructions", IMI)

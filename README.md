@@ -126,6 +126,28 @@ reading them, up to six while you are typing into one, and the card grows to
 make room. A newline can never reach the macro — pressing Enter tidies the text,
 saves, and lets go, exactly as it did before.
 
+### Keybinds
+
+**Edit → Pages → Keybinds** gives the callouts on a page their own keys. Click
+**Set** on a row, press the key; right-click a key to clear it. Escape cancels.
+
+A key belongs to **that page**. The same key calls a different callout on each
+page of a route, which is what makes paging worth having — one hand position for
+a whole dungeon instead of eighteen numpad positions to remember.
+
+**Next page** and **Previous page** are in the same list and are the exception:
+they are shared by every page, because a key that turned the page on one page
+and did nothing on the next would be worse than no key at all.
+
+A key can only mean one thing on a page — assigning one that is taken moves it,
+and says so. Keys follow the callout, not its position, so reordering enemies
+never quietly moves a key onto something else. **Clear this page** empties a
+page's keys and leaves the two paging keys alone.
+
+Changing keys is out-of-combat only. The keys themselves work in combat: paging
+rebinds from inside the game's restricted environment, so turning the page
+mid-pull swaps which callouts your keys fire.
+
 ### Undo and redo
 
 `<-` and `->` at the top right of Edit. They take back and put back anything

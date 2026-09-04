@@ -175,6 +175,18 @@ function M.install()
     _G.UnitName   = function() return nil end
     _G.GetTime    = function() return 0 end
     _G.GetCursorPosition = function() return 0, 0 end
+    -- Modifier state, so a test can press a chord.
+    M.shift, M.ctrl, M.alt = false, false, false
+    _G.IsShiftKeyDown   = function() return M.shift end
+    _G.IsControlKeyDown = function() return M.ctrl end
+    _G.IsAltKeyDown     = function() return M.alt end
+    -- Override bindings, recorded so a test can see what is live.
+    M.bindings = {}
+    _G.ClearOverrideBindings = function(owner) M.bindings[owner] = {} end
+    _G.SetOverrideBindingClick = function(owner, priority, key, button)
+        M.bindings[owner] = M.bindings[owner] or {}
+        M.bindings[owner][key] = button
+    end
     _G.wipe       = function(t) for k in pairs(t) do t[k] = nil end return t end
     _G.ChatFontNormal = {}
     _G.SlashCmdList = {}

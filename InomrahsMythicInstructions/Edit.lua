@@ -836,6 +836,14 @@ function Edit.Build(parent)
     IMI.Style.Tooltip(delPage, "Delete page",
         "The enemies stay; only the page goes.")
 
+    ui.bindsBtn = button(ui.pagesPanel, "Keybinds", 76, 20, function()
+        IMI.Binds.Open(state.categoryId, state.pageId)
+    end, { tip = "Keybinds",
+           tipDetail = "Give this page's callouts keys. The same key calls a "
+                    .. "different callout on each page. Paging keys are shared "
+                    .. "by every page." })
+    ui.bindsBtn:SetPoint("RIGHT", delPage, "LEFT", -6, 0)
+
     local pagesScroll = CreateFrame("ScrollFrame", nil, ui.pagesPanel, "UIPanelScrollFrameTemplate")
     ui.pagesScroll = IMI.Style.WheelScroll(pagesScroll)
     pagesScroll:SetPoint("TOPLEFT", 0, -28)
