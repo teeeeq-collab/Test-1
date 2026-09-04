@@ -23,7 +23,13 @@ local Core, Util = IMI.Core, IMI.Util
 local state = { categoryId = nil, pageId = nil, tab = "enemies" }
 local ui = {}
 
-local ROW_H, CARD_GAP, INDENT = 22, 8, 14
+--- The vertical grid of the Enemies tab: a row, the gap between one enemy's
+--- card and the next, and how far a line is inset under its enemy.
+---
+--- Tightened once already. The boxes were built at chat-window size while
+--- everything around them was panel size, which read as out of scale and cost
+--- about a card and a half of visible list.
+local ROW_H, CARD_GAP, INDENT = 20, 6, 14
 
 -- A callout is one line of macro text, but it is often longer than one line of
 -- panel. Two lines when you are only reading it, more while you are typing,
@@ -54,9 +60,13 @@ end
 
 local function editBox(parent, maxLetters)
     local eb = CreateFrame("EditBox", nil, parent)
-    eb:SetFontObject("ChatFontNormal")
+    -- Panel size, not chat size. ChatFontNormal is 14pt and everything drawn
+    -- beside these boxes is 10 to 12, which is what made them look pasted in
+    -- from another window. The text scale setting still reaches them, so
+    -- anyone who wants the old size has it.
+    eb:SetFontObject("GameFontHighlight")
     IMI.Style.EditBox(eb)
-    eb:SetHeight(20)
+    eb:SetHeight(ROW_H - 2)
     eb:SetAutoFocus(false)
     eb:SetMaxLetters(maxLetters or 64)
     eb:SetScript("OnEscapePressed", eb.ClearFocus)
@@ -114,6 +124,7 @@ local function boxHeight(parent, eb, text, maxLines)
     local lineHeight = measureFS:GetStringHeight()
     if type(lineHeight) ~= "number" or lineHeight <= 0 then return ROW_H - 2, 1 end
 
+
     local available = (eb:GetWidth() or 200) - 12
     local lines = 1
     if type(textWidth) == "number" and available > 0 and textWidth > available then
@@ -122,7 +133,7 @@ local function boxHeight(parent, eb, text, maxLines)
 
     -- The single-line height is what every other row uses, so a one-line box
     -- still lines up with the buttons beside it.
-    return math.max(ROW_H - 2, lines * lineHeight + 6), lines
+    return math.max(ROW_H - 2, lines * lineHeight + 4), lines
 end
 
 --- Pools reuse frames, because frames cannot be destroyed. Every field a pooled
@@ -895,8 +906,6 @@ function Edit.Build(parent)
     IMI.Style.Tooltip(ui.pagePrev, "Previous page")
 
     ui.pageName = editBox(ui.pagesPanel, 40)
-    ui.pageName:SetPoint("LEFT", ui.pagePrev, "RIGHT", 8, 0)
-    ui.pageName:SetWidth(180)
     ui.pageName:SetScript("OnEnterPressed", function(self)
         if state.pageId then Core.RenamePage(state.categoryId, state.pageId, self:GetText()) end
         self:ClearFocus()
@@ -912,11 +921,12 @@ function Edit.Build(parent)
         state.pageId = pages[i].id
         Edit.RefreshPages()
     end)
-    ui.pageNext:SetPoint("LEFT", ui.pageName, "RIGHT", 6, 0)
     IMI.Style.Tooltip(ui.pageNext, "Next page")
 
     ui.pageIndex = label(ui.pagesPanel, "")
-    ui.pageIndex:SetPoint("LEFT", ui.pageNext, "RIGHT", 10, 0)
+    ui.pageIndex:SetJustifyH("RIGHT")
+    ui.pageIndex:SetWordWrap(false)
+    ui.pageIndex:SetMaxLines(1)
 
     ui.delPage = button(ui.pagesPanel, "Delete page", 86, 20, function()
         if not state.pageId then return end
@@ -935,6 +945,22 @@ function Edit.Build(parent)
                     .. "different callout on each page. Paging keys are shared "
                     .. "by every page." })
     ui.bindsBtn:SetPoint("RIGHT", ui.delPage, "LEFT", -6, 0)
+
+    -- The page row, anchored from both ends rather than left to right.
+    --
+    -- Every widget on it is a fixed size except the name box, which is given
+    -- whatever is left. Laid out the other way -- a 180-wide name box pushing
+    -- rightwards from the arrow -- the row simply kept going past the panel at
+    -- a narrow window, and "page 1 of 2" was drawn straight through the
+    -- Keybinds button. A chain that is pinned at both ends cannot do that: the
+    -- slack has one place to go.
+    --
+    -- Anchored here, after all six exist. A nil relativeTo silently anchors to
+    -- the parent instead, which has cost this addon a shipped overlap before.
+    ui.pageIndex:SetPoint("RIGHT", ui.bindsBtn, "LEFT", -8, 0)
+    ui.pageNext:SetPoint("RIGHT", ui.pageIndex, "LEFT", -8, 0)
+    ui.pageName:SetPoint("LEFT", ui.pagePrev, "RIGHT", 8, 0)
+    ui.pageName:SetPoint("RIGHT", ui.pageNext, "LEFT", -6, 0)
 
     local pagesScroll = CreateFrame("ScrollFrame", nil, ui.pagesPanel, "UIPanelScrollFrameTemplate")
     ui.pagesScroll = IMI.Style.WheelScroll(pagesScroll)

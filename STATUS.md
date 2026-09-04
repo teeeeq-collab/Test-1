@@ -19,6 +19,18 @@ that produced it.
 
 ## Known to have been broken, now fixed
 
+**The page row overlapped itself at the minimum window width** (v0.34 and
+earlier). "page 1 of 2" was drawn through the Keybinds button and the name box
+through both. The row was laid out left to right from a fixed 180-wide name
+box, so at a narrow window it simply kept going past the panel. It is now
+pinned at both ends -- everything fixed except the name box, which takes
+whatever is left -- so the slack has one place to go.
+
+Every overlap check had run at the default size, where there is room to spare,
+which is why the whole "fine until you make it narrow" class went unseen. The
+suite now repeats the sweep at the minimum width.
+
+
 **Callouts drew outside the window** (v0.33 and earlier). A dungeon with more
 enemy cards than the window was tall laid the extra ones out straight through
 the bottom edge and onto the game world. A plain frame does not clip its

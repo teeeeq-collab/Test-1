@@ -1170,6 +1170,10 @@ function UI.SidebarCollapsed() return sidebarCollapsed end
 --- wrong, and it is not visible from outside any other way.
 function UI.ContentPanel() return content end
 
+--- The smallest the window may be. Exposed so the overlap tests can run at the
+--- size where rows actually collide, rather than only at the roomy default.
+function UI.MinSize() return MIN_W, MIN_H end
+
 --- The two groups whose widgets sit closest together, for the overlap test.
 function UI.BarWidgets()
     return {

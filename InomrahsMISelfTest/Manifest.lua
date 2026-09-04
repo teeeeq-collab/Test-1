@@ -195,6 +195,7 @@ InomrahsMISelfTestManifest = {
         "UI.KeyCapture",
         "UI.KeyboardReport",
         "UI.KeyboardWatchdog",
+        "UI.MinSize",
         "UI.OpenRun",
         "UI.PanelButton",
         "UI.PendingRelayout",
@@ -286,5 +287,5 @@ InomrahsMISelfTestManifest = {
         "toggleKey",
         "width",
     },
-    builtFor = "0.34",
+    builtFor = "0.35",
 }

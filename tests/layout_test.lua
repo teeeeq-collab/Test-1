@@ -166,6 +166,43 @@ noOverlaps("Keybind dialog",
 IMI.Binds.Frame():Hide()
 
 --------------------------------------------------------------------------------
+-- The window at its smallest.
+--
+-- Every overlap check above ran at the default size, where there is room to
+-- spare, so the whole class of "fine until you make it narrow" went unseen: at
+-- the minimum width the page row ran past the panel and "page 1 of 2" was
+-- drawn through the Keybinds button. Narrow is where rows collide, so narrow
+-- is where they are checked.
+--------------------------------------------------------------------------------
+
+IMI.UI.root:SetSize(IMI.UI.MinSize())
+IMI.UI.Relayout()
+
+IMI.UI.Show("edit")
+IMI.Edit.SetCategory(cat.id)
+
+IMI.Edit.ShowTab("pages")
+noOverlaps("Pages panel at the minimum width", IMI.Edit.PagesPanelWidgets())
+noOverlaps("Edit header at the minimum width, Pages tab", IMI.Edit.HeaderWidgets())
+
+IMI.Edit.ShowTab("enemies")
+noOverlaps("Enemies panel at the minimum width", IMI.Edit.EnemiesPanelWidgets())
+noOverlaps("Edit header at the minimum width, Enemies tab", IMI.Edit.HeaderWidgets())
+noOverlaps("Edit bottom row at the minimum width", IMI.Edit.BottomRowWidgets())
+
+noOverlaps("Title bar at the minimum width", IMI.UI.BarWidgets())
+noOverlaps("Dungeon column at the minimum width", IMI.UI.SidebarWidgets())
+
+IMI.UI.Show("run")
+IMI.UI.OpenRun(cat.id)
+noOverlaps("Run view at the minimum width", IMI.UI.RunWidgets())
+
+IMI.UI.root:SetSize(760, 380)
+IMI.UI.Relayout()
+IMI.UI.Show("edit")
+IMI.Edit.SetCategory(cat.id)
+
+--------------------------------------------------------------------------------
 -- Overflow.
 --
 -- A dungeon with more enemies than the window is tall drew the extra cards
