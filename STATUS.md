@@ -54,9 +54,19 @@ Three things, in rough order of what they catch:
   answered — whether an API exists on this build, what the restricted
   environment allows, what a font string measures, where a frame lands.
 
-The self-test degrades rather than breaks against a newer addon: every reach
-into it is guarded, and its first section lists any accessor it expected and did
-not find, so a check that stopped running says so instead of passing silently.
+The self-test knows what to look for from `InomrahsMISelfTest/Manifest.lua`,
+which is **generated from the addon's source** by `tools/manifest.lua` — every
+public function, named frame, slash command, secure attribute and setting this
+version has, stamped with the version it was built from. Nothing about it is
+maintained by hand, and the offline suite fails if it stops matching the source,
+so it cannot quietly describe a version of the addon that no longer exists.
+
+Against a newer addon it degrades rather than breaks: every reach into the addon
+is guarded, and the report names anything the manifest lists that is not there.
+A check that stopped running says so instead of passing silently.
+
+After changing the addon: `lua5.1 tools/manifest.lua`, which `./tests/run.sh`
+will remind you about.
 
 ## Worth verifying in game
 
