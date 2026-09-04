@@ -355,6 +355,15 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
 
             local key = binds[line.id]
             button.boundKey = key
+
+            if not button.badge then
+                button.badge = IMI.Style.KeyBadge(button)
+                button.badge:SetPoint("TOPLEFT", 2, -2)
+            end
+            -- Only ever shown where a key exists, whatever the setting says:
+            -- an empty badge is a smudge on the corner of a button.
+            button.badge:SetKey(settings and settings.showBindsRun ~= false
+                and IMI.Binds.Short(key) or nil)
             if key then
                 bindCount = bindCount + 1
                 page:SetAttribute("bindKey" .. bindCount, key)

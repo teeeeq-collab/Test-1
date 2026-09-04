@@ -465,6 +465,44 @@ function Style.RefreshScrollBar(scroll, contentHeight)
         and contentHeight > visible)
 end
 
+--- The little box in a button's corner saying which key fires it.
+---
+--- Sized to its text rather than fixed: "E" and "CTRL+E" are very different
+--- widths and a box wide enough for the second wastes a third of a button for
+--- the first. A floor keeps a single letter from becoming a sliver.
+function Style.KeyBadge(parent)
+    local badge = CreateFrame("Frame", nil, parent)
+    badge:SetHeight(12)
+    badge:SetFrameLevel((parent:GetFrameLevel() or 1) + 3)
+
+    Style.Background(badge, Style.colors.window)
+    Style.Border(badge, Style.colors.rowEdge)
+
+    badge.label = badge:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    badge.label:SetPoint("CENTER")
+    badge.label:SetTextColor(unpackColor(Style.colors.goldText))
+    badge.label:SetWordWrap(false)
+    badge.label:SetMaxLines(1)
+    Style.Scaled(badge.label)
+
+    --- Nil hides it. A badge with nothing in it is a smudge on the corner of a
+    --- button, so there is no empty state to draw.
+    function badge:SetKey(text)
+        if not text or text == "" then
+            self:Hide()
+            return
+        end
+        self.label:SetText(text)
+        local width = self.label:GetStringWidth()
+        if type(width) ~= "number" then width = 24 end
+        self:SetWidth(math.max(18, width + 8))
+        self:Show()
+    end
+
+    badge:Hide()
+    return badge
+end
+
 --- A read-only row of text, as the note rows in the reference are.
 function Style.Row(frame)
     Style.Background(frame, Style.colors.row)

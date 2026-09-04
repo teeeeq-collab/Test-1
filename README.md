@@ -144,9 +144,24 @@ and says so. Keys follow the callout, not its position, so reordering enemies
 never quietly moves a key onto something else. **Clear this page** empties a
 page's keys and leaves the two paging keys alone.
 
+A callout with a key wears it in a small box in its top-left corner, sized to
+what it says — "E" and "CTRL+E" are not the same width. The box appears only
+where a key is actually set.
+
 Changing keys is out-of-combat only. The keys themselves work in combat: paging
 rebinds from inside the game's restricted environment, so turning the page
 mid-pull swaps which callouts your keys fire.
+
+**Settings → Keybinds** holds the rest:
+
+- **Open/close addon** — click, press a key, right-click to clear. This one
+  works in combat, which `/imi` cannot: the key clicks a secure button rather
+  than asking the addon to hide itself.
+- **Show keybinds in Run mode** and **in Edit mode**, separately. Either way a
+  box only appears where a key exists.
+
+In Edit a callout can be on several pages with a different key on each. The box
+shows the first; hovering it names them all with their pages.
 
 ### Undo and redo
 

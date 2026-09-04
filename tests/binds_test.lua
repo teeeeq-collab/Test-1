@@ -139,5 +139,87 @@ live = stub.bindings[Runtime.Manager()] or {}
 ck("a cleared key does not survive the rebuild", live["1"] == nil, live["1"])
 ck("and paging still works", live["PAGEDOWN"] ~= nil)
 
+--------------------------------------------------------------------------------
+-- The badge on a button, and how a chord reads on it.
+--------------------------------------------------------------------------------
+ck("a plain key reads as itself", Binds.Short("E") == "E", Binds.Short("E"))
+ck("a chord reads with a plus", Binds.Short("CTRL-E") == "CTRL+E", Binds.Short("CTRL-E"))
+ck("three parts", Binds.Short("ALT-CTRL-SHIFT-F1") == "ALT+CTRL+SHIFT+F1",
+    Binds.Short("ALT-CTRL-SHIFT-F1"))
+-- Long names would make a badge wider than the button it sits on.
+ck("the wheel is shortened", Binds.Short("MOUSEWHEELDOWN") == "MWDn",
+    Binds.Short("MOUSEWHEELDOWN"))
+ck("the numpad is shortened", Binds.Short("NUMPAD7") == "N7", Binds.Short("NUMPAD7"))
+ck("a shortened chord", Binds.Short("SHIFT-NUMPAD7") == "SHIFT+N7",
+    Binds.Short("SHIFT-NUMPAD7"))
+ck("nothing reads as nothing", Binds.Short(nil) == nil)
+ck("an empty key reads as nothing", Binds.Short("") == nil)
+
+-- A badge sized for "E" would be a sliver; one sized for "ALT+CTRL+SHIFT+F1"
+-- would cover the button. It follows its text.
+local badge = IMI.Style.KeyBadge(IMI.UI.root)
+badge:SetKey("E")
+local narrow = badge:GetWidth()
+badge:SetKey("ALT+CTRL+SHIFT+F1")
+ck("a badge grows with its text", badge:GetWidth() > narrow,
+    ("%s then %s"):format(tostring(narrow), tostring(badge:GetWidth())))
+ck("a badge has a floor", narrow >= 18, narrow)
+badge:SetKey(nil)
+ck("no key means no badge", not badge:IsShown())
+
+--------------------------------------------------------------------------------
+-- Badges appear only where a key exists, whatever the setting says.
+--------------------------------------------------------------------------------
+Core.Settings().showBindsRun = true
+Core.SetLineBind(cat.id, p1.id, l1.id, "CTRL-1")
+Core.SetLineBind(cat.id, p1.id, l2.id, nil)
+Runtime.Build(IMI.UI.root, cat.id, Core.Settings())
+
+local buttons = Runtime.PageButtons(1)
+ck("a bound callout carries a badge", buttons[1].badge:IsShown())
+ck("and it reads as the chord", buttons[1].badge.label.text == "CTRL+1",
+    buttons[1].badge.label.text)
+ck("an unbound callout carries none", not buttons[2].badge:IsShown())
+
+Core.Settings().showBindsRun = false
+Runtime.Build(IMI.UI.root, cat.id, Core.Settings())
+ck("turning them off hides the badge", not Runtime.PageButtons(1)[1].badge:IsShown())
+Core.Settings().showBindsRun = true
+
+--------------------------------------------------------------------------------
+-- A line on two pages with two keys has to say both.
+--------------------------------------------------------------------------------
+Core.SetLineBind(cat.id, p1.id, l1.id, "1")
+Core.SetLineBind(cat.id, p2.id, l1.id, "2")
+local keys = Core.LineKeys(cat.id, l1.id)
+ck("both pages are reported", #keys == 2, #keys)
+ck("with the page each belongs to", keys[1].page == "First" and keys[2].page == "Second")
+ck("a line with no key reports none", #Core.LineKeys(cat.id, l2.id) == 0)
+
+--------------------------------------------------------------------------------
+-- Opening and closing the window from a key, which the slash command cannot do
+-- in combat.
+--------------------------------------------------------------------------------
+local toggle = IMI.UI.ToggleButton()
+ck("there is a button for the key to click", toggle ~= nil)
+ck("it points at the window", toggle:GetFrameRef("window") == IMI.UI.root)
+ck("and toggles from inside the restricted environment",
+    tostring(toggle:GetAttribute("_onclick")):find("IsShown", 1, true) ~= nil)
+
+Core.Settings().toggleKey = "CTRL-M"
+IMI.UI.ApplyToggleKey()
+local bound = stub.bindings[toggle] or {}
+ck("the key is bound to it", bound["CTRL-M"] ~= nil, bound["CTRL-M"])
+
+-- Its own owner, so a page flip clearing the pager's bindings cannot take it.
+Runtime.ShowPage(1)
+bound = stub.bindings[toggle] or {}
+ck("turning the page does not unbind it", bound["CTRL-M"] ~= nil)
+
+Core.Settings().toggleKey = nil
+IMI.UI.ApplyToggleKey()
+bound = stub.bindings[toggle] or {}
+ck("clearing it unbinds", bound["CTRL-M"] == nil)
+
 realPrint(("\nbinds: %d passed, %d failed"):format(pass, fail))
 if fail > 0 then os.exit(1) end

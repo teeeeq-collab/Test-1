@@ -280,6 +280,8 @@ function Edit.RefreshEnemies()
                 eb.del = button(eb, "-", 20, 18, nil, { danger = true,
                     tip = "Delete this line" })
                 eb.del:SetPoint("TOPLEFT", eb, "TOPRIGHT", 6, -1)
+                eb.badge = IMI.Style.KeyBadge(eb)
+                eb.badge:SetPoint("TOPLEFT", 3, -2)
                 attachCounter(eb)
                 return eb
             end)
@@ -318,6 +320,25 @@ function Edit.RefreshEnemies()
                 Core.DeleteLine(state.categoryId, enemy.id, line.id)
                 Edit.RefreshEnemies()
             end)
+
+            -- A line can sit on several pages and take a different key on
+            -- each. This tab has no page in view, so the badge shows the first
+            -- and the hover text names them all with their pages.
+            local keys = Core.LineKeys(state.categoryId, line.id)
+            local showBadge = Core.Settings().showBindsEdit ~= false and keys[1] ~= nil
+            box.badge:SetKey(showBadge and IMI.Binds.Short(keys[1].key) or nil)
+
+            if showBadge then
+                local lines = {}
+                for _, entry in ipairs(keys) do
+                    lines[#lines + 1] = ("%s on %s"):format(entry.key, entry.page)
+                end
+                IMI.Style.Tooltip(box.badge, "Keybind", table.concat(lines, "\n"))
+                -- The text starts past the badge rather than under it.
+                box:SetTextInsets(box.badge:GetWidth() + 8, 6, 0, 0)
+            else
+                box:SetTextInsets(6, 6, 0, 0)
+            end
 
             local boxH = boxHeight(ui.enemyList, box, box:GetText(),
                 box:HasFocus() and LINES_EDITING or LINES_IDLE)

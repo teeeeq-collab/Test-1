@@ -48,6 +48,32 @@ function Binds.Chord(key, shift, ctrl, alt)
     return prefix .. key
 end
 
+-- Long key names would make the badge on a button wider than the button. Only
+-- the ones that actually appear on a keyboard are shortened; anything else is
+-- left alone rather than mangled into something unrecognisable.
+local SHORT = {
+    MOUSEWHEELUP = "MWUp", MOUSEWHEELDOWN = "MWDn",
+    BUTTON3 = "M3", BUTTON4 = "M4", BUTTON5 = "M5",
+    PAGEUP = "PgUp", PAGEDOWN = "PgDn",
+    INSERT = "Ins", DELETE = "Del", HOME = "Home", END = "End",
+    SPACE = "Spc", BACKSPACE = "Bksp", CAPSLOCK = "Caps", TAB = "Tab",
+}
+
+--- A key as it should read on a badge: "CTRL-E" becomes "CTRL+E", which is how
+--- people write a chord, and long names are shortened so the badge stays
+--- narrower than the button it sits on.
+function Binds.Short(key)
+    if type(key) ~= "string" or key == "" then return nil end
+
+    local parts = {}
+    for part in key:gmatch("[^-]+") do
+        local piece = SHORT[part] or part
+        if piece:match("^NUMPAD") then piece = "N" .. piece:sub(7) end
+        parts[#parts + 1] = piece
+    end
+    return table.concat(parts, "+")
+end
+
 --- Everything on a page that can take a key, in the order it is drawn, plus the
 --- two paging entries. One list so the dialog has no special cases in it.
 function Binds.Rows(catId, pageId)

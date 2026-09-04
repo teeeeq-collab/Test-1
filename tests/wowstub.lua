@@ -102,6 +102,7 @@ local function newFrame(frameType, name, parent, template)
     f.GetRight          = function(self) return self.width end
     f.GetEffectiveScale = function(self) return self.scale end
     f.GetFrameLevel     = function(self) return self.level or 1 end
+    f.EnableKeyboard    = function(self, v) self.keyboard = v end
     f.SetFrameLevel     = function(self, v) self.level = v end
     f.SetAttribute  = function(self, k, v) self.attributes[k] = v end
     f.GetAttribute  = function(self, k) return self.attributes[k] end

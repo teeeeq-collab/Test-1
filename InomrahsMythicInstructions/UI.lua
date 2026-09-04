@@ -25,6 +25,7 @@ local sidebarCollapsed = false
 local layoutBody
 local layoutSidebar
 local combatWatcher
+local toggleButton
 local views, currentView
 local selected = { categoryId = nil }
 
@@ -132,6 +133,16 @@ local CLOSE_SNIPPET = [==[
     if window then window:Hide() end
 ]==]
 
+-- The window has protected children, so insecure code cannot show or hide it in
+-- combat — which is why /imi cannot reopen it mid-pull. A key bound to click
+-- this does the same work from inside the restricted environment, where it is
+-- allowed, so a keybind can do what the slash command cannot.
+local TOGGLE_SNIPPET = [==[
+    local window = self:GetFrameRef("window")
+    if not window then return end
+    if window:IsShown() then window:Hide() else window:Show() end
+]==]
+
 local DRAG_START_SNIPPET = [==[
     local window = self:GetFrameRef("window")
     if window then window:StartMoving() end
@@ -237,6 +248,7 @@ function UI.ApplySettings()
     -- else.
     IMI.Style.SetTextScale(s.textScale or 1)
     IMI.Style.LoadUserColors(s.colors)
+    UI.ApplyToggleKey()
 
     sidebarCollapsed = s.sidebarCollapsed == true
     layoutBody()
@@ -749,6 +761,30 @@ end
 
 function UI.PendingView() return pendingView end
 
+--- Applies the key that opens and closes the window.
+---
+--- Owned by its own frame, not the pager: the pager clears its bindings on
+--- every page flip, and a key that stopped working when you turned the page
+--- would be a strange thing to have.
+function UI.ApplyToggleKey()
+    if InCombatLockdown() then return false end
+    if type(ClearOverrideBindings) ~= "function"
+        or type(SetOverrideBindingClick) ~= "function" then
+        return false
+    end
+    if not toggleButton then return false end
+
+    ClearOverrideBindings(toggleButton)
+
+    local key = Core.Settings().toggleKey
+    if key and key ~= "" then
+        SetOverrideBindingClick(toggleButton, true, key, toggleButton:GetName())
+    end
+    return true
+end
+
+function UI.ToggleButton() return toggleButton end
+
 --- The controls that must work during a pull, for tests: whether they are
 --- secure is the whole of their behaviour and is invisible otherwise.
 function UI.CloseButton() return root and root.closeButton end
@@ -1054,6 +1090,22 @@ function UI.Init()
             end
         end)
         return g
+    end
+
+    -- Never clicked with the mouse; it exists to be the target of a keybind.
+    toggleButton = CreateFrame("Button", "InomrahsMIToggle", root,
+        "SecureHandlerClickTemplate")
+    toggleButton:SetSize(1, 1)
+    toggleButton:SetPoint("TOPLEFT")
+    toggleButton:RegisterForClicks("AnyUp", "AnyDown")
+    if not bindSecure(toggleButton, root, "_onclick", TOGGLE_SNIPPET) then
+        toggleButton:SetScript("OnClick", function()
+            if InCombatLockdown() then
+                Util.Print("|cffff4444can't open or close the window in combat.|r")
+                return
+            end
+            if root:IsShown() then root:Hide() else root:Show() end
+        end)
     end
 
     root.gripRight = resizeGrip("RIGHT", function(g)
@@ -1397,6 +1449,91 @@ function UI.BuildSettings(parent)
     row("Text scale",   "textScale",   0.6, 1.6, true,
         "Reopen the dungeon in Run to see it.")
 
+    -- Keybinds ---------------------------------------------------------------
+    y = y - 16
+    local bindsHeader = IMI.Style.Header(parent, "Keybinds")
+    bindsHeader:SetPoint("TOPLEFT", 12, y)
+    y = y - 24
+
+    local bindRows = {}
+
+    local toggleLabel = fontString(parent, "Open/close addon")
+    toggleLabel:SetPoint("TOPLEFT", 14, y - 4)
+
+    -- The same gesture as the page keybinds: click, then press. Capturing the
+    -- keyboard only while this button is waiting, and letting Escape through.
+    local toggleBtn = panelButton(parent, "", 130, 20, nil,
+        { tip = "Open/close addon",
+          tipDetail = "Works in combat, which the slash command cannot: the key "
+                   .. "clicks a secure button rather than asking the addon to hide itself." })
+    toggleBtn:SetPoint("TOPLEFT", 150, y)
+
+    local capture = CreateFrame("Frame", nil, parent)
+    capture:EnableKeyboard(false)
+    capture:SetScript("OnKeyDown", function(self, key)
+        if key == "ESCAPE" then
+            self:EnableKeyboard(false)
+            UI.RefreshSettings()
+            return
+        end
+        local chord = IMI.Binds.Chord(key, IsShiftKeyDown(), IsControlKeyDown(), IsAltKeyDown())
+        if not chord then return end          -- a bare modifier, or a key worth keeping
+
+        self:EnableKeyboard(false)
+        Core.Settings().toggleKey = chord
+        UI.ApplyToggleKey()
+        UI.RefreshSettings()
+    end)
+
+    toggleBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    toggleBtn:SetScript("OnClick", function(self, mouseButton)
+        if InCombatLockdown() then
+            Util.Print("|cffff4444can't change keys in combat.|r")
+            return
+        end
+        if mouseButton == "RightButton" then
+            Core.Settings().toggleKey = nil
+            UI.ApplyToggleKey()
+            UI.RefreshSettings()
+            return
+        end
+        self:SetText("press a key")
+        capture:EnableKeyboard(true)
+    end)
+
+    bindRows[#bindRows + 1] = function()
+        toggleBtn:SetText(IMI.Binds.Short(Core.Settings().toggleKey) or "Set")
+    end
+    y = y - 26
+
+    --- A setting that is on or off, shown as the word rather than a box: the
+    --- rest of this panel is buttons and the eye should not have to learn a
+    --- second kind of control for two rows.
+    local function toggleRow(labelText, key, note)
+        local label = fontString(parent, labelText)
+        label:SetPoint("TOPLEFT", 14, y - 4)
+
+        local btn = panelButton(parent, "", 90, 20, function()
+            local settings = Core.Settings()
+            settings[key] = not (settings[key] ~= false)
+            UI.RefreshSettings()
+            -- Run redraws its buttons; Edit redraws its boxes.
+            UI.Relayout()
+        end, { tip = labelText, tipDetail = note })
+        btn:SetPoint("TOPLEFT", 220, y)
+
+        bindRows[#bindRows + 1] = function()
+            btn:SetText((Core.Settings()[key] ~= false) and "Shown" or "Hidden")
+        end
+        y = y - 26
+    end
+
+    toggleRow("Show keybinds in Run mode", "showBindsRun",
+        "The little box in a callout's corner. It only ever appears where a key "
+        .. "is actually set.")
+    toggleRow("Show keybinds in Edit mode", "showBindsEdit",
+        "The same box on the callout lines in Edit.")
+
     -- The palette ----------------------------------------------------------
     -- One row per colour the interface actually uses, rather than a single
     -- theme colour: someone who wants to change the headings should not have to
@@ -1467,6 +1604,8 @@ function UI.BuildSettings(parent)
         end
         Core.Settings().colors = {}
         IMI.Style.ResetUserColors()
+        -- Keys are not a cosmetic default. Resetting the sliders should not
+        -- silently take away a binding someone set up.
         UI.ApplySettings()
         UI.RefreshSettings()
         Util.Print("settings reset.")
@@ -1481,6 +1620,7 @@ function UI.BuildSettings(parent)
     --- which changes the values behind the widgets.
     function UI.RefreshSettings()
         for _, refresh in ipairs(rows) do refresh() end
+        for _, refresh in ipairs(bindRows) do refresh() end
         for _, refresh in ipairs(swatchRows) do refresh() end
         if chanBtn then chanBtn:SetText(Core.Settings().channel or Util.DEFAULT_CHANNEL) end
     end

@@ -47,6 +47,9 @@ local function defaultSettings()
         -- on one page and did nothing on the next would be worse than none.
         pageNextKey = nil,
         pagePrevKey = nil,
+        toggleKey   = nil,   -- opens and closes the window
+        showBindsRun  = true,
+        showBindsEdit = true,
     }
 end
 
@@ -703,6 +706,19 @@ function Core.PruneBinds(catId, pageId)
     end
     if removed > 0 then edited() end
     return removed
+end
+
+--- Every key a line answers to, across the pages it appears on, with the page
+--- each belongs to. A line can sit on several pages and take a different key on
+--- each, so the Enemies tab — which has no page in view — has to say all of
+--- them rather than guess one.
+function Core.LineKeys(catId, lineId)
+    local out = {}
+    for _, page in ipairs(Core.Pages(catId)) do
+        local key = page.binds and page.binds[lineId]
+        if key then out[#out + 1] = { key = key, page = page.name } end
+    end
+    return out
 end
 
 function Core.GetPage(catId, pageId)
