@@ -633,6 +633,13 @@ end
 -- read later, rather than depending on someone catching a red box mid-pull.
 --------------------------------------------------------------------------------
 
+--- The addon's version, as the client reports it. Moved under C_AddOns, so
+--- asking for the old global answers "unknown".
+local function addonVersion()
+    local reader = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+    return tostring((reader and reader("InomrahsMythicInstructions", "Version")) or "?")
+end
+
 local function watchErrors()
     if not _G.geterrorhandler then return end
     local previous = geterrorhandler()
@@ -643,8 +650,12 @@ local function watchErrors()
             errorLog[#errorLog + 1] = { text = text, when = date("%H:%M:%S") }
             InomrahsMISelfTestDB = InomrahsMISelfTestDB or { errors = {} }
             InomrahsMISelfTestDB.errors = InomrahsMISelfTestDB.errors or {}
+            -- Stamped with the version that threw it. The log outlives an
+            -- install, so a report full of errors from a version that has
+            -- already been fixed reads exactly like a version that has not.
             table.insert(InomrahsMISelfTestDB.errors,
-                { text = text, when = date("%Y-%m-%d %H:%M:%S") })
+                { text = text, when = date("%Y-%m-%d %H:%M:%S"),
+                  version = addonVersion() })
         end
         return previous(message, ...)
     end)
@@ -780,11 +791,33 @@ local function reportText()
     out[#out + 1] = ""
     out[#out + 1] = ("%d ok, %d failed"):format(passed, failed)
 
+    -- Split by version, because the log survives an install: an error thrown
+    -- by a version that has since been fixed is history, not a fault, and
+    -- mixing the two in one list makes a clean run look broken.
     local stored = (InomrahsMISelfTestDB and InomrahsMISelfTestDB.errors) or {}
+    local running = addonVersion()
+    local current, older = {}, 0
+    for _, entry in ipairs(stored) do
+        if (entry.version or "?") == running then
+            current[#current + 1] = entry
+        else
+            older = older + 1
+        end
+    end
+
     out[#out + 1] = ""
-    out[#out + 1] = ("== Errors seen (%d) =="):format(#stored)
-    for i = math.max(1, #stored - 20), #stored do
-        if stored[i] then out[#out + 1] = stored[i].when .. "  " .. stored[i].text end
+    out[#out + 1] = ("== Errors on this version (%d of %d logged) =="):format(
+        #current, #stored)
+    if #current == 0 then
+        out[#out + 1] = ("nothing thrown by v%s"):format(running)
+    end
+    for i = math.max(1, #current - 20), #current do
+        if current[i] then out[#out + 1] = current[i].when .. "  " .. current[i].text end
+    end
+    if older > 0 then
+        out[#out + 1] = ""
+        out[#out + 1] = ("%d older error(s) from earlier versions, kept but not shown. "
+            .. "/imitest clear forgets them."):format(older)
     end
 
     return table.concat(out, "\n")
