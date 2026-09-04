@@ -249,6 +249,26 @@ see happen is most of the way to no undo at all.
 Settings are outside history, and combat refuses a step: undoing can delete the
 dungeon Run has built, and hiding secure buttons mid-fight is blocked.
 
+## Secure frames: how many click directions to register
+
+Two rules, and they are not the same rule.
+
+A frame whose work is an `_onclick` **snippet** runs that snippet on every click
+it accepts. Registering both `AnyUp` and `AnyDown` therefore runs it twice per
+press — once going down, once coming up. For a toggle that reads as "hold to
+keep it closed": it shut on the press and reopened on the release. Snippet
+frames — the page arrows, the close button, the window toggle — register one
+direction.
+
+A **secure action** button with `type = "macro"` is the measured exception. The
+probe recorded two click records and one message with both directions
+registered, so the callout buttons keep both. That was measured on 12.1.0, not
+reasoned, and it is why the two look inconsistent in the source.
+
+The page arrows carried a comment saying the first half of this from the day
+they were written. The close button and the toggle were added later without it,
+which is how the toggle shipped broken.
+
 ## Measured behaviour (12.1.0)
 
 Verified by effect on the live client, not inferred. Earlier drafts of this

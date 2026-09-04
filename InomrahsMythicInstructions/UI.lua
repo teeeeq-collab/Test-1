@@ -1007,7 +1007,12 @@ function UI.Init()
     close:SetSize(22, BAR_H - 4)
     close:SetPoint("RIGHT", -3, 0)
     skin(close, "X")
-    close:RegisterForClicks("AnyUp", "AnyDown")
+    -- One direction only. A frame whose work is an _onclick snippet runs it on
+    -- every click it accepts, so registering both fired it on the way down and
+    -- again on the way up. The page arrows have said so since they were
+    -- written; this did not, and closing therefore lasted only as long as the
+    -- key was held.
+    close:RegisterForClicks("AnyUp")
     IMI.Style.Tooltip(close, "Close window",
         "/imi opens it again out of combat. Nothing is lost.")
 
@@ -1097,7 +1102,7 @@ function UI.Init()
         "SecureHandlerClickTemplate")
     toggleButton:SetSize(1, 1)
     toggleButton:SetPoint("TOPLEFT")
-    toggleButton:RegisterForClicks("AnyUp", "AnyDown")
+    toggleButton:RegisterForClicks("AnyUp")
     if not bindSecure(toggleButton, root, "_onclick", TOGGLE_SNIPPET) then
         toggleButton:SetScript("OnClick", function()
             if InCombatLockdown() then

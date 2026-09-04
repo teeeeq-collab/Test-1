@@ -221,5 +221,37 @@ IMI.UI.ApplyToggleKey()
 bound = stub.bindings[toggle] or {}
 ck("clearing it unbinds", bound["CTRL-M"] == nil)
 
+--------------------------------------------------------------------------------
+-- A snippet runs on every click the frame accepts, so a frame whose work is a
+-- snippet must accept one direction. Registering both ran it on the way down
+-- and again on the way up: the window closed while the key was held and
+-- reopened on release.
+--------------------------------------------------------------------------------
+local function directions(frame)
+    return frame and frame.clickTypes and #frame.clickTypes or 0
+end
+
+ck("the toggle accepts one direction", directions(toggle) == 1, directions(toggle))
+ck("so does the close button", directions(IMI.UI.CloseButton()) == 1,
+    directions(IMI.UI.CloseButton()))
+
+local arrows = IMI.UI.Arrows()
+ck("so do the page arrows",
+    directions(arrows.next) == 1 and directions(arrows.prev) == 1)
+
+-- Every one of them, found rather than listed, so a snippet frame added later
+-- cannot quietly miss this.
+for _, frame in ipairs({ toggle, IMI.UI.CloseButton(), arrows.next, arrows.prev }) do
+    if frame:GetAttribute("_onclick") and directions(frame) ~= 1 then
+        ck("a snippet frame accepts more than one direction", false, directions(frame))
+    end
+end
+
+-- The callout buttons are the exception, and a measured one: the probe recorded
+-- two clicks and one message, so both directions are what they were built with.
+Runtime.Build(IMI.UI.root, cat.id, Core.Settings())
+ck("callout buttons keep both, as measured",
+    directions(Runtime.PageButtons(1)[1]) == 2, directions(Runtime.PageButtons(1)[1]))
+
 realPrint(("\nbinds: %d passed, %d failed"):format(pass, fail))
 if fail > 0 then os.exit(1) end

@@ -117,6 +117,9 @@ local function newFrame(frameType, name, parent, template)
     f.UnregisterAllEvents = function(self) self.events = nil end
     f.IsEventRegistered = function(self, e) return (self.events and self.events[e]) == true end
     f.GetFrameRef   = function(self, k) return self.attributes["ref:" .. k] end
+    -- Recorded, because how many directions a button accepts decides whether
+    -- its snippet runs once or twice per press.
+    f.RegisterForClicks = function(self, ...) self.clickTypes = { ... } end
     f.SetScript     = function(self, e, fn) self.scripts[e] = fn end
     f.GetScript     = function(self, e) return self.scripts[e] end
     -- Chains rather than replaces, which is the difference that matters: code
