@@ -47,7 +47,9 @@ It deliberately does not touch the callouts themselves, or the dungeon names in
 the list on the left. **Reset** in the picker clears it.
 
 The picker has a saturation/brightness field, a hue strip beside it, and Hue,
-Saturation and Brightness sliders with typed values. Changes apply as you make
+Saturation and Brightness sliders with typed values. A bar on the strip shows
+which hue you are on and a ring on the field shows where the colour sits; both
+follow the sliders as well as the mouse. Changes apply as you make
 them, on the real interface rather than on a preview square. A colour picked
 very dark is lifted where it is used as text — the point of colouring a dungeon
 is to recognise it, not to hide it.

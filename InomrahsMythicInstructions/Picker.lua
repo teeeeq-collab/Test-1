@@ -27,6 +27,19 @@ local STRIP_W = 18
 
 local frame
 
+--- A marker that stays visible on whatever colour it lands on: a light outline
+--- with a dark one just inside it. Drawn from plain textures like everything
+--- else here, so there is no art path to be wrong about, and it takes no mouse
+--- input so the swatch underneath still receives the click.
+local function marker(parent, w, h)
+    local m = CreateFrame("Frame", nil, parent)
+    m:SetSize(w, h)
+    m:SetFrameLevel((parent:GetFrameLevel() or 1) + 5)
+    IMI.Style.Border(m, { 0, 0, 0, 0.85 }, 3)
+    IMI.Style.Border(m, { 1, 1, 1, 1 }, 1)
+    return m
+end
+
 local function swatchGrid(parent, cols, rows, cellW, cellH, onPick)
     local grid = CreateFrame("Button", nil, parent)
     grid:SetSize(cols * cellW, rows * cellH)
@@ -59,6 +72,20 @@ local function swatchGrid(parent, cols, rows, cellW, cellH, onPick)
     end)
 
     return grid
+end
+
+--- Where the marker sits on the hue strip, measured down from its top.
+---
+--- The strip runs 0 at the top to 360 at the bottom, so this is the same
+--- mapping the strip's own colours use — written once, so the marker cannot
+--- point at a different hue from the one under it.
+function Picker.HueOffset(hue, height)
+    return ((tonumber(hue) or 0) % 360) / 360 * height
+end
+
+--- Where the marker sits on the field: saturation across, brightness down.
+function Picker.FieldOffset(s, v, width, height)
+    return (s or 0) * width, (1 - (v or 0)) * height
 end
 
 --- Which cell of a grid a point falls in, counting from 1 and clamped to the
@@ -119,6 +146,11 @@ local function build()
     for i = 1, HUE_STEPS do
         d.hue.cells[i]:SetColorTexture(Color.HSVtoRGB((i - 0.5) / HUE_STEPS * 360, 1, 1))
     end
+
+    -- Which hue is current, and where on the field the colour sits. The picker
+    -- worked without these; it just could not tell you where you were.
+    d.hueMarker = marker(d.hue, STRIP_W + 6, 5)
+    d.fieldMarker = marker(d.field, 11, 11)
 
     -- The result -----------------------------------------------------------
     d.swatchFrame = CreateFrame("Frame", nil, d)
@@ -215,6 +247,15 @@ local function build()
 
         local r, g, b = Color.HSVtoRGB(self.state.h, self.state.s, self.state.v)
         self.swatch:SetColorTexture(r, g, b)
+
+        local fieldW, fieldH = FIELD_COLS * CELL, FIELD_ROWS * CELL
+        local mx, my = Picker.FieldOffset(self.state.s, self.state.v, fieldW, fieldH)
+        self.fieldMarker:ClearAllPoints()
+        self.fieldMarker:SetPoint("CENTER", self.field, "TOPLEFT", mx, -my)
+
+        self.hueMarker:ClearAllPoints()
+        self.hueMarker:SetPoint("CENTER", self.hue, "TOP", 0,
+            -Picker.HueOffset(self.state.h, fieldH))
 
         for _, row in pairs(self.rows) do
             local value = row.get()

@@ -1235,6 +1235,70 @@ check("clicking the colour field lands on the cell under the cursor", function()
     if cell(-50, -50) ~= "1,1" then error("before the start did not clamp") end
 end)
 
+-- A marker that points somewhere other than the colour you picked is worse than
+-- no marker, so the mapping is the same arithmetic the swatches themselves use.
+check("the markers land on the colour that is selected", function()
+    local CELL, COLS, ROWS = 9, 24, 16
+    local fieldW, fieldH = COLS * CELL, ROWS * CELL
+
+    -- Click a cell, then ask where the marker goes: it must land inside it.
+    for _, cell in ipairs({ { 1, 1 }, { 12, 8 }, { 24, 16 } }) do
+        local col, row = cell[1], cell[2]
+        local s, v = IMI.Picker.FieldColor(col, row, 200)
+        local mx, my = IMI.Picker.FieldOffset(s, v, fieldW, fieldH)
+
+        local backCol, backRow = IMI.Picker.CellAt(mx, my, CELL, CELL, COLS, ROWS)
+        if backCol ~= col or backRow ~= row then
+            error(("cell %d,%d marked at %d,%d"):format(col, row, backCol, backRow))
+        end
+    end
+
+    -- The hue strip runs 0 at the top to 360 at the bottom.
+    if IMI.Picker.HueOffset(0, 144) ~= 0 then error("hue 0 is not at the top") end
+    if math.abs(IMI.Picker.HueOffset(180, 144) - 72) > 0.01 then
+        error("hue 180 is not halfway down: " .. IMI.Picker.HueOffset(180, 144))
+    end
+    -- 360 is the same colour as 0, so the marker returns to the top rather than
+    -- sliding off the bottom of the strip.
+    if IMI.Picker.HueOffset(360, 144) ~= 0 then error("hue 360 fell off the strip") end
+    if IMI.Picker.HueOffset(400, 144) >= 144 then error("a hue past 360 left the strip") end
+end)
+
+check("the markers move with the colour", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Marked")
+    IMI.UI.Show("edit")
+    IMI.UI.SelectCategory(cat.id)
+    IMI.Edit.SetCategory(cat.id)
+
+    IMI.Core.SetCategoryColor(cat.id, { 1, 0, 0 })
+    IMI.Edit.ShowColorPicker()
+    local d = IMI.Picker.Frame().dialog
+    if not d.hueMarker or not d.fieldMarker then error("the picker has no markers") end
+
+    local function anchorOf(frame)
+        local p = frame.points[#frame.points]
+        return p and p.x, p and p.y
+    end
+
+    local _, redY = anchorOf(d.hueMarker)
+    d.state.h = 240                       -- blue, two thirds down the strip
+    d:Repaint()
+    local _, blueY = anchorOf(d.hueMarker)
+    if not (blueY < redY) then
+        error(("the hue marker did not move down: %s then %s")
+            :format(tostring(redY), tostring(blueY)))
+    end
+
+    local satX = select(1, anchorOf(d.fieldMarker))
+    d.state.s = 0.1
+    d:Repaint()
+    if not (select(1, anchorOf(d.fieldMarker)) < satX) then
+        error("the field marker did not follow saturation")
+    end
+    IMI.Picker.Frame():Hide()
+end)
+
 check("the colour field runs saturation across and brightness down", function()
     local s1, v1 = IMI.Picker.FieldColor(1, 1, 200)
     local s2, v2 = IMI.Picker.FieldColor(24, 16, 200)
