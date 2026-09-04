@@ -76,10 +76,15 @@ ck("ctrl and shift keep a fixed order",
 ck("all three", Binds.Chord("F1", true, true, true) == "ALT-CTRL-SHIFT-F1",
     Binds.Chord("F1", true, true, true))
 
--- Escape has to keep working, and a bare modifier is not a binding.
-ck("escape is refused", Binds.Chord("ESCAPE") == nil)
-ck("a bare shift is refused", Binds.Chord("LSHIFT") == nil)
-ck("enter is refused", Binds.Chord("ENTER") == nil)
+-- Every key the client needs more than this addon does. Checked as a list
+-- rather than a sample: mutation testing showed that with only three of them
+-- tested, the other six could be made bindable without anything noticing.
+for _, key in ipairs({ "ESCAPE", "ENTER", "NUMPADENTER", "LSHIFT", "RSHIFT",
+                       "LCTRL", "RCTRL", "LALT", "RALT", "UNKNOWN" }) do
+    ck(key .. " cannot be bound", Binds.Chord(key) == nil, Binds.Chord(key))
+    -- Nor with a modifier held: SHIFT-ESCAPE must not close a door either.
+    ck(key .. " cannot be bound with a modifier", Binds.Chord(key, true, true) == nil)
+end
 
 --------------------------------------------------------------------------------
 -- The dialog's row list, and what conflicts with what.
@@ -138,6 +143,40 @@ Runtime.ShowPage(2)
 live = stub.bindings[Runtime.Manager()] or {}
 ck("a cleared key does not survive the rebuild", live["1"] == nil, live["1"])
 ck("and paging still works", live["PAGEDOWN"] ~= nil)
+
+--------------------------------------------------------------------------------
+-- Which branch a row takes. A callout's key belongs to its page; the two paging
+-- keys belong to every page. Nothing was checking that the right one was
+-- written, so a paging key could have been stored on a page and quietly stopped
+-- working on the next one.
+--------------------------------------------------------------------------------
+-- A dungeon of its own, and the paging keys put back afterwards: this sits in
+-- the middle of the file and the checks below it still expect what they set up.
+local branchCat = Core.AddCategory("Branching")
+local branchMob = Core.AddEnemy(branchCat.id, "Mob")
+local branchLine = Core.AddLine(branchCat.id, branchMob.id, "", "/p go")
+local branchPage = Core.AddPage(branchCat.id, "One")
+Core.AddEnemyToPage(branchCat.id, branchPage.id, branchMob.id)
+local keptNext, keptPrev = Core.Settings().pageNextKey, Core.Settings().pagePrevKey
+
+Binds.Assign(branchCat.id, branchPage.id,
+    { kind = "line", id = branchLine.id }, "5")
+ck("a callout key goes on its page",
+    Core.LineBind(branchCat.id, branchPage.id, branchLine.id) == "5")
+ck("and not into the paging keys", Core.Settings().pageNextKey ~= "5")
+
+Binds.Assign(branchCat.id, branchPage.id, { kind = "next" }, "6")
+ck("a next-page key goes to the setting", Core.Settings().pageNextKey == "6")
+ck("and not onto the page", Core.PageBinds(branchCat.id, branchPage.id)["6"] == nil)
+
+Binds.Assign(branchCat.id, branchPage.id, { kind = "prev" }, "7")
+ck("a previous-page key goes to its own setting", Core.Settings().pagePrevKey == "7")
+ck("without disturbing next", Core.Settings().pageNextKey == "6")
+
+Binds.Assign(branchCat.id, branchPage.id, { kind = "next" }, nil)
+ck("clearing a paging key clears it", Core.Settings().pageNextKey == nil)
+
+Core.Settings().pageNextKey, Core.Settings().pagePrevKey = keptNext, keptPrev
 
 --------------------------------------------------------------------------------
 -- The badge on a button, and how a chord reads on it.

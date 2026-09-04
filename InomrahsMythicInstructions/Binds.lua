@@ -121,7 +121,11 @@ local function stopWaiting()
         "|cffaaaaaaClick Set, then press the key. Right-click a key to clear it.|r")
 end
 
-local function assign(catId, pageId, row, key)
+--- Puts a key on whatever the row stands for. Exposed rather than local because
+--- which branch a row takes — a callout on this page, or one of the two keys
+--- shared by every page — is the decision worth checking, and mutation testing
+--- found nothing was checking it.
+function Binds.Assign(catId, pageId, row, key)
     if row.kind == "line" then
         Core.SetLineBind(catId, pageId, row.id, key)
     else
@@ -130,6 +134,8 @@ local function assign(catId, pageId, row, key)
         IMI.Runtime.SetPageKeys(settings.pageNextKey, settings.pagePrevKey)
     end
 end
+
+local assign = Binds.Assign
 
 local function build()
     if frame then return frame end

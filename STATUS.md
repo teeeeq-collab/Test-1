@@ -40,6 +40,24 @@ causes that look identical from outside:
 | text present, no click line | the click is not landing |
 | click line prints, nothing sent | the action is being refused |
 
+## Finding faults without waiting to trip over them
+
+Three things, in rough order of what they catch:
+
+- `./tests/run.sh` — the offline suite. Everything that is arithmetic or data.
+- `lua5.1 tests/mutate.lua [file] [limit]` — breaks the source on purpose, one
+  small change at a time, and reports every change the suite did not notice. A
+  survivor is a claim nothing checks. Most survivors are pixel offsets and are
+  not worth a test; read the list and decide. It refuses to run on a dirty tree,
+  and if it is interrupted: `git checkout -- InomrahsMythicInstructions`.
+- The **self-test addon**, in game: `/imitest`. The only place the rest can be
+  answered — whether an API exists on this build, what the restricted
+  environment allows, what a font string measures, where a frame lands.
+
+The self-test degrades rather than breaks against a newer addon: every reach
+into it is guarded, and its first section lists any accessor it expected and did
+not find, so a check that stopped running says so instead of passing silently.
+
 ## Worth verifying in game
 
 Per-page keybinds rebind inside the restricted environment on every page flip,

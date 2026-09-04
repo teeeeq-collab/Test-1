@@ -172,7 +172,53 @@ local function checkRestricted()
 end
 
 --------------------------------------------------------------------------------
--- 3. Is the addon wired up the way it thinks it is?
+-- 3. Is this self-test still in step with the addon?
+--
+-- Everything below reaches into the addon through named accessors, and every
+-- one of those calls is guarded, so a self-test older than the addon reports
+-- what it can rather than erroring. That silence is the danger: a check that
+-- quietly stopped running looks exactly like a check that passed.
+--
+-- So the accessors are listed and their absence is reported. If this section
+-- says something is missing, this addon is older than the one it is testing and
+-- the checks that used it did not run.
+--------------------------------------------------------------------------------
+
+local EXPECTED = {
+    { "UI", "root" }, { "UI", "CurrentView" }, { "UI", "ShowView" },
+    { "UI", "CloseButton" }, { "UI", "ToggleButton" }, { "UI", "Arrows" },
+    { "UI", "BarWidgets" }, { "UI", "SidebarWidgets" }, { "UI", "RunWidgets" },
+    { "UI", "PendingView" },
+    { "Edit", "HeaderWidgets" }, { "Edit", "BottomRowWidgets" },
+    { "Edit", "EnemiesPanelWidgets" }, { "Edit", "PagesPanelWidgets" },
+    { "Runtime", "Manager" }, { "Runtime", "PageButtons" },
+    { "Core", "Settings" }, { "Binds", "Chord" }, { "Color", "HSVtoRGB" },
+}
+
+local function checkVersion()
+    local IMI = _G.InomrahsMI
+    if type(IMI) ~= "table" then return end
+
+    local missing = {}
+    for _, entry in ipairs(EXPECTED) do
+        local module, name = entry[1], entry[2]
+        if type(IMI[module]) ~= "table" or IMI[module][name] == nil then
+            missing[#missing + 1] = module .. "." .. name
+        end
+    end
+
+    record("Self-test", "in step with the addon", #missing == 0,
+        #missing > 0
+            and ("this self-test is older than the addon; these checks did not run: "
+                 .. table.concat(missing, ", "))
+            or ("%d accessors present"):format(#EXPECTED))
+
+    local version = GetAddOnMetadata and GetAddOnMetadata("InomrahsMythicInstructions", "Version")
+    record("Self-test", "addon version", true, tostring(version or "unknown"))
+end
+
+--------------------------------------------------------------------------------
+-- 4. Is the addon wired up the way it thinks it is?
 --------------------------------------------------------------------------------
 
 local function checkWiring()
@@ -215,7 +261,7 @@ local function checkWiring()
 end
 
 --------------------------------------------------------------------------------
--- 4. Where things actually are.
+-- 5. Where things actually are.
 --
 -- The offline suite resolves anchors into rectangles from what it recorded. The
 -- client knows the real answer, including everything the resolver has to guess
@@ -302,7 +348,7 @@ local function checkLayout()
 end
 
 --------------------------------------------------------------------------------
--- 5. Anything the addon threw while you were playing.
+-- 6. Anything the addon threw while you were playing.
 --
 -- Errors are easy to miss and hard to reproduce. This keeps them so they can be
 -- read later, rather than depending on someone catching a red box mid-pull.
@@ -326,7 +372,7 @@ local function watchErrors()
 end
 
 --------------------------------------------------------------------------------
--- 6. The combat checks, which only mean anything mid-fight.
+-- 7. The combat checks, which only mean anything mid-fight.
 --------------------------------------------------------------------------------
 
 local function checkCombat()
@@ -371,6 +417,7 @@ local function runAll()
     results = {}
     checkClient()
     checkRestricted()
+    checkVersion()
     checkWiring()
     checkLayout()
 end
