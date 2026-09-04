@@ -249,6 +249,31 @@ see happen is most of the way to no undo at all.
 Settings are outside history, and combat refuses a step: undoing can delete the
 dungeon Run has built, and hiding secure buttons mid-fight is blocked.
 
+## Overlapping widgets
+
+Every overlap this addon has shipped was the same thing: two anchors whose
+arithmetic nobody added up. A frame at `-76` and a panel starting at `-76`, both
+correct on their own line, wrong together.
+
+The stub records anchors but does not resolve them, so `tests/geometry.lua`
+turns what it recorded into rectangles and `tests/layout_test.lua` checks that
+the widgets sharing a region do not share any area. Groups of widgets are named
+by the addon itself rather than listed in the test, so a widget added to a row
+is checked without anyone remembering to add it.
+
+Two things the resolver needed before it could tell the truth:
+
+- `SetPoint` has several shapes, and `(point, x, y)` was being recorded as
+  though the x offset were the frame to anchor to. That made every descendant
+  unresolvable, which reads as "no overlaps" — the most dangerous kind of pass.
+- A font string is usually never given a size; it is as big as its text. Taking
+  the stub's default size for one produced 600x300 labels that appeared to
+  overlap the entire panel.
+
+It is best effort: a frame whose size cannot be worked out is reported as
+unresolved rather than guessed at, and the test says so out loud. A wrong
+rectangle would be worse than no rectangle.
+
 ## Secure frames: how many click directions to register
 
 Two rules, and they are not the same rule.

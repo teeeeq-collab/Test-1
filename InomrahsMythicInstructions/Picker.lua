@@ -137,6 +137,10 @@ local function build()
         row.slider = CreateFrame("Slider", nil, d, "OptionsSliderTemplate")
         row.slider:SetPoint("TOPLEFT", d.hue, "TOPRIGHT", 12, y - 14)
         row.slider:SetWidth(120)
+        -- Given a height rather than left to the template's. Three rows spaced
+        -- by hand against a height nobody stated is a layout that moves when
+        -- Blizzard changes the template.
+        row.slider:SetHeight(17)
         row.slider:SetMinMaxValues(0, maxValue)
         row.slider:SetValueStep(1)
         row.slider:SetObeyStepOnDrag(true)

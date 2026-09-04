@@ -14,3 +14,4 @@ lua5.1 tests/export_test.lua
 lua5.1 tests/starter_test.lua
 lua5.1 tests/binds_test.lua
 lua5.1 tests/ui_test.lua
+lua5.1 tests/layout_test.lua

@@ -864,6 +864,32 @@ function UI.SidebarCollapsed() return sidebarCollapsed end
 --- The two panels, for tests: how they are anchored is the thing that went
 --- wrong, and it is not visible from outside any other way.
 function UI.ContentPanel() return content end
+
+--- The two groups whose widgets sit closest together, for the overlap test.
+function UI.BarWidgets()
+    return {
+        collapse = bar.collapse, run = bar.tabs and bar.tabs.run,
+        edit = bar.tabs and bar.tabs.edit, title = bar.title,
+        info = bar.info, gear = bar.gear, close = root and root.closeButton,
+    }
+end
+
+--- The Run view's own furniture, which shares a strip with the page arrows.
+function UI.RunWidgets()
+    return {
+        title = views.run.title, prompt = views.run.prompt,
+        variant = views.run.variant, pages = views.run.pages,
+        prev = views.run.arrows and views.run.arrows.prev,
+        next = views.run.arrows and views.run.arrows.next,
+    }
+end
+
+function UI.SidebarWidgets()
+    return {
+        header = sidebar.header, list = sidebar.scroll, hint = sidebar.hint,
+        newName = sidebar.newName, newBtn = sidebar.newBtn, back = sidebar.back,
+    }
+end
 function UI.Sidebar() return sidebar end
 
 --- Re-lays whatever the content panel is showing, after its width changed.
@@ -1002,6 +1028,7 @@ function UI.Init()
     editBtn:SetPoint("LEFT", runBtn, "RIGHT", 2, 0)
 
     bar.tabs = { run = runBtn, edit = editBtn }
+    bar.collapse = collapse
 
     local close = CreateFrame("Button", nil, bar, "SecureHandlerClickTemplate")
     close:SetSize(22, BAR_H - 4)
@@ -1037,6 +1064,7 @@ function UI.Init()
         { tip = "Help", tipDetail = "What everything does, and the slash commands." })
     info:SetPoint("RIGHT", gear, "LEFT", -2, 0)
 
+    bar.info, bar.gear = info, gear
     bar.title = IMI.Style.Header(bar, "Inomrah's Mythic Instructions")
     bar.title:SetPoint("CENTER", bar, "CENTER", 0, 0)
 

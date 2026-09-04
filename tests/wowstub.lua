@@ -51,9 +51,15 @@ local function newFrame(frameType, name, parent, template)
     f.SetShown      = function(self, v) self.shown = not not v end
     f.GetWidth      = function(self) return self.width end
     f.GetHeight     = function(self) return self.height end
-    f.SetHeight     = function(self, h) self.height = h end
-    f.SetWidth      = function(self, w) self.width = w end
-    f.SetSize       = function(self, w, h) self.width, self.height = w, h end
+    -- Flagged as well as stored, so the geometry resolver can tell a size that
+    -- was asked for from the default it was born with. A font string sized by
+    -- its text is a very different rectangle from a 600x300 default.
+    f.SetHeight     = function(self, h) self.height, self.heightSet = h, true end
+    f.SetWidth      = function(self, w) self.width, self.widthSet = w, true end
+    f.SetSize       = function(self, w, h)
+        self.width, self.height = w, h
+        self.widthSet, self.heightSet = true, true
+    end
     f.GetScale      = function(self) return self.scale end
     f.SetScale      = function(self, v) self.scale = v end
     f.SetAlpha      = function(self, v) self.alpha = v end
@@ -62,11 +68,27 @@ local function newFrame(frameType, name, parent, template)
     -- Recorded, so a test can ask what a frame is anchored to. GetPoint stays
     -- the fixed answer above: the addon reads it only to save the window's
     -- position, and that wants a plausible tuple rather than this list.
-    f.SetPoint      = function(self, point, rel, relPoint, x, y)
+    -- SetPoint has several shapes: (point), (point, x, y), (point, relTo),
+    -- (point, relTo, relPoint) and (point, relTo, relPoint, x, y). Told apart
+    -- by type, because recording (point, x, y) as though the x offset were the
+    -- frame to anchor to makes every descendant unresolvable — which is exactly
+    -- what it did.
+    f.SetPoint      = function(self, point, a, b, c, d)
+        local rel, relPoint, x, y
+        if a == nil or type(a) == "number" then
+            x, y = a, b
+        else
+            rel = a
+            if type(b) == "number" then x, y = b, c else relPoint, x, y = b, c, d end
+        end
         self.points[#self.points + 1] =
             { point = point, rel = rel, relPoint = relPoint, x = x, y = y }
     end
     f.ClearAllPoints = function(self) self.points = {} end
+    -- Recorded like any other anchor, so the geometry resolver can follow it.
+    f.SetAllPoints  = function(self, target)
+        self.points = { { point = "ALL", rel = target } }
+    end
     f.SetWordWrap   = function(self, v) self.wordWrap = v end
     -- Enough of a font model to answer "does this text fit on one line", which
     -- is a real decision the layout makes. Half the point size per character is

@@ -598,6 +598,44 @@ end
 
 function Edit.SendHint() return ui.sendHint end
 
+--- The two tab panels' own controls, and the row along the bottom.
+function Edit.PagesPanelWidgets()
+    return {
+        prev = ui.pagePrev, name = ui.pageName, next = ui.pageNext,
+        index = ui.pageIndex, binds = ui.bindsBtn, delete = ui.delPage,
+        list = ui.pagesScroll,
+    }
+end
+
+function Edit.EnemiesPanelWidgets()
+    return {
+        sendHint = ui.sendHint, sort = ui.sortBtn, sortDir = ui.sortDirBtn,
+        sortApply = ui.sortApply, empty = ui.enemyEmpty, list = ui.enemyScroll,
+    }
+end
+
+function Edit.BottomRowWidgets()
+    return {
+        label = ui.addLabel, box = ui.addBox, add = ui.addBtn,
+        addTarget = ui.addTarget, export = ui.exportBtn, import = ui.importBtn,
+    }
+end
+
+--- Everything competing for the top of the Edit panel. Named so the overlap
+--- test checks the real thing rather than a list written from memory.
+function Edit.HeaderWidgets()
+    return {
+        title = ui.title, undo = ui.undo, redo = ui.redo,
+        colorBtn = ui.colorBtn, colorSwatch = ui.colorSwatchFrame,
+        variantLabel = ui.variantLabel, variant = ui.variant,
+        variantNew = ui.variantNew, variantRename = ui.variantRename,
+        variantDelete = ui.variantDelete,
+        tabEnemies = ui.tabEnemies, tabPages = ui.tabPages,
+        counter = ui.counter, stale = ui.stale,
+        enemiesPanel = ui.enemiesPanel, pagesPanel = ui.pagesPanel,
+    }
+end
+
 --- The line boxes as laid out, for tests: their heights are the behaviour.
 function Edit.LineBoxes() return linePool end
 
@@ -745,7 +783,10 @@ function Edit.Build(parent)
     IMI.Style.Tooltip(ui.tabPages, "Pages", "Which enemies appear on which page in Run.")
 
     ui.counter = label(parent, "")
-    ui.counter:SetPoint("TOPRIGHT", -10, -56)
+    -- On the tab row, not the variant row. At -56 it sat across the variant
+    -- buttons, so the character count and the unbacked-edits marker were drawn
+    -- behind Delete and Rename.
+    ui.counter:SetPoint("TOPRIGHT", -10, -78)
     ui.counter:Hide()
 
     ui.stale = label(parent, "")
@@ -807,11 +848,13 @@ function Edit.Build(parent)
 
     -- Pages --------------------------------------------------------------------
     ui.pagesPanel = CreateFrame("Frame", nil, parent)
-    ui.pagesPanel:SetPoint("TOPLEFT", 6, -76)
+    -- Level with the Enemies panel, below the tab buttons. It used to start at
+    -- the tabs' own line, so the page controls were drawn straight over them.
+    ui.pagesPanel:SetPoint("TOPLEFT", 6, -100)
     ui.pagesPanel:SetPoint("BOTTOMRIGHT", -6, 58)
     ui.pagesPanel:Hide()
 
-    local pagePrev = button(ui.pagesPanel, "<", 22, 20, function()
+    ui.pagePrev = button(ui.pagesPanel, "<", 22, 20, function()
         local cat = Core.GetCategory(state.categoryId)
         local pages = Core.Pages(state.categoryId)
         if not cat or #pages == 0 then return end
@@ -820,11 +863,11 @@ function Edit.Build(parent)
         state.pageId = pages[i].id
         Edit.RefreshPages()
     end)
-    pagePrev:SetPoint("TOPLEFT", 4, -2)
-    IMI.Style.Tooltip(pagePrev, "Previous page")
+    ui.pagePrev:SetPoint("TOPLEFT", 4, -2)
+    IMI.Style.Tooltip(ui.pagePrev, "Previous page")
 
     ui.pageName = editBox(ui.pagesPanel, 40)
-    ui.pageName:SetPoint("LEFT", pagePrev, "RIGHT", 8, 0)
+    ui.pageName:SetPoint("LEFT", ui.pagePrev, "RIGHT", 8, 0)
     ui.pageName:SetWidth(180)
     ui.pageName:SetScript("OnEnterPressed", function(self)
         if state.pageId then Core.RenamePage(state.categoryId, state.pageId, self:GetText()) end
@@ -832,7 +875,7 @@ function Edit.Build(parent)
         Edit.RefreshPages()
     end)
 
-    local pageNext = button(ui.pagesPanel, ">", 22, 20, function()
+    ui.pageNext = button(ui.pagesPanel, ">", 22, 20, function()
         local cat = Core.GetCategory(state.categoryId)
         local pages = Core.Pages(state.categoryId)
         if not cat or #pages == 0 then return end
@@ -841,20 +884,20 @@ function Edit.Build(parent)
         state.pageId = pages[i].id
         Edit.RefreshPages()
     end)
-    pageNext:SetPoint("LEFT", ui.pageName, "RIGHT", 6, 0)
-    IMI.Style.Tooltip(pageNext, "Next page")
+    ui.pageNext:SetPoint("LEFT", ui.pageName, "RIGHT", 6, 0)
+    IMI.Style.Tooltip(ui.pageNext, "Next page")
 
     ui.pageIndex = label(ui.pagesPanel, "")
-    ui.pageIndex:SetPoint("LEFT", pageNext, "RIGHT", 10, 0)
+    ui.pageIndex:SetPoint("LEFT", ui.pageNext, "RIGHT", 10, 0)
 
-    local delPage = button(ui.pagesPanel, "Delete page", 86, 20, function()
+    ui.delPage = button(ui.pagesPanel, "Delete page", 86, 20, function()
         if not state.pageId then return end
         Core.DeletePage(state.categoryId, state.pageId)
         state.pageId = nil
         Edit.RefreshPages()
     end)
-    delPage:SetPoint("TOPRIGHT", -4, -2)
-    IMI.Style.Tooltip(delPage, "Delete page",
+    ui.delPage:SetPoint("TOPRIGHT", -4, -2)
+    IMI.Style.Tooltip(ui.delPage, "Delete page",
         "The enemies stay; only the page goes.")
 
     ui.bindsBtn = button(ui.pagesPanel, "Keybinds", 76, 20, function()
@@ -863,7 +906,7 @@ function Edit.Build(parent)
            tipDetail = "Give this page's callouts keys. The same key calls a "
                     .. "different callout on each page. Paging keys are shared "
                     .. "by every page." })
-    ui.bindsBtn:SetPoint("RIGHT", delPage, "LEFT", -6, 0)
+    ui.bindsBtn:SetPoint("RIGHT", ui.delPage, "LEFT", -6, 0)
 
     local pagesScroll = CreateFrame("ScrollFrame", nil, ui.pagesPanel, "UIPanelScrollFrameTemplate")
     ui.pagesScroll = IMI.Style.WheelScroll(pagesScroll)
