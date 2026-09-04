@@ -1419,5 +1419,74 @@ check("and everything can be released at once", function()
     if f.keyboard then error("release-all left a capture holding the keyboard") end
 end)
 
+-- The other way to lose the keyboard, and the one that does not look like a
+-- capture at all: a focused edit box takes every key you press, so the game
+-- stops answering its bindings while chat still works. Opening a window is
+-- never a good enough reason to take the keyboard.
+check("opening the export window does not take the keyboard", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Copyable")
+    IMI.UI.ShowExport("Export", IMI.Export.EncodeCategory(cat.id))
+
+    local box = IMI.UI.StringBox()
+    if not box then error("no export box") end
+    if box.focused then error("the export window focused its box on open") end
+end)
+
+check("and lets go when it closes", function()
+    local box = IMI.UI.StringBox()
+    box:SetFocus()                              -- as Select all does
+    if not box.focused then error("the box did not take focus when asked") end
+
+    IMI.UI.StringWindow():GetScript("OnHide")()
+    if box.focused then error("closing the window left the box holding the keyboard") end
+end)
+
+check("escape lets go before hiding", function()
+    local box = IMI.UI.StringBox()
+    box:SetFocus()
+    box:GetScript("OnEscapePressed")(box)
+    if box.focused then error("escape hid the window but kept the keyboard") end
+end)
+
+check("the safety valve reaches a focused box too", function()
+    local box = IMI.UI.StringBox()
+    box:SetFocus()
+    IMI.UI.ReleaseAllKeys()
+    if box.focused then error("release-all left an edit box holding the keyboard") end
+end)
+
+-- Hiding a frame does not release the keyboard from the box inside it. That is
+-- the whole lesson: the window was closed and the keyboard stayed gone.
+check("every box lets go when it is hidden", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Focus")
+    local mob = IMI.Core.AddEnemy(cat.id, "Mob")
+    IMI.Core.AddLine(cat.id, mob.id, "", "/p line")
+    IMI.UI.Show("edit")
+    IMI.UI.SelectCategory(cat.id)
+    IMI.Edit.SetCategory(cat.id)
+
+    local boxes = {
+        ["a callout line"] = IMI.Edit.LineBoxes()[1],
+        ["the new-dungeon name"] = IMI.UI.Sidebar().newName,
+        ["a dungeon rename"] = IMI.UI.SidebarRows()[1] and IMI.UI.SidebarRows()[1].rename,
+    }
+
+    for what, box in pairs(boxes) do
+        if box then
+            -- Shown first: these are hidden most of the time, and hiding
+            -- something already hidden changes nothing, so the check would
+            -- pass without the release ever running.
+            box:Show()
+            box:SetFocus()
+            box:Hide()
+            if box.focused then
+                error(what .. " kept the keyboard after being hidden")
+            end
+        end
+    end
+end)
+
 realPrint(("\n%d passed, %d failed"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

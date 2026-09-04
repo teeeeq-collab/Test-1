@@ -178,8 +178,12 @@ function UI.ArmKeyCapture(frame, onKey, onEnd)
     return frame
 end
 
---- Gives the keyboard back from every capture there is. The safety valve, for
---- a fault not covered above.
+--- Gives the keyboard back from every capture there is, and from any edit box
+--- of this addon's that is holding focus.
+---
+--- The safety valve. A focused edit box is the other way to lose the keyboard:
+--- keys go into the box instead of to your bindings, and it does not look like
+--- a capture at all — it looks like the keyboard has stopped working.
 function UI.ReleaseAllKeys()
     local released = 0
     for _, frame in ipairs(captureFrames) do
@@ -187,6 +191,12 @@ function UI.ReleaseAllKeys()
             frame.ReleaseKeys()
             released = released + 1
         end
+    end
+
+    local focused = _G.GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
+    if focused and focused.ClearFocus then
+        focused:ClearFocus()
+        released = released + 1
     end
     return released
 end
@@ -682,6 +692,7 @@ local function newSidebarRow()
     row.rename:SetAutoFocus(false)
     row.rename:SetMaxLetters(64)
     row.rename:SetFrameLevel(row:GetFrameLevel() + 1)
+    row.rename:HookScript("OnHide", function(self) self:ClearFocus() end)
     row.rename:Hide()
 
     row:RegisterForDrag("LeftButton")
@@ -1316,8 +1327,11 @@ function UI.Init()
     sidebar.newName:SetMaxLetters(64)
     sidebar.newName:SetScript("OnEnterPressed", commitNewCategory)
     sidebar.newName:SetScript("OnEscapePressed", function(self)
-        self:SetText(""); self:Hide()
+        self:SetText("")
+        self:ClearFocus()
+        self:Hide()
     end)
+    sidebar.newName:HookScript("OnHide", function(self) self:ClearFocus() end)
     sidebar.newName:Hide()
 
     local listScroll = CreateFrame("ScrollFrame", nil, sidebar, "UIPanelScrollFrameTemplate")
@@ -1785,11 +1799,31 @@ local function ensureStringWindow()
     f.editBox:SetFontObject(ChatFontNormal)
     f.editBox:SetWidth(500)
     f.editBox:SetHeight(220)
-    f.editBox:SetScript("OnEscapePressed", function() f:Hide() end)
+    -- Clearing focus before hiding, not instead of it. A focused multi-line
+    -- box takes every key you press, so leaving it focused turns the rest of
+    -- the keyboard off — and hiding the frame is not reliably enough to let go.
+    f.editBox:SetScript("OnEscapePressed", function(self)
+        self:ClearFocus()
+        f:Hide()
+    end)
+    f:HookScript("OnHide", function() f.editBox:ClearFocus() end)
     scroll:SetScrollChild(f.editBox)
 
     f.action = panelButton(f, "", 110, 22)
     f.action:SetPoint("BOTTOMRIGHT", -16, 14)
+
+    -- A way out that needs no keyboard, because the keyboard is exactly what
+    -- you may not have while a box holds it.
+    f.select = panelButton(f, "Select all", 90, 22, function()
+        f.editBox:SetFocus()
+        f.editBox:HighlightText()
+    end, { tip = "Select all", tipDetail = "Then Ctrl-C, or Cmd-C on a Mac." })
+    f.select:SetPoint("BOTTOMRIGHT", f.action, "BOTTOMLEFT", -6, 0)
+
+    f.release = panelButton(f, "Done typing", 96, 22, function()
+        f.editBox:ClearFocus()
+    end, { tip = "Done typing", tipDetail = "Gives the keyboard back to the game." })
+    f.release:SetPoint("BOTTOMRIGHT", f.select, "BOTTOMLEFT", -6, 0)
 
     f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     f.hint:SetPoint("BOTTOMLEFT", 18, 20)
@@ -1798,16 +1832,22 @@ local function ensureStringWindow()
     return f
 end
 
+--- The copy window and its box, for tests: whether it holds the keyboard is
+--- the behaviour, and it is invisible from anywhere else.
+function UI.StringWindow() return stringWindow end
+function UI.StringBox() return stringWindow and stringWindow.editBox end
+
 function UI.ShowExport(title, text)
     local f = ensureStringWindow()
     f.title:SetText(title)
-    f.hint:SetText("Already selected - press Cmd-C / Ctrl-C")
+    f.hint:SetText("Select all, then Ctrl-C (Cmd-C on a Mac)")
     f.editBox:SetText(text or "")
     f.action:SetText("Close")
     f.action:SetScript("OnClick", function() f:Hide() end)
     f:Show()
-    f.editBox:SetFocus()
-    f.editBox:HighlightText()
+    -- Not focused on open. Taking the keyboard because something is ready to
+    -- copy is a trade nobody agreed to; Select all is one click away.
+    f.editBox:ClearFocus()
 end
 
 function UI.ShowImport(title, onImport)

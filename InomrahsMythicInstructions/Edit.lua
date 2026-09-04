@@ -60,6 +60,10 @@ local function editBox(parent, maxLetters)
     eb:SetAutoFocus(false)
     eb:SetMaxLetters(maxLetters or 64)
     eb:SetScript("OnEscapePressed", eb.ClearFocus)
+    -- Every box lets go when it goes away. These are pooled and hidden in
+    -- bulk by a refresh, and a hidden box that still holds the keyboard sends
+    -- every key into something you cannot even see.
+    eb:HookScript("OnHide", function(self) self:ClearFocus() end)
     return eb
 end
 
@@ -773,7 +777,14 @@ function Edit.Build(parent)
         self:ClearFocus()
         Edit.RefreshVariants()
     end)
-    ui.variantName:SetScript("OnEscapePressed", function(self) self:Hide() end)
+    -- Let go before hiding. Hiding a frame does not release the keyboard from
+    -- the box inside it: the keys keep going there and the game stops answering
+    -- its own bindings, which looks like the keyboard has died.
+    ui.variantName:SetScript("OnEscapePressed", function(self)
+        self:ClearFocus()
+        self:Hide()
+    end)
+    ui.variantName:HookScript("OnHide", function(self) self:ClearFocus() end)
 
     ui.tabEnemies = button(parent, "Enemies", 70, 20, function() showTab("enemies") end)
     ui.tabEnemies:SetPoint("TOPLEFT", 8, -76)

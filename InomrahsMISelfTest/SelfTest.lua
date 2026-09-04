@@ -62,7 +62,11 @@ local REQUIRED_METHODS = {
     { "StartMoving", "frame" }, { "StopMovingOrSizing", "frame" },
     { "SetAttribute", "frame" }, { "SetFrameLevel", "frame" },
     { "EnableMouseWheel", "scroll" }, { "GetVerticalScrollRange", "scroll" },
-    { "SetFrameRef", "secure" }, { "GetFrameRef", "secure" },
+    -- SetFrameRef is an insecure call: it is how a frame is handed to a
+    -- snippet. GetFrameRef is not — it exists on a handle inside the
+    -- restricted environment, and the section below is where it is checked.
+    -- Asking a widget for it and calling the answer a missing API was wrong.
+    { "SetFrameRef", "secure" },
     { "RegisterForClicks", "button" },
     { "SetColorTexture", "texture" }, { "SetGradient", "texture" },
     { "SetTextInsets", "editbox" }, { "SetMultiLine", "editbox" },
@@ -325,28 +329,52 @@ local function checkGroup(label, widgets)
             or ("%d checked"):format(#rects))
 end
 
+--- Opens the window and walks both views, then puts everything back.
+---
+--- It used to ask you to open the window and run it again, which meant the
+--- section most likely to find something was the section most often skipped.
+--- Frames only have a position once they are on screen, so there is no way to
+--- measure this without showing them — but there is no reason you should have
+--- to be the one to do it.
 local function checkLayout()
     local IMI = _G.InomrahsMI
     if type(IMI) ~= "table" or not IMI.UI or not IMI.UI.root then return end
 
-    if not IMI.UI.root:IsShown() then
-        record("Layout", "skipped", false, "open the window first, then run this again")
+    if InCombatLockdown() then
+        record("Layout", "skipped", false,
+            "this opens the window and switches tabs, which combat refuses")
         return
     end
+
+    local wasShown = IMI.UI.root:IsShown()
+    local wasView = IMI.UI.CurrentView and IMI.UI.CurrentView()
+    local wasTab = IMI.Edit and IMI.Edit.Context and IMI.Edit.Context().tab
+
+    if not wasShown then IMI.UI.root:Show() end
 
     checkGroup("title bar", IMI.UI.BarWidgets and IMI.UI.BarWidgets())
     checkGroup("dungeon column", IMI.UI.SidebarWidgets and IMI.UI.SidebarWidgets())
 
-    if IMI.UI.CurrentView() == "edit" then
-        checkGroup("Edit header", IMI.Edit.HeaderWidgets and IMI.Edit.HeaderWidgets())
-        checkGroup("Edit bottom row", IMI.Edit.BottomRowWidgets and IMI.Edit.BottomRowWidgets())
-        checkGroup("Enemies panel", IMI.Edit.EnemiesPanelWidgets and IMI.Edit.EnemiesPanelWidgets())
-        checkGroup("Pages panel", IMI.Edit.PagesPanelWidgets and IMI.Edit.PagesPanelWidgets())
-    elseif IMI.UI.CurrentView() == "run" then
-        checkGroup("Run view", IMI.UI.RunWidgets and IMI.UI.RunWidgets())
-    end
+    if IMI.UI.ShowView then IMI.UI.ShowView("run") end
+    checkGroup("Run view", IMI.UI.RunWidgets and IMI.UI.RunWidgets())
 
-    -- Nothing may hang outside the window it lives in.
+    if IMI.UI.ShowView then IMI.UI.ShowView("edit") end
+    checkGroup("Edit header", IMI.Edit.HeaderWidgets and IMI.Edit.HeaderWidgets())
+    checkGroup("Edit bottom row", IMI.Edit.BottomRowWidgets and IMI.Edit.BottomRowWidgets())
+
+    if IMI.Edit.ShowTab then IMI.Edit.ShowTab("enemies") end
+    checkGroup("Enemies panel", IMI.Edit.EnemiesPanelWidgets and IMI.Edit.EnemiesPanelWidgets())
+
+    if IMI.Edit.ShowTab then IMI.Edit.ShowTab("pages") end
+    checkGroup("Pages panel", IMI.Edit.PagesPanelWidgets and IMI.Edit.PagesPanelWidgets())
+
+    -- Back where you left it.
+    if IMI.Edit.ShowTab and wasTab then IMI.Edit.ShowTab(wasTab) end
+    if IMI.UI.ShowView and wasView then IMI.UI.ShowView(wasView) end
+    if not wasShown then IMI.UI.root:Hide() end
+
+    -- Nothing may hang outside the window it lives in. Measured while it is
+    -- still open, before the state above is restored.
     local windowRect = rectOf(IMI.UI.root)
     if windowRect then
         local strays = {}
@@ -480,6 +508,13 @@ end
 
 local window
 
+--- Shows the report in a window you can copy from.
+---
+--- Nothing here takes focus by itself. An earlier version called HighlightText
+--- so the report was ready to copy, and that pulls focus into a multi-line edit
+--- box — which then receives every key you press, including the ones you need
+--- to play. Selecting is a button you press when you want it, and the box lets
+--- go the moment the window closes.
 local function showReport(text)
     if not window then
         window = CreateFrame("Frame", "InomrahsMISelfTestWindow", UIParent,
@@ -496,21 +531,50 @@ local function showReport(text)
         local scroll = CreateFrame("ScrollFrame", "InomrahsMISelfTestScroll", window,
             "UIPanelScrollFrameTemplate")
         scroll:SetPoint("TOPLEFT", 14, -32)
-        scroll:SetPoint("BOTTOMRIGHT", -34, 14)
+        scroll:SetPoint("BOTTOMRIGHT", -34, 40)
 
         window.box = CreateFrame("EditBox", nil, scroll)
         window.box:SetMultiLine(true)
         window.box:SetFontObject("ChatFontNormal")
         window.box:SetWidth(640)
         window.box:SetAutoFocus(false)
-        window.box:SetScript("OnEscapePressed", function() window:Hide() end)
+        window.box:SetScript("OnEscapePressed", function(self)
+            self:ClearFocus()
+            window:Hide()
+        end)
         scroll:SetScrollChild(window.box)
+
+        -- Two ways out that need no keyboard at all, because the keyboard is
+        -- exactly what you may not have.
+        window.select = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
+        window.select:SetSize(110, 22)
+        window.select:SetPoint("BOTTOMLEFT", 14, 12)
+        window.select:SetText("Select all")
+        window.select:SetScript("OnClick", function()
+            window.box:SetFocus()
+            window.box:HighlightText()
+        end)
+
+        window.release = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
+        window.release:SetSize(150, 22)
+        window.release:SetPoint("BOTTOMLEFT", window.select, "BOTTOMRIGHT", 8, 0)
+        window.release:SetText("Give keyboard back")
+        window.release:SetScript("OnClick", function()
+            window.box:ClearFocus()
+            if InomrahsMI and InomrahsMI.UI and InomrahsMI.UI.ReleaseAllKeys then
+                InomrahsMI.UI.ReleaseAllKeys()
+            end
+            print("|cff8f7fe8MI Self-Test|r keyboard released.")
+        end)
+
+        -- Closing it must never leave the box holding the keyboard.
+        window:HookScript("OnHide", function() window.box:ClearFocus() end)
 
         tinsert(UISpecialFrames, "InomrahsMISelfTestWindow")
     end
 
     window.box:SetText(text)
-    window.box:HighlightText()
+    window.box:ClearFocus()
     window:Show()
 end
 
@@ -523,7 +587,8 @@ loader:SetScript("OnEvent", function(self, _, name)
     self:UnregisterEvent("ADDON_LOADED")
     InomrahsMISelfTestDB = InomrahsMISelfTestDB or { errors = {} }
     watchErrors()
-    print("|cff8f7fe8MI Self-Test|r loaded. |cffffff00/imitest|r runs it.")
+    print("|cff8f7fe8MI Self-Test|r loaded. |cffffff00/imitest|r runs it, "
+        .. "|cffffff00/imitest release|r frees the keyboard.")
 end)
 
 SLASH_INOMRAHSMISELFTEST1 = "/imitest"
@@ -534,6 +599,15 @@ SlashCmdList.INOMRAHSMISELFTEST = function(arg)
         results = {}
         checkCombat()
         showReport(reportText())
+        return
+    end
+
+    if arg == "release" then
+        if window and window.box then window.box:ClearFocus() end
+        if window then window:Hide() end
+        local released = (InomrahsMI and InomrahsMI.UI and InomrahsMI.UI.ReleaseAllKeys
+            and InomrahsMI.UI.ReleaseAllKeys()) or 0
+        print(("|cff8f7fe8MI Self-Test|r keyboard released (%d captures)."):format(released))
         return
     end
 

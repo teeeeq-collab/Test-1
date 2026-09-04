@@ -249,6 +249,33 @@ see happen is most of the way to no undo at all.
 Settings are outside history, and combat refuses a step: undoing can delete the
 dungeon Run has built, and hiding secure buttons mid-fight is blocked.
 
+## Losing the keyboard
+
+Two different ways, and neither looks like what it is. Both cost a client
+restart before they were understood.
+
+**A key capture left armed.** A frame with `EnableKeyboard(true)` receives every
+key and, by default, passes none of them on. The keybind dialog could be in that
+state with nothing waiting for a key, and its handler returned early without
+releasing — so every key vanished, Escape included, and with it the menu and any
+way to type the command that would have fixed it.
+
+**A focused edit box.** Keys go into the box instead of to your bindings. It
+does not look like an addon fault at all: the game stops answering, but chat
+still works, because clicking a chat box moves the focus there. That is the
+symptom to recognise — if typing works in chat and nothing else does, an edit box
+somewhere has focus.
+
+The thing that made the second one stick: **hiding a frame does not release the
+keyboard from a box inside it.** The window was closed and the keyboard was still
+gone. Every box in this addon now releases in `OnHide` as well as on Escape, and
+none of them takes focus merely because a window opened — the export window used
+to focus and select its contents on open, which is a trade nobody agreed to.
+
+`/imi unstick` releases every capture and any focused box. The key capture also
+releases itself after ten seconds regardless, which is the only guarantee that
+does not depend on having thought of the path.
+
 ## What the restricted environment actually allows
 
 Measured in the client on 12.1.0 by the self-test addon, not inferred.

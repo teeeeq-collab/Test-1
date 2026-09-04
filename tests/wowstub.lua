@@ -46,9 +46,19 @@ local function newFrame(frameType, name, parent, template)
         end
         return true
     end
-    f.Show          = function(self) self.shown = true end
-    f.Hide          = function(self) self.shown = false end
-    f.SetShown      = function(self, v) self.shown = not not v end
+    -- Showing and hiding run the scripts, because code hangs real work off
+    -- them: releasing the keyboard when a box goes away is done in OnHide, and
+    -- a stub that only flips a flag says that work happened when it did not.
+    local function setShown(self, value)
+        value = not not value
+        if self.shown == value then return end
+        self.shown = value
+        local script = self.scripts and self.scripts[value and "OnShow" or "OnHide"]
+        if script then script(self) end
+    end
+    f.Show          = function(self) setShown(self, true) end
+    f.Hide          = function(self) setShown(self, false) end
+    f.SetShown      = function(self, v) setShown(self, v) end
     f.GetWidth      = function(self) return self.width end
     f.GetHeight     = function(self) return self.height end
     -- Flagged as well as stored, so the geometry resolver can tell a size that
@@ -112,8 +122,11 @@ local function newFrame(frameType, name, parent, template)
     f.GetVerticalScrollRange = function(self) return self.scrollRange end
     -- Focus, so a refresh can tell which box is being typed into.
     f.HasFocus      = function(self) return self.focused == true end
-    f.SetFocus      = function(self) self.focused = true end
-    f.ClearFocus    = function(self) self.focused = false end
+    f.SetFocus      = function(self) self.focused = true; M.focused = self end
+    f.ClearFocus    = function(self)
+        self.focused = false
+        if M.focused == self then M.focused = nil end
+    end
     f.SetMaxLines   = function(self, v) self.maxLines = v end
     -- Screen geometry. Modelled because the unmodelled-method fallback returns
     -- the frame itself, and the drag maths would then do arithmetic on a table
@@ -201,6 +214,8 @@ function M.install()
     _G.UnitName   = function() return nil end
     _G.GetTime    = function() return 0 end
     _G.GetCursorPosition = function() return 0, 0 end
+    -- Whichever edit box holds the keyboard, which is how the client answers it.
+    _G.GetCurrentKeyBoardFocus = function() return M.focused end
     -- Modifier state, so a test can press a chord.
     M.shift, M.ctrl, M.alt = false, false, false
     _G.IsShiftKeyDown   = function() return M.shift end

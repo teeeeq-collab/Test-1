@@ -153,6 +153,9 @@ A callout with a key wears it in a small box in its top-left corner, sized to
 what it says — "E" and "CTRL+E" are not the same width. The box appears only
 where a key is actually set.
 
+If the keyboard ever stops answering — the giveaway is that typing still works
+in chat — `/imi unstick` gives it back. Type it into any chat box.
+
 While a row is waiting for a key, the addon holds the keyboard so the key does
 not also fire in the game. It gives it back on the key, on Escape, on closing
 the dialog, and after ten seconds if none of those happen — and `/imi unstick`

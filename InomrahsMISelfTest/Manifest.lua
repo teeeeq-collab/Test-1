@@ -218,6 +218,8 @@ InomrahsMISelfTestManifest = {
         "UI.SidebarCollapsed",
         "UI.SidebarRows",
         "UI.SidebarWidgets",
+        "UI.StringBox",
+        "UI.StringWindow",
         "UI.TitleBar",
         "UI.Toggle",
         "UI.ToggleButton",
@@ -278,5 +280,5 @@ InomrahsMISelfTestManifest = {
         "toggleKey",
         "width",
     },
-    builtFor = "0.29",
+    builtFor = "0.30",
 }
