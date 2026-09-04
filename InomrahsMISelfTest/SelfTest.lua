@@ -38,6 +38,64 @@ local function check(section, name, fn)
 end
 
 --------------------------------------------------------------------------------
+-- Who has the keyboard
+--
+-- Its own copy, not the addon's, so it works whichever version of the addon is
+-- installed and keeps working if the addon is the thing that has gone wrong.
+--
+-- Two ways to hold the keyboard and they look identical from outside: an edit
+-- box with focus, and a frame with EnableKeyboard set. EnumerateFrames walks
+-- every frame in the game, which is the only way to find the second.
+--------------------------------------------------------------------------------
+
+local function keyboardReport()
+    local parts = {}
+
+    local focused = _G.GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
+    if focused then
+        local name = focused.GetName and focused:GetName()
+        local parent = focused.GetParent and focused:GetParent()
+        local parentName = parent and parent.GetName and parent:GetName()
+        parts[#parts + 1] = ("focus: %s (%s) in %s"):format(
+            tostring(name or "unnamed"),
+            tostring(focused.GetObjectType and focused:GetObjectType() or "?"),
+            tostring(parentName or "unnamed parent"))
+    else
+        parts[#parts + 1] = "focus: nothing"
+    end
+
+    local holders = {}
+    if type(EnumerateFrames) == "function" then
+        local frame = EnumerateFrames()
+        while frame do
+            if frame.IsKeyboardEnabled and frame:IsKeyboardEnabled()
+                and frame.IsVisible and frame:IsVisible() then
+                local name = frame.GetName and frame:GetName()
+                local parent = frame.GetParent and frame:GetParent()
+                local parentName = parent and parent.GetName and parent:GetName()
+                holders[#holders + 1] = tostring(name
+                    or ("unnamed in " .. tostring(parentName or "?")))
+            end
+            frame = EnumerateFrames(frame)
+        end
+    else
+        holders[#holders + 1] = "EnumerateFrames missing, cannot look"
+    end
+
+    parts[#parts + 1] = ("keyboard enabled on: %s"):format(
+        #holders > 0 and table.concat(holders, ", ") or "nothing")
+
+    -- Override bindings are the third way keys can stop doing what they should,
+    -- and the only one a reload fixes that nothing else does.
+    if type(GetBindingKey) == "function" then
+        parts[#parts + 1] = ("jump is bound to: %s")
+            :format(tostring(GetBindingKey("JUMP") or "nothing"))
+    end
+
+    return table.concat(parts, " | ")
+end
+
+--------------------------------------------------------------------------------
 -- 1. Does this client have what the addon assumes?
 --
 -- A missing global is the cheapest possible failure to detect and one of the
@@ -102,6 +160,10 @@ local function checkClient()
 
     -- SetResizeBounds replaced SetMinResize. The addon asks for whichever this
     -- client has; this says which that was.
+    -- Recorded on every run, so a report sent after a lockout carries the
+    -- answer even when nobody thought to ask for it.
+    record("Client", "who has the keyboard", true, keyboardReport())
+
     check("Client", "a resize-bounds call exists", function()
         local f = CreateFrame("Frame", nil, UIParent)
         local which = (f.SetResizeBounds and "SetResizeBounds")
@@ -611,11 +673,33 @@ local function showReport(text)
         window.release:SetPoint("BOTTOMLEFT", window.select, "BOTTOMRIGHT", 8, 0)
         window.release:SetText("Give keyboard back")
         window.release:SetScript("OnClick", function()
+            -- Says what it found before and after, so a click that changes
+            -- nothing is still worth something: the last one did nothing and
+            -- there was no way to know what it had failed to release.
+            print("|cff8f7fe8MI Self-Test|r before: " .. keyboardReport())
+
             window.box:ClearFocus()
             if InomrahsMI and InomrahsMI.UI and InomrahsMI.UI.ReleaseAllKeys then
                 InomrahsMI.UI.ReleaseAllKeys()
             end
-            print("|cff8f7fe8MI Self-Test|r keyboard released.")
+
+            -- Anything of ours still holding it, whichever addon built it.
+            if type(EnumerateFrames) == "function" then
+                local frame = EnumerateFrames()
+                while frame do
+                    local name = frame.GetName and frame:GetName()
+                    if name and name:find("InomrahsMI", 1, true)
+                        and frame.IsKeyboardEnabled and frame:IsKeyboardEnabled() then
+                        frame:EnableKeyboard(false)
+                        if frame.SetPropagateKeyboardInput then
+                            frame:SetPropagateKeyboardInput(true)
+                        end
+                    end
+                    frame = EnumerateFrames(frame)
+                end
+            end
+
+            print("|cff8f7fe8MI Self-Test|r after:  " .. keyboardReport())
         end)
 
         -- Closing it must never leave the box holding the keyboard.
@@ -653,12 +737,19 @@ SlashCmdList.INOMRAHSMISELFTEST = function(arg)
         return
     end
 
+    if arg == "keyboard" then
+        print("|cff8f7fe8MI Self-Test|r " .. keyboardReport())
+        return
+    end
+
     if arg == "release" then
         if window and window.box then window.box:ClearFocus() end
         if window then window:Hide() end
-        local released = (InomrahsMI and InomrahsMI.UI and InomrahsMI.UI.ReleaseAllKeys
-            and InomrahsMI.UI.ReleaseAllKeys()) or 0
-        print(("|cff8f7fe8MI Self-Test|r keyboard released (%d captures)."):format(released))
+        print("|cff8f7fe8MI Self-Test|r before: " .. keyboardReport())
+        if InomrahsMI and InomrahsMI.UI and InomrahsMI.UI.ReleaseAllKeys then
+            InomrahsMI.UI.ReleaseAllKeys()
+        end
+        print("|cff8f7fe8MI Self-Test|r after:  " .. keyboardReport())
         return
     end
 
