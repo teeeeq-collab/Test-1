@@ -507,6 +507,7 @@ function Edit.SetCategory(catId)
     ui.pagesPanel:SetShown(cat ~= nil and state.tab == "pages")
     ui.tabEnemies:SetShown(cat ~= nil)
     ui.tabPages:SetShown(cat ~= nil)
+    Edit.RefreshColorSwatch()
 
     ui.variantLabel:SetShown(cat ~= nil)
     ui.variant:SetShown(cat ~= nil)
@@ -519,6 +520,46 @@ function Edit.SetCategory(catId)
     if cat then showTab(state.tab) end
     Edit.RefreshSendHint()
     Edit.RefreshStaleMarker()
+end
+
+--- Opens the picker on this dungeon's colour, applying as it changes so the
+--- colour is judged on the interface it will be used on rather than on a
+--- preview square.
+function Edit.ShowColorPicker()
+    if not state.categoryId then
+        Util.Print("|cffff4444pick a dungeon on the left first.|r")
+        return false
+    end
+
+    local catId = state.categoryId
+    IMI.Picker.Open({
+        title = "Dungeon UI Color",
+        color = Core.CategoryColor(catId),
+        onChange = function(color)
+            Core.SetCategoryColor(catId, color)
+            if IMI.UI.SelectedCategory() == catId then
+                IMI.Style.SetDungeonColor(color)
+            end
+            Edit.RefreshColorSwatch()
+        end,
+        onReset = function()
+            Core.SetCategoryColor(catId, nil)
+            if IMI.UI.SelectedCategory() == catId then
+                IMI.Style.SetDungeonColor(nil)
+            end
+            Edit.RefreshColorSwatch()
+        end,
+    })
+    return true
+end
+
+--- The square beside the button, showing what is set without opening anything.
+function Edit.RefreshColorSwatch()
+    if not ui.colorSwatch then return end
+    local color = state.categoryId and Core.CategoryColor(state.categoryId)
+    ui.colorSwatch:SetColorTexture(IMI.Color.Unpack(color, IMI.Style.colors.gold))
+    ui.colorSwatchFrame:SetShown(state.categoryId ~= nil)
+    ui.colorBtn:SetShown(state.categoryId ~= nil)
 end
 
 function Edit.Category() return state.categoryId end
@@ -598,10 +639,27 @@ function Edit.Build(parent)
     ui.prompt = label(parent, "Pick a dungeon on the left, or make one with New dungeon.")
     ui.prompt:SetPoint("TOPLEFT", 12, -34)
 
+    -- Above the variant row, at the left, because it is a property of the
+    -- dungeon rather than of the set of enemies you happen to be editing.
+    ui.colorBtn = button(parent, "Dungeon UI Color", 122, 20, function()
+        Edit.ShowColorPicker()
+    end, { tip = "Dungeon UI Color",
+           tipDetail = "Colours this dungeon's headings, panel edges and selection, "
+                    .. "so you can tell at a glance which one is open. "
+                    .. "The callouts themselves are left alone." })
+    ui.colorBtn:SetPoint("TOPLEFT", 8, -28)
+
+    ui.colorSwatchFrame = CreateFrame("Frame", nil, parent)
+    ui.colorSwatchFrame:SetSize(18, 18)
+    ui.colorSwatchFrame:SetPoint("LEFT", ui.colorBtn, "RIGHT", 6, 0)
+    IMI.Style.Border(ui.colorSwatchFrame, IMI.Style.colors.rowEdge)
+    ui.colorSwatch = ui.colorSwatchFrame:CreateTexture(nil, "ARTWORK")
+    ui.colorSwatch:SetAllPoints()
+
     -- Variants sit above the tabs, because which set you are editing is a level
     -- above whether you are editing its enemies or its pages.
     ui.variantLabel = label(parent, "Variant")
-    ui.variantLabel:SetPoint("TOPLEFT", 8, -28)
+    ui.variantLabel:SetPoint("TOPLEFT", 8, -52)
 
     ui.variant = IMI.UI.Dropdown(parent, 120)
     ui.variant:SetPoint("LEFT", ui.variantLabel, "RIGHT", 6, 0)
@@ -635,7 +693,7 @@ function Edit.Build(parent)
     -- anchoring to a button that has not been made yet silently anchors to the
     -- parent instead. Chained the other way the row's width was a sum that had
     -- to come to less than the panel's, and in a narrow window it did not.
-    ui.variantDelete:SetPoint("TOPRIGHT", -8, -28)
+    ui.variantDelete:SetPoint("TOPRIGHT", -8, -52)
     ui.variantRename:SetPoint("RIGHT", ui.variantDelete, "LEFT", -3, 0)
     ui.variantNew:SetPoint("RIGHT", ui.variantRename, "LEFT", -3, 0)
     IMI.Style.Tooltip(ui.variantDelete, "Delete this variant",
@@ -659,7 +717,7 @@ function Edit.Build(parent)
     ui.variantName:SetScript("OnEscapePressed", function(self) self:Hide() end)
 
     ui.tabEnemies = button(parent, "Enemies", 70, 20, function() showTab("enemies") end)
-    ui.tabEnemies:SetPoint("TOPLEFT", 8, -52)
+    ui.tabEnemies:SetPoint("TOPLEFT", 8, -76)
     IMI.Style.Tooltip(ui.tabEnemies, "Enemies", "The callouts themselves, one card per enemy.")
     ui.tabPages = button(parent, "Pages", 62, 20, function() showTab("pages") end)
     ui.tabPages:SetPoint("LEFT", ui.tabEnemies, "RIGHT", 4, 0)
@@ -674,7 +732,7 @@ function Edit.Build(parent)
 
     -- Enemies ------------------------------------------------------------------
     ui.enemiesPanel = CreateFrame("Frame", nil, parent)
-    ui.enemiesPanel:SetPoint("TOPLEFT", 6, -76)
+    ui.enemiesPanel:SetPoint("TOPLEFT", 6, -100)
     ui.enemiesPanel:SetPoint("BOTTOMRIGHT", -6, 58)
 
     -- Bounded on both sides and allowed two lines. With only a left anchor it

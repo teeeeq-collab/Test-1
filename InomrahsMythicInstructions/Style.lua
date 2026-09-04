@@ -41,7 +41,29 @@ Style.colors = {
     danger      = { 0.85,  0.32,  0.28,  1.00 },
 }
 
-local function unpackColor(c) return c[1], c[2], c[3], c[4] end
+--------------------------------------------------------------------------------
+-- The live palette
+--
+-- Style.colors is the palette as shipped and never changes. Style.active is
+-- what is actually drawn, and is Style.colors with two kinds of override laid
+-- over it: the user's own choices from Settings, and the colour of whichever
+-- dungeon is open. Everything that draws reads Style.active, so a change is one
+-- table swap and a retint rather than a hunt through call sites.
+--------------------------------------------------------------------------------
+
+-- The keys a user may override. Anything not here is structural.
+Style.THEMED = { "gold", "goldText", "accent", "text", "textDim" }
+
+Style.active = {}
+
+local userColors, dungeonColor = {}, nil
+
+local function unpackColor(c) return c[1], c[2], c[3], c[4] or 1 end
+
+--- Starts the live palette off as the palette as shipped. Retint replaces it
+--- properly once Color is loaded; this is what keeps the first frames drawn
+--- during load from reading an empty table.
+for key, value in pairs(Style.colors) do Style.active[key] = value end
 
 --------------------------------------------------------------------------------
 -- Text scale
@@ -93,21 +115,129 @@ end
 function Style.TextScale() return currentTextScale end
 
 --------------------------------------------------------------------------------
+-- What has been drawn, so it can be drawn again in a new colour
+--------------------------------------------------------------------------------
+
+local borders, headers, buttons = {}, {}, {}
+
+--- Recomputes the live palette and repaints everything already on screen.
+---
+--- A dungeon's colour is one colour, not a palette, so the rest is derived from
+--- it: the rule around the panels takes it directly, headings take a readable
+--- version of it, and selection takes it with a brighter hover shade. Picking
+--- five colours to describe one dungeon is not a thing anyone wants to do.
+function Style.Retint()
+    local Color = IMI.Color
+
+    for key, value in pairs(Style.colors) do Style.active[key] = value end
+    for key, value in pairs(userColors) do
+        if Color.Valid(value) then Style.active[key] = value end
+    end
+
+    if Color.Valid(dungeonColor) then
+        Style.active.gold        = dungeonColor
+        Style.active.goldText    = Color.ForText(dungeonColor)
+        Style.active.accent      = dungeonColor
+        Style.active.accentHover = Color.Shade(dungeonColor, 1.15)
+    else
+        Style.active.accentHover = Style.active.accentHover or Style.colors.accentHover
+    end
+
+    for _, edges in ipairs(borders) do
+        for _, tex in ipairs(edges.list) do
+            tex:SetColorTexture(unpackColor(Style.active[edges.key] or Style.colors.gold))
+        end
+    end
+
+    for _, fs in ipairs(headers) do
+        fs:SetTextColor(unpackColor(Style.active.goldText))
+    end
+
+    for _, b in ipairs(buttons) do
+        if b.Repaint then b:Repaint() end
+    end
+end
+
+--- The user's own palette, from Settings. Nil for a key means "as shipped".
+function Style.SetUserColor(key, color)
+    userColors[key] = color
+    Style.Retint()
+end
+
+function Style.UserColor(key) return userColors[key] end
+
+function Style.ResetUserColors()
+    userColors = {}
+    Style.Retint()
+end
+
+function Style.LoadUserColors(stored)
+    userColors = {}
+    if type(stored) == "table" then
+        for key, value in pairs(stored) do
+            if IMI.Color.Valid(value) then userColors[key] = value end
+        end
+    end
+    Style.Retint()
+end
+
+--- The colour of whichever dungeon is open, or nil for none.
+function Style.SetDungeonColor(color)
+    dungeonColor = IMI.Color.Valid(color) and color or nil
+    Style.Retint()
+end
+
+function Style.DungeonColor() return dungeonColor end
+
+--------------------------------------------------------------------------------
 -- Primitives
 --------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+-- Opacity
+--
+-- Applied to the grounds only, never to the frame. SetAlpha on the window fades
+-- everything inside it, so a see-through window came with see-through text and
+-- a see-through rule around every button — which is the opposite of what fading
+-- the window is for. You want to see the fight through it and still read it.
+--------------------------------------------------------------------------------
+
+local grounds = {}
+local currentOpacity = 1
+
+--- Remembers a texture as a background, so opacity can reach it, and brings it
+--- to the opacity already in force.
+function Style.Ground(tex)
+    if not tex then return tex end
+    grounds[#grounds + 1] = tex
+    if currentOpacity ~= 1 then tex:SetAlpha(currentOpacity) end
+    return tex
+end
+
+function Style.SetOpacity(value)
+    currentOpacity = tonumber(value) or 1
+    for _, tex in ipairs(grounds) do tex:SetAlpha(currentOpacity) end
+    return currentOpacity
+end
+
+function Style.Opacity() return currentOpacity end
 
 function Style.Background(frame, color, layer)
     local tex = frame:CreateTexture(nil, layer or "BACKGROUND")
     tex:SetAllPoints()
     tex:SetColorTexture(unpackColor(color))
-    return tex
+    -- Alpha here is separate from the colour's own alpha, so a button
+    -- repainting itself on hover cannot undo it.
+    return Style.Ground(tex)
 end
 
 --- A one-pixel rule, drawn as four thin textures.
 ---
 --- Deliberately not a backdrop: this needs no template, cannot conflict with a
 --- secure one, and behaves the same on every frame it is given.
-function Style.Border(frame, color, thickness)
+--- @param key  which palette entry this rule follows, so a retint knows what
+---              colour to give it. Defaults to the gold rule around panels.
+function Style.Border(frame, color, thickness, key)
     thickness = thickness or 1
     local edges = {}
 
@@ -128,6 +258,7 @@ function Style.Border(frame, color, thickness)
     edge("TOPRIGHT", "BOTTOMRIGHT", thickness, nil)
 
     frame.borderEdges = edges
+    if key then borders[#borders + 1] = { list = edges, key = key } end
     return edges
 end
 
@@ -140,7 +271,9 @@ end
 --- A panel: dark ground, gold rule. Used for the window and each column.
 function Style.Panel(frame, color)
     Style.Background(frame, color or Style.colors.panel)
-    Style.Border(frame, Style.colors.gold)
+    -- Follows the palette: this is the rule a dungeon's colour is most visible
+    -- on, and the one Settings calls "panel edge".
+    Style.Border(frame, Style.active.gold or Style.colors.gold, 1, "gold")
     return frame
 end
 
@@ -148,14 +281,16 @@ end
 function Style.Header(parent, text)
     local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     fs:SetText(text or "")
-    fs:SetTextColor(unpackColor(Style.colors.goldText))
+    fs:SetTextColor(unpackColor(Style.active.goldText or Style.colors.goldText))
+    headers[#headers + 1] = fs
     return Style.Scaled(fs)
 end
 
 function Style.Label(parent, text, dim)
     local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     fs:SetText(text or "")
-    fs:SetTextColor(unpackColor(dim and Style.colors.textDim or Style.colors.text))
+    fs:SetTextColor(unpackColor(dim and (Style.active.textDim or Style.colors.textDim)
+                                    or (Style.active.text or Style.colors.text)))
     return Style.Scaled(fs)
 end
 
@@ -174,6 +309,7 @@ function Style.Button(b, text, opts)
 
     local bg = Style.Background(b, Style.colors.row)
     Style.Border(b, Style.colors.rowEdge)
+    buttons[#buttons + 1] = b
 
     local label = b:CreateFontString(nil, "OVERLAY",
         opts.font or "GameFontNormalSmall")
@@ -209,20 +345,24 @@ function Style.Button(b, text, opts)
     b.danger = opts.danger
 
     local function repaint()
+        -- Read live rather than captured, so a palette change repaints instead
+        -- of needing every button rebuilt.
+        local palette = Style.active
         if not b.enabled then
             bg:SetColorTexture(unpackColor(Style.colors.row))
-            label:SetTextColor(unpackColor(Style.colors.textDim))
+            label:SetTextColor(unpackColor(palette.textDim or Style.colors.textDim))
             Style.SetBorderColor(b, Style.colors.rowEdge)
         elseif b.selected then
             bg:SetColorTexture(unpackColor(
-                b.hovered and Style.colors.accentHover or Style.colors.accent))
+                b.hovered and (palette.accentHover or Style.colors.accentHover)
+                          or (palette.accent or Style.colors.accent)))
             label:SetTextColor(unpackColor(Style.colors.onAccent))
-            Style.SetBorderColor(b, Style.colors.accent)
+            Style.SetBorderColor(b, palette.accent or Style.colors.accent)
         else
             bg:SetColorTexture(unpackColor(
                 b.hovered and Style.colors.rowHover or Style.colors.row))
             label:SetTextColor(unpackColor(
-                b.danger and Style.colors.danger or Style.colors.text))
+                b.danger and Style.colors.danger or (palette.text or Style.colors.text)))
             Style.SetBorderColor(b, Style.colors.rowEdge)
         end
     end

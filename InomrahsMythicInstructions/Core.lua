@@ -41,6 +41,8 @@ local function defaultSettings()
         width       = nil,   -- and these when it is first resized
         height      = nil,
         sidebarCollapsed = false,
+        -- The user's own palette, by Style key. Empty means "as shipped".
+        colors      = {},
     }
 end
 
@@ -334,6 +336,31 @@ end
 
 function Core.GetCategory(id)
     return (Util.FindById(Core.Categories(), id))
+end
+
+--- A dungeon's own colour, or nil for the addon's usual one.
+---
+--- One colour per dungeon, not a palette: the rest is derived from it. Picking
+--- five colours to describe one dungeon is not a thing anyone wants to do.
+function Core.SetCategoryColor(id, color)
+    local cat = Core.GetCategory(id)
+    if not cat then return false end
+
+    local wanted = IMI.Color.Valid(color) and { color[1], color[2], color[3] } or nil
+    local current = cat.color
+    local same = (wanted == nil and current == nil)
+        or (wanted and current and wanted[1] == current[1]
+            and wanted[2] == current[2] and wanted[3] == current[3])
+    if same then return true end
+
+    cat.color = wanted
+    edited()
+    return true
+end
+
+function Core.CategoryColor(id)
+    local cat = Core.GetCategory(id)
+    return cat and IMI.Color.Valid(cat.color) and cat.color or nil
 end
 
 function Core.RenameCategory(id, name)

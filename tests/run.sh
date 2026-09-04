@@ -6,6 +6,7 @@ set -e
 cd "$(dirname "$0")/.."
 for f in InomrahsMythicInstructions/*.lua InomrahsMythicInstructions/Libs/*/*.lua; do luac5.1 -p "$f"; done
 echo "syntax ok"
+lua5.1 tests/color_test.lua
 lua5.1 tests/util_test.lua
 lua5.1 tests/history_test.lua
 lua5.1 tests/core_test.lua

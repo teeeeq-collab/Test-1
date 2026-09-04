@@ -9,8 +9,8 @@ for _, f in ipairs({
     "Libs/LibStub/LibStub", "Libs/LibDeflate/LibDeflate", "Libs/LibSerialize/LibSerialize",
 }) do loadfile("InomrahsMythicInstructions/" .. f .. ".lua")() end
 
-for _, f in ipairs({ "Util", "Style", "Core", "History", "Runtime", "UI", "Edit",
-                     "Export", "Starter", "Capture" }) do
+for _, f in ipairs({ "Util", "Color", "Style", "Core", "History", "Runtime", "UI",
+                     "Picker", "Edit", "Export", "Starter", "Capture" }) do
     local chunk, err = loadfile("InomrahsMythicInstructions/" .. f .. ".lua")
     if not chunk then realPrint("  FAIL loading " .. f .. ": " .. tostring(err)); os.exit(1) end
     chunk("InomrahsMythicInstructions", IMI)
@@ -1108,6 +1108,161 @@ check("collapsing and folding the list are refused in combat, not half-done", fu
 
     if toggled then error("the list folded in combat, which moves Run's buttons") end
     if IMI.UI.SidebarCollapsed() ~= before then error("it folded anyway") end
+end)
+
+--------------------------------------------------------------------------------
+-- Opacity fades the grounds only, and the palette follows the open dungeon.
+--------------------------------------------------------------------------------
+
+check("opacity fades the panel, not the text or the rule around it", function()
+    IMI.Core.Init({})
+    local s = IMI.Core.Settings()
+
+    local b = CreateFrame("Button", nil, UIParent)
+    IMI.Style.Button(b, "readable")
+
+    s.opacity = 0.4
+    IMI.UI.ApplySettings()
+
+    if b.bg.alpha ~= 0.4 then error("the ground did not fade: " .. tostring(b.bg.alpha)) end
+    if b.label.alpha ~= 1 then error("the text faded with it: " .. tostring(b.label.alpha)) end
+    for _, edge in ipairs(b.borderEdges) do
+        if edge.alpha ~= 1 then error("the rule faded with it: " .. tostring(edge.alpha)) end
+    end
+    -- Fading the window itself is what used to take the text with it.
+    if IMI.UI.root.alpha ~= 1 then error("the window itself was faded") end
+
+    s.opacity = 1
+    IMI.UI.ApplySettings()
+    if b.bg.alpha ~= 1 then error("the ground did not come back") end
+end)
+
+check("a dungeon's colour reaches the headings, edges and selection", function()
+    IMI.Core.Init({})
+    local plain = IMI.Core.AddCategory("Plain")
+    local green = IMI.Core.AddCategory("Green")
+    IMI.Core.SetCategoryColor(green.id, { 0.2, 0.9, 0.3 })
+
+    IMI.UI.Show("edit")
+    IMI.UI.SelectCategory(plain.id)
+    local base = { IMI.Style.active.gold[1], IMI.Style.active.gold[2] }
+
+    IMI.UI.SelectCategory(green.id)
+    if IMI.Style.active.gold[2] ~= 0.9 then
+        error("the panel edge did not take the dungeon's colour")
+    end
+    if IMI.Style.active.accent[2] ~= 0.9 then
+        error("selection did not take the dungeon's colour")
+    end
+    -- Headings are derived rather than copied: a very dark pick must stay
+    -- readable as text.
+    if not IMI.Style.active.goldText then error("headings lost their colour") end
+
+    IMI.UI.SelectCategory(plain.id)
+    if IMI.Style.active.gold[2] ~= base[2] then
+        error("the colour did not go away with the dungeon")
+    end
+end)
+
+check("a very dark dungeon colour is still readable as a heading", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Midnight")
+    IMI.Core.SetCategoryColor(cat.id, { 0.03, 0.02, 0.08 })
+    IMI.UI.Show("edit")
+    IMI.UI.SelectCategory(cat.id)
+
+    local _, _, v = IMI.Color.RGBtoHSV(IMI.Style.active.goldText[1],
+        IMI.Style.active.goldText[2], IMI.Style.active.goldText[3])
+    if v < 0.5 then error("the heading colour is too dark to read: " .. tostring(v)) end
+    -- The edge itself is left exactly as picked; only text is lifted.
+    if IMI.Style.active.gold[3] ~= 0.08 then error("the panel edge was altered") end
+end)
+
+check("the user's palette survives a reload and can be reset", function()
+    IMI.Core.Init({})
+    IMI.Style.SetDungeonColor(nil)          -- no dungeon open, so nothing on top
+    local s = IMI.Core.Settings()
+    s.colors = { accent = { 1, 0, 0 } }
+    IMI.UI.ApplySettings()
+
+    if IMI.Style.active.accent[1] ~= 1 or IMI.Style.active.accent[2] ~= 0 then
+        error("a stored colour was not applied on load")
+    end
+
+    IMI.Style.ResetUserColors()
+    if IMI.Style.active.accent[1] == 1 and IMI.Style.active.accent[2] == 0 then
+        error("reset did not put the palette back")
+    end
+
+    -- Nonsense in the saved variables must read as "nothing set".
+    s.colors = { accent = "not a colour", gold = { 1 } }
+    IMI.UI.ApplySettings()
+    if type(IMI.Style.active.accent) ~= "table" then error("a bad stored colour got through") end
+end)
+
+check("a dungeon colour sits on top of the user's palette", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Over")
+    IMI.Core.SetCategoryColor(cat.id, { 0, 0, 1 })
+    IMI.Core.Settings().colors = { gold = { 1, 0, 0 } }
+    IMI.UI.ApplySettings()
+
+    if IMI.Style.active.gold[1] ~= 1 then error("the user's colour was not applied") end
+
+    IMI.UI.Show("edit")
+    IMI.UI.SelectCategory(cat.id)
+    if IMI.Style.active.gold[3] ~= 1 then error("the dungeon colour did not win while open") end
+
+    IMI.UI.SelectCategory(nil)
+    if IMI.Style.active.gold[1] ~= 1 then
+        error("closing the dungeon did not fall back to the user's colour")
+    end
+    IMI.Core.Settings().colors = {}
+    IMI.UI.ApplySettings()
+end)
+
+-- Clicking a colour is the one part of the picker that can be off by one.
+check("clicking the colour field lands on the cell under the cursor", function()
+    local function cell(x, y) 
+        local c, r = IMI.Picker.CellAt(x, y, 10, 10, 24, 16)
+        return c .. "," .. r
+    end
+    if cell(0, 0) ~= "1,1" then error("the top-left cell is not 1,1: " .. cell(0, 0)) end
+    if cell(9, 9) ~= "1,1" then error("within the first cell left it: " .. cell(9, 9)) end
+    if cell(10, 0) ~= "2,1" then error("crossing into the second column missed it") end
+    if cell(0, 10) ~= "1,2" then error("crossing into the second row missed it") end
+    if cell(9999, 9999) ~= "24,16" then error("past the end did not clamp") end
+    if cell(-50, -50) ~= "1,1" then error("before the start did not clamp") end
+end)
+
+check("the colour field runs saturation across and brightness down", function()
+    local s1, v1 = IMI.Picker.FieldColor(1, 1, 200)
+    local s2, v2 = IMI.Picker.FieldColor(24, 16, 200)
+    if not (s2 > s1) then error("saturation does not increase to the right") end
+    if not (v2 < v1) then error("brightness does not decrease downwards") end
+end)
+
+check("the picker opens on the colour already set, and can clear it", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Picked")
+    IMI.UI.Show("edit")
+    IMI.UI.SelectCategory(cat.id)
+    IMI.Edit.SetCategory(cat.id)
+
+    IMI.Core.SetCategoryColor(cat.id, { 1, 0, 0 })
+    if not IMI.Edit.ShowColorPicker() then error("the picker refused to open") end
+
+    local d = IMI.Picker.Frame().dialog
+    if math.abs(d.state.h) > 1 then error("it did not open on red: hue " .. tostring(d.state.h)) end
+
+    d.onChange({ 0, 0, 1 })
+    local set = IMI.Core.CategoryColor(cat.id)
+    if set[3] ~= 1 then error("changing the colour did not store it") end
+    if IMI.Style.active.gold[3] ~= 1 then error("the change was not applied live") end
+
+    d.onReset()
+    if IMI.Core.CategoryColor(cat.id) ~= nil then error("reset did not clear the colour") end
+    if IMI.Style.DungeonColor() ~= nil then error("reset did not clear the live colour") end
 end)
 
 realPrint(("\n%d passed, %d failed"):format(pass, fail))

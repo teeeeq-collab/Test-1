@@ -15,6 +15,7 @@ that produced it.
 - Run callouts take a second line when they need it, and truncate past that
 - Resizable window, collapsible dungeon list, wheel-scrolling lists
 - Text scale across the whole interface, not only Run
+- Opacity on the grounds only; per-dungeon and per-user colour palettes
 
 ## Known to have been broken, now fixed
 

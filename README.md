@@ -34,6 +34,27 @@ skeleton each. `/imi demo` instead creates one sample dungeon with content in it
 covering the shapes that matter — a one-line enemy, a two-line one, a boss laid
 out three across, and one enemy shared between two pages.
 
+### Colours
+
+**Settings → Colours** sets the palette for the whole addon: panel edges,
+headings, selection, text and faint text, each with its own picker and its own
+**Reset**. **Reset colours** puts all five back.
+
+**Edit → Dungeon UI Color** gives one dungeon its own colour, laid over that
+palette while that dungeon is open. It colours the headings, the panel edges and
+the selection highlight, so you can tell at a glance which dungeon you are in.
+It deliberately does not touch the callouts themselves, or the dungeon names in
+the list on the left. **Reset** in the picker clears it.
+
+The picker has a saturation/brightness field, a hue strip beside it, and Hue,
+Saturation and Brightness sliders with typed values. Changes apply as you make
+them, on the real interface rather than on a preview square. A colour picked
+very dark is lifted where it is used as text — the point of colouring a dungeon
+is to recognise it, not to hide it.
+
+**Opacity** fades the panels only. Text and the rules around buttons stay fully
+visible at any opacity, which is the point of a see-through window.
+
 ### The window
 
 Drag the **right edge** for width, the **bottom edge** for height, the

@@ -84,6 +84,10 @@ local function panelButton(parent, text, w, h, onClick, opts)
     return b
 end
 
+--- Shared with Picker, which draws its own dialog but must not draw its own
+--- kind of button.
+function UI.PanelButton(...) return panelButton(...) end
+
 --- Hand-skinned, because secure frames must inherit their secure template and
 --- nothing else: adding a button template alongside one replaces the secure
 --- OnLoad and the frame silently loses SetFrameRef and its handler methods.
@@ -91,6 +95,8 @@ local function skin(b, text)
     local bg = b:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0.16, 0.16, 0.21, 0.95)
+    -- A ground like any other, so it fades with the rest of them.
+    IMI.Style.Ground(bg)
 
     local edge = b:CreateTexture(nil, "BORDER")
     edge:SetPoint("TOPLEFT", -1, 1)
@@ -213,7 +219,11 @@ function UI.ApplySettings()
     local s = Core.Settings()
     if InCombatLockdown() then return false end   -- SetScale is blocked in combat
     root:SetScale(s.scale or 1)
-    root:SetAlpha(s.opacity or 1)
+    -- Not root:SetAlpha. That fades the frame and everything in it, so a
+    -- see-through window came with see-through text and a see-through rule
+    -- around every button. Only the grounds fade.
+    root:SetAlpha(1)
+    IMI.Style.SetOpacity(s.opacity or 1)
 
     -- Clamped on the way in as well as while dragging: a size from an older
     -- version, or a hand-edited saved variable, should not be able to produce a
@@ -226,6 +236,7 @@ function UI.ApplySettings()
     -- to reach only the text Runtime set a font on, which was Run and nothing
     -- else.
     IMI.Style.SetTextScale(s.textScale or 1)
+    IMI.Style.LoadUserColors(s.colors)
 
     sidebarCollapsed = s.sidebarCollapsed == true
     layoutBody()
@@ -253,6 +264,11 @@ local function selectCategory(id)
 
     selected.categoryId = id
     IMI.Capture.SetCategory(id)
+
+    -- The interface takes the open dungeon's colour. Nil puts it back to the
+    -- addon's own, so closing a dungeon is not a state you have to undo.
+    IMI.Style.SetDungeonColor(id and Core.CategoryColor(id) or nil)
+
     UI.RefreshSidebar()
 
     if currentView == "run" then
@@ -1094,6 +1110,7 @@ function UI.Init()
     sidebar.back = panelButton(sidebar, "Back", SIDE_W - 16, 22, function()
         UI.RememberPage()
         selected.categoryId = nil
+        IMI.Style.SetDungeonColor(nil)
         clearRun()
         IMI.Edit.SetCategory(nil)
         UI.RefreshSidebar()
@@ -1210,7 +1227,22 @@ function UI.Init()
     views.settings = CreateFrame("Frame", nil, body)
     views.settings:SetPoint("TOPLEFT", 12, -12)
     views.settings:SetPoint("BOTTOMRIGHT", -12, 12)
-    UI.BuildSettings(views.settings)
+
+    -- Scrolled, because the window can be as short as 300 and the settings are
+    -- taller than that now the palette is in them. A page you cannot reach the
+    -- bottom of is worse than one you have to scroll.
+    local settingsScroll = CreateFrame("ScrollFrame", nil, views.settings,
+        "UIPanelScrollFrameTemplate")
+    settingsScroll:SetPoint("TOPLEFT")
+    settingsScroll:SetPoint("BOTTOMRIGHT", -24, 0)
+    IMI.Style.WheelScroll(settingsScroll)
+
+    views.settings.page = CreateFrame("Frame", nil, settingsScroll)
+    views.settings.page:SetSize(600, 620)
+    settingsScroll:SetScrollChild(views.settings.page)
+    views.settings.scroll = settingsScroll
+
+    UI.BuildSettings(views.settings.page)
 
     showView("run")
     UI.RefreshSidebar()
@@ -1365,10 +1397,76 @@ function UI.BuildSettings(parent)
     row("Text scale",   "textScale",   0.6, 1.6, true,
         "Reopen the dungeon in Run to see it.")
 
+    -- The palette ----------------------------------------------------------
+    -- One row per colour the interface actually uses, rather than a single
+    -- theme colour: someone who wants to change the headings should not have to
+    -- accept a new selection colour to get it.
+    local THEME_ROWS = {
+        { key = "gold",     name = "Panel edges" },
+        { key = "goldText", name = "Headings" },
+        { key = "accent",   name = "Selection" },
+        { key = "text",     name = "Text" },
+        { key = "textDim",  name = "Faint text" },
+    }
+
+    y = y - 16
+    local paletteHeader = IMI.Style.Header(parent, "Colours")
+    paletteHeader:SetPoint("TOPLEFT", 12, y)
+    y = y - 22
+
+    local swatchRows = {}
+    for _, entry in ipairs(THEME_ROWS) do
+        local swatchFrame = CreateFrame("Frame", nil, parent)
+        swatchFrame:SetSize(20, 20)
+        swatchFrame:SetPoint("TOPLEFT", 14, y)
+        IMI.Style.Border(swatchFrame, IMI.Style.colors.rowEdge)
+        local swatch = swatchFrame:CreateTexture(nil, "ARTWORK")
+        swatch:SetAllPoints()
+
+        local button = panelButton(parent, entry.name, 120, 20, function()
+            IMI.Picker.Open({
+                title = entry.name,
+                color = IMI.Style.UserColor(entry.key) or IMI.Style.colors[entry.key],
+                onChange = function(color)
+                    Core.Settings().colors = Core.Settings().colors or {}
+                    Core.Settings().colors[entry.key] = color
+                    IMI.Style.SetUserColor(entry.key, color)
+                    UI.RefreshSettings()
+                end,
+                onReset = function()
+                    if Core.Settings().colors then
+                        Core.Settings().colors[entry.key] = nil
+                    end
+                    IMI.Style.SetUserColor(entry.key, nil)
+                    UI.RefreshSettings()
+                end,
+            })
+        end, { tip = entry.name, tipDetail = "Applies everywhere, under any dungeon colour." })
+        button:SetPoint("TOPLEFT", 40, y)
+
+        swatchRows[#swatchRows + 1] = function()
+            swatch:SetColorTexture(IMI.Color.Unpack(
+                IMI.Style.UserColor(entry.key) or IMI.Style.colors[entry.key]))
+        end
+        y = y - 24
+    end
+
+    local resetColors = panelButton(parent, "Reset colours", 110, 20, function()
+        Core.Settings().colors = {}
+        IMI.Style.ResetUserColors()
+        UI.RefreshSettings()
+        Util.Print("colours reset.")
+    end, { tip = "Reset colours",
+           tipDetail = "Back to the addon's own palette. Dungeon colours are kept." })
+    resetColors:SetPoint("TOPLEFT", 40, y)
+    y = y - 30
+
     local resetAll = panelButton(parent, "Reset all", 90, 22, function()
         for key, value in pairs(SETTING_DEFAULTS) do
             Core.Settings()[key] = value
         end
+        Core.Settings().colors = {}
+        IMI.Style.ResetUserColors()
         UI.ApplySettings()
         UI.RefreshSettings()
         Util.Print("settings reset.")
@@ -1383,8 +1481,13 @@ function UI.BuildSettings(parent)
     --- which changes the values behind the widgets.
     function UI.RefreshSettings()
         for _, refresh in ipairs(rows) do refresh() end
+        for _, refresh in ipairs(swatchRows) do refresh() end
         if chanBtn then chanBtn:SetText(Core.Settings().channel or Util.DEFAULT_CHANNEL) end
     end
+
+    -- The page is a scroll child, so it has to be as tall as what is on it
+    -- rather than as tall as the window.
+    parent:SetHeight(math.max(200, math.abs(y) + 40))
 
     UI.RefreshSettings()
 end
