@@ -2,7 +2,7 @@
 ## Title: Inomrah's Mythic Instructions
 ## Notes: Mythic+ instruction panel. Pages of labelled buttons, each firing a macro.
 ## Author: Inomrah
-## Version: 0.33
+## Version: 0.34
 ## SavedVariables: InomrahsMythicInstructionsDB
 
 Libs/LibStub/LibStub.lua

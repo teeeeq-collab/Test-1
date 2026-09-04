@@ -19,6 +19,25 @@ that produced it.
 
 ## Known to have been broken, now fixed
 
+**Callouts drew outside the window** (v0.33 and earlier). A dungeon with more
+enemy cards than the window was tall laid the extra ones out straight through
+the bottom edge and onto the game world. A plain frame does not clip its
+children and nothing else was stopping them. The Run panel's cards now live in
+a scroll frame, which clips, so what does not fit becomes something you can
+scroll to. Fixed in v0.34.
+
+The self-test's "nothing hangs off the edge" check had watched only the left
+and right edges, and only the title bar and the Edit bottom row, so it reported
+everything fine throughout. It now checks all four edges across the bar, the
+Run view, the dungeon column and both Edit rows, and asserts separately that
+the callouts are inside something that clips them.
+
+**Long enemy names ran through the buttons beside them** in the Pages tab
+(v0.33 and earlier). The row label had a left anchor and no right one, so it
+was as wide as its text. It is now bounded by the first button in the row, with
+word wrap off, which is what makes a name end in an ellipsis instead.
+
+
 **The self-test locked the keyboard** (self-test 0.3 and earlier). Running
 `/imitest` left the game unable to answer any key, Escape included, and only
 `/reload` fixed it. Two faults stacked:

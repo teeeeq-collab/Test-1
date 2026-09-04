@@ -54,6 +54,11 @@ local ROW_H, ROW_PITCH, LIST_TOP = 22, 24, 4
 -- behind it and cannot be clicked. That shipped once.
 local ROW_W = SIDE_W - 36
 
+--- How much of the Run panel's right edge belongs to the scroll bar. Reserved
+--- whether the bar is showing or not: a gutter that appears with the bar would
+--- reflow every card the moment the content grew past the bottom.
+local RUN_GUTTER = 28
+
 -- The strip down the left of the content panel that holds the collapse handle,
 -- and the width of the invisible edges you grab to resize the window.
 local GRIP = 12
@@ -1175,10 +1180,20 @@ function UI.BarWidgets()
 end
 
 --- The Run view's own furniture, which shares a strip with the page arrows.
+--- The Run panel's scroll frame and the child the callouts are laid out in.
+--- Exposed so a test can check that the cards are inside something that clips
+--- them, and that the scroll range matches what was actually built.
+function UI.RunScroll()
+    return views and views.run and views.run.scroll, views and views.run and views.run.pages
+end
+
 function UI.RunWidgets()
     return {
         title = views.run.title, prompt = views.run.prompt,
-        variant = views.run.variant, pages = views.run.pages,
+        -- The scroll frame, not the child inside it: the child takes its size
+        -- from what was laid out rather than from anchors, so it has no
+        -- rectangle on the panel to check anything against.
+        variant = views.run.variant, pages = views.run.scroll,
         prev = views.run.arrows and views.run.arrows.prev,
         next = views.run.arrows and views.run.arrows.next,
     }
@@ -1246,13 +1261,42 @@ function UI.RefreshVariantChooser(catId)
     dd:Show()
 end
 
+--- Matches the scroll child to the window before anything is laid out inside
+--- it, and to its content afterwards.
+---
+--- A scroll child takes no size from anchors -- it is measured, not stretched
+--- -- so both have to be set by hand. The width decides where cards wrap, so it
+--- has to be right before the build, not after.
+local function sizeRunPages(contentHeight)
+    local scroll, pages = views.run.scroll, views.run.pages
+    if not scroll or not pages then return end
+
+    local width = scroll:GetWidth()
+    if type(width) ~= "number" or width < 1 then width = 400 end
+    pages:SetWidth(width)
+
+    local visible = scroll:GetHeight()
+    if type(visible) ~= "number" or visible < 1 then visible = 200 end
+    pages:SetHeight(math.max(contentHeight or 0, visible))
+
+    IMI.Style.RefreshScrollBar(scroll, contentHeight or 0)
+end
+
 function UI.OpenRun(catId)
-    local ok, err = Runtime.Build(views.run.pages, catId, Core.Settings())
+    sizeRunPages()
+
+    local ok, err, tallest = Runtime.Build(views.run.pages, catId, Core.Settings())
     if not ok then
         views.run.prompt:SetText("|cffff4444" .. (err or "could not load") .. "|r")
         views.run.prompt:Show()
         return false
     end
+
+    -- Now the content height is known, so the scroll range is too. Back to the
+    -- top: a scroll position left over from the last dungeon would open this
+    -- one halfway down.
+    sizeRunPages(tallest)
+    views.run.scroll:SetVerticalScroll(0)
 
     local cat = Core.GetCategory(catId)
     views.run.prompt:Hide()
@@ -1593,9 +1637,25 @@ function UI.Init()
     views.run.prompt = fontString(views.run, "Pick a dungeon on the left.")
     views.run.prompt:SetPoint("TOPLEFT", 12, -34)
 
-    views.run.pages = CreateFrame("Frame", nil, views.run)
-    views.run.pages:SetPoint("TOPLEFT", 10, -46)
-    views.run.pages:SetPoint("BOTTOMRIGHT", -10, 8)
+    -- The callouts live in a scroll frame, not straight on the view.
+    --
+    -- A dungeon with more enemies than the window is tall used to draw the
+    -- extra cards straight out through the bottom edge and onto the game world:
+    -- a plain frame does not clip its children, so nothing stopped them. A
+    -- scroll frame clips, and what no longer fits becomes something you can
+    -- reach rather than something drawn over Azeroth.
+    --
+    -- The gutter on the right is always reserved, bar or no bar, so the cards
+    -- do not reflow the moment the content grows past the bottom.
+    views.run.scroll = CreateFrame("ScrollFrame", nil, views.run,
+        "UIPanelScrollFrameTemplate")
+    views.run.scroll:SetPoint("TOPLEFT", 10, -46)
+    views.run.scroll:SetPoint("BOTTOMRIGHT", -RUN_GUTTER, 8)
+    IMI.Style.WheelScroll(views.run.scroll)
+
+    views.run.pages = CreateFrame("Frame", nil, views.run.scroll)
+    views.run.pages:SetSize(1, 1)
+    views.run.scroll:SetScrollChild(views.run.pages)
 
     -- Edit ---------------------------------------------------------------------
     views.edit = CreateFrame("Frame", nil, content)

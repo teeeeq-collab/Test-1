@@ -186,6 +186,23 @@ local function newFrame(frameType, name, parent, template)
     if template and template:find("BasicFrameTemplate") then
         f.TitleBg = newFrame("Frame", nil, f)
     end
+    -- The scroll templates ship a bar, and the addon shows and hides it by
+    -- reaching for it by name. Without one modelled, RefreshScrollBar found a
+    -- function where it wanted a frame and quietly did nothing, so no test
+    -- could tell a bar that appears when it should from one that never does.
+    if template and template:find("ScrollFrameTemplate") then
+        f.ScrollBar = newFrame("Frame", nil, f)
+    end
+
+    -- What a scroll frame is actually scrolling. Recorded rather than ignored:
+    -- the callouts overflowed the window because nothing clipped them, and the
+    -- fix is a child in here, which a test has to be able to see.
+    f.SetScrollChild = function(self, child)
+        self.scrollChild = child
+        if child then child.parent = self end
+        return self
+    end
+    f.GetScrollChild = function(self) return self.scrollChild end
 
     -- Parents keep their children, so a test can walk the tree and find frames
     -- a pool left behind.

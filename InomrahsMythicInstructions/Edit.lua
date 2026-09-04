@@ -422,14 +422,23 @@ function Edit.RefreshPages()
         return acquire(pagePool, index, function()
             local f = CreateFrame("Frame", nil, ui.pageList)
             f:SetHeight(20)
-            f.text = label(f, "")
-            f.text:SetPoint("LEFT", 4, 0)
             f.a = button(f, "", 24, 18)
             f.b = button(f, "", 24, 18)
             f.c = button(f, "", 44, 18)
             f.c:SetPoint("RIGHT", -2, 0)
             f.b:SetPoint("RIGHT", f.c, "LEFT", -2, 0)
             f.a:SetPoint("RIGHT", f.b, "LEFT", -2, 0)
+
+            -- Bounded on the right by the buttons, so a long enemy name ends
+            -- in an ellipsis instead of running straight through them and off
+            -- the panel. Anchored last, because the three buttons have to
+            -- exist first: a nil relativeTo silently anchors to the parent.
+            f.text = label(f, "")
+            f.text:SetPoint("LEFT", 4, 0)
+            f.text:SetPoint("RIGHT", f.a, "LEFT", -4, 0)
+            f.text:SetJustifyH("LEFT")
+            f.text:SetWordWrap(false)
+            f.text:SetMaxLines(1)
             return f
         end)
     end
@@ -642,6 +651,11 @@ function Edit.HeaderWidgets()
         enemiesPanel = ui.enemiesPanel, pagesPanel = ui.pagesPanel,
     }
 end
+
+--- The rows of the Pages tab as laid out, for tests: whether their labels are
+--- bounded on the right is the difference between an ellipsis and a name
+--- running through the buttons beside it.
+function Edit.PageRows() return pagePool end
 
 --- The line boxes as laid out, for tests: their heights are the behaviour.
 function Edit.LineBoxes() return linePool end

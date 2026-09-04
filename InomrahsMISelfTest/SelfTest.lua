@@ -606,21 +606,45 @@ local function checkLayout()
 
     -- Nothing may hang outside the window it lives in. Measured while it is
     -- still open, before the state above is restored.
+    -- All four edges, not two. The callouts overflowed the bottom and drew
+    -- onto the game world for a version and a half while this check watched
+    -- only the sides and reported everything fine.
     local windowRect = rectOf(IMI.UI.root)
     if windowRect then
         local strays = {}
         local groups = { IMI.UI.BarWidgets and IMI.UI.BarWidgets(),
+                         IMI.UI.RunWidgets and IMI.UI.RunWidgets(),
+                         IMI.UI.SidebarWidgets and IMI.UI.SidebarWidgets(),
+                         IMI.Edit.HeaderWidgets and IMI.Edit.HeaderWidgets(),
                          IMI.Edit.BottomRowWidgets and IMI.Edit.BottomRowWidgets() }
         for _, group in ipairs(groups) do
             for name, frame in pairs(group or {}) do
-                if frame and frame.IsVisible and frame:IsVisible() then
+                if name ~= "__allow" and type(frame) == "table"
+                    and frame.IsVisible and frame:IsVisible() then
                     local r = rectOf(frame)
-                    if r and (r.right > windowRect.right + 1 or r.left < windowRect.left - 1) then
+                    if r and (r.right > windowRect.right + 1
+                        or r.left < windowRect.left - 1
+                        or r.top > windowRect.top + 1
+                        or r.bottom < windowRect.bottom - 1) then
                         strays[#strays + 1] = name
                     end
                 end
             end
         end
+
+        -- The callouts are not checked against the window one by one: the
+        -- scroll frame clips them, so one below the fold is correct rather
+        -- than stray. What has to hold is that they are inside it at all.
+        if IMI.UI.RunScroll then
+            local scroll, host = IMI.UI.RunScroll()
+            local inside = scroll and host and scroll.GetScrollChild
+                and scroll:GetScrollChild() == host
+            record("Layout", "the callouts are in something that clips them",
+                inside == true,
+                inside ~= true and "the Run panel is not scrolling its cards — "
+                    .. "content taller than the window will draw over the game" or nil)
+        end
+
         record("Layout", "nothing hangs off the edge", #strays == 0,
             #strays > 0 and table.concat(strays, ", ") or nil)
     end
@@ -697,6 +721,33 @@ local function checkCombat()
         return IMI.UI.PendingView() ~= nil,
             "it should switch by itself when the fight ends"
     end)
+
+    -- The callouts sit in a scroll frame, and scrolling it moves a plain frame
+    -- that happens to parent protected buttons. Whether combat allows that has
+    -- never been measured, and guessing about the restricted environment is
+    -- what broke dragging for six versions. Recorded, not failed: if it is
+    -- refused, the answer is a smaller scale or another page, not a bug.
+    if IMI.UI.RunScroll then
+        local scroll = IMI.UI.RunScroll()
+        if scroll and scroll.GetVerticalScrollRange then
+            local range = scroll:GetVerticalScrollRange() or 0
+            if type(range) ~= "number" or range <= 0 then
+                record("Combat", "scrolling the callouts", true,
+                    "nothing to scroll — open a dungeon with more cards than fit "
+                    .. "and run this again")
+            else
+                local before = scroll:GetVerticalScroll() or 0
+                local target = (before > 0) and 0 or math.min(20, range)
+                scroll:SetVerticalScroll(target)
+                local after = scroll:GetVerticalScroll() or 0
+                scroll:SetVerticalScroll(before)
+                record("Combat", "scrolling the callouts", true,
+                    (math.abs(after - target) < 1)
+                        and "allowed — the list can be scrolled mid-fight"
+                        or ("refused — it stayed at %s"):format(tostring(after)))
+            end
+        end
+    end
 end
 
 --------------------------------------------------------------------------------

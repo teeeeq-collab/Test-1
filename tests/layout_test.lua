@@ -165,5 +165,86 @@ noOverlaps("Keybind dialog",
       clearAll = binds.clearAll, close = binds.close })
 IMI.Binds.Frame():Hide()
 
+--------------------------------------------------------------------------------
+-- Overflow.
+--
+-- A dungeon with more enemies than the window is tall drew the extra cards
+-- straight through the bottom edge and onto the game world: a plain frame does
+-- not clip its children, and nothing else was stopping them. The cards live in
+-- a scroll frame now, so this checks the two things that makes true -- that
+-- they are inside something that clips, and that the scroll range is the
+-- height that was actually laid out, not a guess.
+--------------------------------------------------------------------------------
+
+IMI.UI.Show("run")
+
+local scroll, child = IMI.UI.RunScroll()
+ck("Run: the callouts are in a scroll frame",
+    scroll ~= nil and scroll.frameType == "ScrollFrame",
+    scroll and scroll.frameType or "no scroll frame")
+ck("Run: and it is the thing they are laid out in",
+    scroll and scroll:GetScrollChild() == child, "the scroll child is not the page host")
+
+-- Few enough to fit: nothing to scroll, and no bar for it.
+IMI.UI.OpenRun(cat.id)
+ck("Run: a dungeon that fits has nothing to scroll",
+    child:GetHeight() <= scroll:GetHeight() + 1,
+    ("child %s vs visible %s"):format(child:GetHeight(), scroll:GetHeight()))
+ck("Run: and no scroll bar", scroll.ScrollBar and scroll.ScrollBar.shown == false,
+    "the bar is showing for content that fits")
+
+-- More than fits. This is the shape that used to draw over the game world.
+for i = 1, 24 do
+    local e = IMI.Core.AddEnemy(cat.id, "Overflow mob " .. i)
+    IMI.Core.AddLine(cat.id, e.id, "", "/p line " .. i)
+    IMI.Core.AddEnemyToPage(cat.id, page.id, e.id)
+end
+IMI.UI.OpenRun(cat.id)
+
+ck("Run: a dungeon that overflows can be scrolled",
+    child:GetHeight() > scroll:GetHeight(),
+    ("child %s vs visible %s"):format(child:GetHeight(), scroll:GetHeight()))
+ck("Run: and the bar appears to say so",
+    scroll.ScrollBar and scroll.ScrollBar.shown == true,
+    "no bar for content taller than the panel")
+
+-- The scroll child is what clips, so nothing may be anchored above its top.
+-- The page name used to be, and would now be invisible rather than clipped.
+local pageFrame = IMI.Runtime.Page(1)
+ck("Run: the page name is inside the scrolled area, not above it",
+    pageFrame and pageFrame.title
+        and (pageFrame.title.points[1] or {}).point == "TOPLEFT",
+    "the page title is anchored outside the scroll child")
+
+--------------------------------------------------------------------------------
+-- Text that is longer than the space for it.
+--
+-- A label with a left anchor and no right one is as wide as its text, so a long
+-- enemy name ran straight through the buttons beside it and off the panel.
+-- Bounding it is what makes the ellipsis happen.
+--------------------------------------------------------------------------------
+
+IMI.UI.Show("edit")
+IMI.Edit.SetCategory(cat.id)
+IMI.Edit.ShowTab("pages")
+IMI.Core.RenameEnemy(cat.id, mob.id,
+    "An Enemy Whose Name Is Far Longer Than The Row It Has To Fit Inside")
+IMI.Edit.RefreshPages()
+
+local rows = IMI.Edit.PageRows()
+local bounded, unbounded = 0, {}
+for _, f in ipairs(rows) do
+    if f:IsVisible() and f.text then
+        local right = nil
+        for _, p in ipairs(f.text.points or {}) do
+            if p.point == "RIGHT" then right = p end
+        end
+        if right then bounded = bounded + 1 else unbounded[#unbounded + 1] = f.text.text end
+    end
+end
+ck("Pages panel: every row label is bounded on the right", #unbounded == 0,
+    table.concat(unbounded, " / "))
+ck("Pages panel: and rows were actually checked", bounded > 0, bounded)
+
 realPrint(("\nlayout: %d passed, %d failed"):format(pass, fail))
 if fail > 0 then os.exit(1) end

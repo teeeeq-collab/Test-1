@@ -52,6 +52,11 @@ local MAX_LABEL_LINES = 2
 local CARD_GAP, LINE_GAP = 10, 3
 local HEADER_H = 16
 
+--- The strip at the top of a page that holds its name. Inside the page, not
+--- above it: the pages sit in a scroll frame now, and anything anchored above
+--- the scroll child's top edge is clipped away rather than drawn.
+local PAGE_TITLE_H = 16
+
 --------------------------------------------------------------------------------
 -- The pager
 --
@@ -183,7 +188,7 @@ local function acquirePage(parent, index)
     -- cannot set text, so a single shared title could never follow the flip;
     -- giving each page its own means it shows and hides with its contents.
     page.title = page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    page.title:SetPoint("BOTTOMLEFT", page, "TOPLEFT", 0, 6)
+    page.title:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -2)
 
     frames.pages[index] = page
     frames.buttons[index] = {}
@@ -273,7 +278,7 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
     local bindCount = 0
     page.bindList = {}
 
-    local x, y, rowHeight = 0, 0, 0
+    local x, y, rowHeight = 0, -PAGE_TITLE_H, 0
     local scale = settings and settings.buttonScale or 1
     local bw, bh = BUTTON_W * scale, BUTTON_H * scale
 
@@ -550,6 +555,11 @@ end
 
 --- One page's buttons, for tests: the layout's sizing is not visible any other
 --- way from outside.
+--- A built page, for tests. Its name is drawn by the page itself, and where
+--- that name is anchored decides whether it is visible at all once the pages
+--- are inside something that clips them.
+function Runtime.Page(index) return frames.pages[index] end
+
 function Runtime.PageButtons(pageIndex)
     return frames.buttons[pageIndex]
 end
