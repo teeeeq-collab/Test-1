@@ -151,13 +151,18 @@ SlashCmdList.INOMRAHSMI = function(arg)
     elseif arg == "edit" then
         UI.Show("edit")
 
+    elseif arg == "keyboard" then
+        -- Reports and changes nothing, so it can be run while stuck without
+        -- destroying the evidence.
+        Util.Print(UI.KeyboardReport())
+
     elseif arg == "unstick" then
-        -- The safety valve. The capture releases itself on every path there is,
-        -- including a timeout, so this should never be needed — but "should
-        -- never" is what the version that took your keyboard also said.
+        -- The safety valve. It says what it found as well as fixing it: a
+        -- lockout that survives this needs to come back as a fact rather than
+        -- as a description, and the last one did not.
+        Util.Print("was holding it: " .. UI.KeyboardReport())
         local released = UI.ReleaseAllKeys()
-        Util.Print(("released %d key capture%s. the keyboard is yours.")
-            :format(released, released == 1 and "" or "s"))
+        Util.Print(("released %d. now: %s"):format(released, UI.KeyboardReport()))
 
     elseif arg == "wipe" then
         if InCombatLockdown() then
@@ -175,6 +180,6 @@ SlashCmdList.INOMRAHSMI = function(arg)
 
     else
         UI.Toggle()
-        Util.Print("commands: starter | add | demo | debug | edit | settings | unstick | wipe")
+        Util.Print("commands: starter | add | demo | debug | edit | settings | keyboard | unstick | wipe")
     end
 end

@@ -154,7 +154,14 @@ what it says — "E" and "CTRL+E" are not the same width. The box appears only
 where a key is actually set.
 
 If the keyboard ever stops answering — the giveaway is that typing still works
-in chat — `/imi unstick` gives it back. Type it into any chat box.
+in chat — type into any chat box:
+
+- `/imi keyboard` says what is holding it, and changes nothing.
+- `/imi unstick` gives it back, and says what it found.
+
+If neither helps, `/reload` always does. Please send me what `/imi keyboard`
+printed: the two ways to lose a keyboard look identical from outside, and that
+line is the difference between fixing it and guessing.
 
 While a row is waiting for a key, the addon holds the keyboard so the key does
 not also fire in the game. It gives it back on the key, on Escape, on closing

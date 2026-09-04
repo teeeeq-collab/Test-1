@@ -1488,5 +1488,35 @@ check("every box lets go when it is hidden", function()
     end
 end)
 
+-- Clearing focus is not enough, and the last lockout proved it: /imi unstick
+-- cleared focus, changed nothing, and only a reload helped. A frame that has
+-- enabled the keyboard holds it whether or not anything has focus.
+check("the safety valve reaches a frame holding the keyboard, not only focus", function()
+    local held = CreateFrame("Frame", "InomrahsMIStuckForTest", UIParent)
+    held:EnableKeyboard(true)
+    held:Show()
+
+    IMI.UI.ReleaseAllKeys()
+    if held.keyboard then
+        error("a frame of ours kept the keyboard when nothing had focus")
+    end
+end)
+
+check("and it says what was holding it", function()
+    local held = CreateFrame("Frame", "InomrahsMIStuckReport", UIParent)
+    held:EnableKeyboard(true)
+    held:Show()
+
+    local report = IMI.UI.KeyboardReport()
+    if not report:find("InomrahsMIStuckReport", 1, true) then
+        error("the report did not name the frame holding the keyboard: " .. report)
+    end
+    IMI.UI.ReleaseAllKeys()
+
+    if not IMI.UI.KeyboardReport():find("nothing", 1, true) then
+        error("after releasing, the report still claims something holds it")
+    end
+end)
+
 realPrint(("\n%d passed, %d failed"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

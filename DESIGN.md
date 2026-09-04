@@ -272,7 +272,16 @@ gone. Every box in this addon now releases in `OnHide` as well as on Escape, and
 none of them takes focus merely because a window opened — the export window used
 to focus and select its contents on open, which is a trade nobody agreed to.
 
-`/imi unstick` releases every capture and any focused box. The key capture also
+There are two ways to hold it, and clearing focus only answers one: a frame
+with `EnableKeyboard` set holds the keyboard whether or not anything has focus.
+A lockout where `/imi unstick` cleared focus, changed nothing, and only a reload
+helped is what proved the distinction. `EnumerateFrames` walks every frame in
+the game, which is the only way to answer "what is eating my keys" — `/imi
+keyboard` reports it and `/imi unstick` acts on it.
+
+`/imi unstick` releases every capture, any focused box, and any frame of this
+addon's holding the keyboard. Only this addon's: taking the keyboard off another
+addon's frame would be a worse bug than the one being fixed. The key capture also
 releases itself after ten seconds regardless, which is the only guarantee that
 does not depend on having thought of the path.
 

@@ -46,9 +46,14 @@ IMI.Edit.SetCategory(cat.id)
 local function noOverlaps(what, widgets)
     geom.resetAll(IMI.UI.root, stub)
 
+    -- Pairs a group declares as deliberate overlays, exempted by name rather
+    -- than by leaving either widget out of the check entirely.
+    local allowed = {}
+    for _, pair in ipairs(widgets.__allow or {}) do allowed[pair] = true end
+
     local resolved = {}
     for name, frame in pairs(widgets) do
-        if frame and frame:IsVisible() then
+        if name ~= "__allow" and frame and frame:IsVisible() then
             local rect, why = geom.rect(frame)
             if rect then
                 resolved[#resolved + 1] = { name = name, rect = rect }
@@ -63,7 +68,9 @@ local function noOverlaps(what, widgets)
         for j = i + 1, #resolved do
             -- A pixel of slack: borders are drawn one pixel outside their
             -- frame and a shared edge is not an overlap.
-            if geom.overlaps(resolved[i].rect, resolved[j].rect, 1) then
+            local a, b = resolved[i].name, resolved[j].name
+            if geom.overlaps(resolved[i].rect, resolved[j].rect, 1)
+                and not (allowed[a .. ":" .. b] or allowed[b .. ":" .. a]) then
                 clashes[#clashes + 1] = ("%s %s  and  %s %s"):format(
                     resolved[i].name, geom.describe(resolved[i].rect),
                     resolved[j].name, geom.describe(resolved[j].rect))

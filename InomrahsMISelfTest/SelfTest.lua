@@ -170,23 +170,32 @@ local function checkRestricted()
     local onFrames = header:GetAttribute("probeResult") or ""
     local onHeader = header:GetAttribute("headerResult") or ""
 
-    -- The three the window's combat behaviour rests on.
-    for _, name in ipairs({ "Show", "Hide", "IsShown", "StartMoving",
-                            "StopMovingOrSizing", "StartSizing" }) do
+    -- What the addon needs from here, and must have.
+    for _, name in ipairs({ "Show", "Hide", "IsShown" }) do
         check("Restricted environment", "frames can " .. name, function()
             return onFrames:find(name, 1, true) ~= nil,
                 onFrames:find(name, 1, true) == nil
-                    and "NOT available — the window cannot do this in combat" or nil
+                    and "NOT available — closing from a key cannot work in combat" or nil
         end)
     end
 
-    -- The two the per-page keybinds rest on.
     for _, name in ipairs({ "ClearBindings", "SetBindingClick" }) do
         check("Restricted environment", "the header can " .. name, function()
             return onHeader:find(name, 1, true) ~= nil,
                 onHeader:find(name, 1, true) == nil
                     and "NOT available — keys cannot follow a page flip in combat" or nil
         end)
+    end
+
+    -- What is known to be absent. Reported as a measurement, not a failure: the
+    -- addon stopped assuming these once this probe first said so, and a report
+    -- that cries wolf about a settled question is worse than no report.
+    for _, name in ipairs({ "StartMoving", "StopMovingOrSizing", "StartSizing" }) do
+        local present = onFrames:find(name, 1, true) ~= nil
+        record("Restricted environment", name .. " (expected absent)", true,
+            present
+                and "PRESENT — this changed. Moving and resizing could work in combat now."
+                or "absent, as expected; moving and resizing stay out of combat")
     end
 
     record("Restricted environment", "everything the probe saw on a frame", true, onFrames)
@@ -306,9 +315,15 @@ local function overlaps(a, b)
 end
 
 local function checkGroup(label, widgets)
+    -- Some widgets are meant to sit on top of another: the "no enemies yet"
+    -- message is drawn over the empty list it is describing. Exempted by name,
+    -- one pair at a time, rather than by dropping either from the check.
+    local allowed = {}
+    for _, pair in ipairs((widgets or {}).__allow or {}) do allowed[pair] = true end
+
     local rects, unresolved = {}, 0
     for name, frame in pairs(widgets or {}) do
-        if frame and frame.IsVisible and frame:IsVisible() then
+        if name ~= "__allow" and frame and frame.IsVisible and frame:IsVisible() then
             local rect = rectOf(frame)
             if rect then rects[#rects + 1] = { name = name, rect = rect }
             else unresolved = unresolved + 1 end
@@ -318,8 +333,10 @@ local function checkGroup(label, widgets)
     local clashes = {}
     for i = 1, #rects do
         for j = i + 1, #rects do
-            if overlaps(rects[i].rect, rects[j].rect) then
-                clashes[#clashes + 1] = rects[i].name .. " over " .. rects[j].name
+            local a, b = rects[i].name, rects[j].name
+            if overlaps(rects[i].rect, rects[j].rect)
+                and not (allowed[a .. ":" .. b] or allowed[b .. ":" .. a]) then
+                clashes[#clashes + 1] = a .. " over " .. b
             end
         end
     end

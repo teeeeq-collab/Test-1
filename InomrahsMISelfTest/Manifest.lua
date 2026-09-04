@@ -191,6 +191,7 @@ InomrahsMISelfTestManifest = {
         "UI.EditHistoryButtons",
         "UI.Init",
         "UI.KeyCapture",
+        "UI.KeyboardReport",
         "UI.OpenRun",
         "UI.PanelButton",
         "UI.PendingRelayout",
@@ -280,5 +281,5 @@ InomrahsMISelfTestManifest = {
         "toggleKey",
         "width",
     },
-    builtFor = "0.30",
+    builtFor = "0.31",
 }

@@ -176,6 +176,11 @@ local function newFrame(frameType, name, parent, template)
     f.CreateFontString = function(self) return newFrame("FontString", nil, self) end
     f.CreateTexture    = function(self) return newFrame("Texture", nil, self) end
     f.GetObjectType    = function(self) return frameType end
+    -- Real strings and real frames. Unmodelled, the PascalCase fallback hands
+    -- back the frame itself, so code that reads a name gets a table and fails
+    -- somewhere unrelated to where the mistake is.
+    f.GetName          = function(self) return self.name end
+    f.GetParent        = function(self) return self.parent end
 
     -- Frames built from a template gain that template's fields.
     if template and template:find("BasicFrameTemplate") then
@@ -184,6 +189,11 @@ local function newFrame(frameType, name, parent, template)
 
     -- Parents keep their children, so a test can walk the tree and find frames
     -- a pool left behind.
+    M.allFrames = M.allFrames or {}
+    M.allFrames[#M.allFrames + 1] = f
+
+    f.IsKeyboardEnabled = function(self) return self.keyboard == true end
+
     f.children = {}
     if parent and type(parent) == "table" and parent.children then
         parent.children[#parent.children + 1] = f
@@ -216,6 +226,16 @@ function M.install()
     _G.GetCursorPosition = function() return 0, 0 end
     -- Whichever edit box holds the keyboard, which is how the client answers it.
     _G.GetCurrentKeyBoardFocus = function() return M.focused end
+    -- Walks every frame, which is how the addon finds what is holding the
+    -- keyboard when clearing focus is not enough.
+    _G.EnumerateFrames = function(previous)
+        local list = M.allFrames or {}
+        if not previous then return list[1] end
+        for i, f in ipairs(list) do
+            if f == previous then return list[i + 1] end
+        end
+        return nil
+    end
     -- Modifier state, so a test can press a chord.
     M.shift, M.ctrl, M.alt = false, false, false
     _G.IsShiftKeyDown   = function() return M.shift end

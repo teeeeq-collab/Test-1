@@ -178,6 +178,39 @@ function UI.ArmKeyCapture(frame, onKey, onEnd)
     return frame
 end
 
+--- Every frame in the game that currently has the keyboard enabled and is on
+--- screen, whether it belongs to this addon or not.
+---
+--- EnumerateFrames walks all of them, which is the only way to answer "what is
+--- eating my keys". Focus is one way to lose the keyboard; a frame with
+--- EnableKeyboard set and propagation off is the other, and nothing about it is
+--- visible from the outside.
+local function keyboardHolders()
+    local out = {}
+    if type(EnumerateFrames) ~= "function" then return out end
+
+    local frame = EnumerateFrames()
+    while frame do
+        if frame.IsKeyboardEnabled and frame:IsKeyboardEnabled()
+            and frame.IsVisible and frame:IsVisible() then
+            out[#out + 1] = frame
+        end
+        frame = EnumerateFrames(frame)
+    end
+    return out
+end
+
+local function describe(frame)
+    local name = frame.GetName and frame:GetName()
+    if name then return name end
+
+    local parent = frame.GetParent and frame:GetParent()
+    local parentName = parent and parent.GetName and parent:GetName()
+    return ("unnamed %s in %s"):format(
+        tostring(frame.GetObjectType and frame:GetObjectType() or "?"),
+        tostring(parentName or "unnamed parent"))
+end
+
 --- Gives the keyboard back from every capture there is, and from any edit box
 --- of this addon's that is holding focus.
 ---
@@ -198,7 +231,60 @@ function UI.ReleaseAllKeys()
         focused:ClearFocus()
         released = released + 1
     end
-    return released
+
+    -- And any frame of ours still holding the keyboard by enabling it, which
+    -- clearing focus does nothing about. Only ours: taking the keyboard off
+    -- another addon's frame would be a worse bug than the one being fixed.
+    for _, frame in ipairs(keyboardHolders()) do
+        local name = frame.GetName and frame:GetName()
+        if (name and name:find("InomrahsMI", 1, true)) or frame.ReleaseKeys then
+            frame:EnableKeyboard(false)
+            if frame.SetPropagateKeyboardInput then frame:SetPropagateKeyboardInput(true) end
+            released = released + 1
+        end
+    end
+
+    return released, focused
+end
+
+--- Says what is holding the keyboard, without changing anything.
+---
+--- A lockout is hard to diagnose from a description: the game stops answering
+--- its bindings while chat still works, and that reads the same whichever frame
+--- is responsible. This names it, so the next one arrives as a fact.
+---
+--- Deliberately reaches for nothing declared later in this file — a local used
+--- above its declaration resolves to a global and is nil, and this has to work
+--- when everything else has gone wrong.
+function UI.KeyboardReport()
+    local focused = _G.GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
+
+    local who
+    if not focused then
+        who = "nothing has focus"
+    else
+        local name = focused.GetName and focused:GetName()
+        local kind = focused.GetObjectType and focused:GetObjectType()
+        local parent = focused.GetParent and focused:GetParent()
+        local parentName = parent and parent.GetName and parent:GetName()
+        who = ("focus: %s (%s) in %s"):format(
+            tostring(name or "unnamed"), tostring(kind or "?"),
+            tostring(parentName or "unnamed parent"))
+    end
+
+    local armed = 0
+    for _, frame in ipairs(captureFrames) do
+        if frame.captureArmed then armed = armed + 1 end
+    end
+
+    local holders = {}
+    for _, frame in ipairs(keyboardHolders()) do
+        holders[#holders + 1] = describe(frame)
+    end
+
+    return ("%s | captures: %d built, %d armed | keyboard enabled on: %s"):format(
+        who, #captureFrames, armed,
+        #holders > 0 and table.concat(holders, ", ") or "nothing")
 end
 
 --- Shared with Picker, which draws its own dialog but must not draw its own

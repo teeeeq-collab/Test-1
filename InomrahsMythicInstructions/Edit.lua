@@ -615,6 +615,9 @@ function Edit.EnemiesPanelWidgets()
     return {
         sendHint = ui.sendHint, sort = ui.sortBtn, sortDir = ui.sortDirBtn,
         sortApply = ui.sortApply, empty = ui.enemyEmpty, list = ui.enemyScroll,
+        -- The empty message is drawn over the list it is describing, which is
+        -- only ever on screen when that list has nothing in it.
+        __allow = { "empty:list" },
     }
 end
 
