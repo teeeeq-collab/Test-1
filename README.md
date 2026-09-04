@@ -60,7 +60,10 @@ visible at any opacity, which is the point of a see-through window.
 ### The window
 
 Drag the **right edge** for width, the **bottom edge** for height, the
-**bottom-right corner** for both. The size is remembered. The dungeon list keeps
+**bottom-right corner** for both. The size is remembered. Both are out of combat
+only: the game does not let an addon move or resize a window holding protected
+buttons mid-fight, and the restricted environment cannot do it either — measured
+on 12.1.0, not assumed. The dungeon list keeps
 its width — everything you gain goes to the panel beside it.
 
 The **`<` on the divider** folds the dungeon list away when you want the whole
@@ -149,6 +152,11 @@ page's keys and leaves the two paging keys alone.
 A callout with a key wears it in a small box in its top-left corner, sized to
 what it says — "E" and "CTRL+E" are not the same width. The box appears only
 where a key is actually set.
+
+While a row is waiting for a key, the addon holds the keyboard so the key does
+not also fire in the game. It gives it back on the key, on Escape, on closing
+the dialog, and after ten seconds if none of those happen — and `/imi unstick`
+releases everything, for a fault none of that covers.
 
 Changing keys is out-of-combat only. The keys themselves work in combat: paging
 rebinds from inside the game's restricted environment, so turning the page

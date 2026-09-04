@@ -51,12 +51,22 @@ local REQUIRED_GLOBALS = {
     "SecureHandlerExecute", "UnitExists", "UnitName",
 }
 
+-- Each method against a widget that would actually have it. Asking an edit box
+-- for SetColorTexture and reporting the answer as a missing API was this file's
+-- own bug: it failed four methods that are all present, on widget types it
+-- never looked at.
 local REQUIRED_METHODS = {
-    "SetWordWrap", "SetMaxLines", "GetStringWidth", "GetStringHeight",
-    "SetResizable", "StartSizing", "StartMoving", "StopMovingOrSizing",
-    "EnableMouseWheel", "GetVerticalScrollRange", "SetFrameRef", "GetFrameRef",
-    "RegisterForClicks", "SetAttribute", "SetColorTexture", "SetTextInsets",
-    "SetMultiLine", "HasFocus", "SetNumeric",
+    { "SetWordWrap", "fontstring" }, { "SetMaxLines", "fontstring" },
+    { "GetStringWidth", "fontstring" }, { "GetStringHeight", "fontstring" },
+    { "SetResizable", "frame" }, { "StartSizing", "frame" },
+    { "StartMoving", "frame" }, { "StopMovingOrSizing", "frame" },
+    { "SetAttribute", "frame" }, { "SetFrameLevel", "frame" },
+    { "EnableMouseWheel", "scroll" }, { "GetVerticalScrollRange", "scroll" },
+    { "SetFrameRef", "secure" }, { "GetFrameRef", "secure" },
+    { "RegisterForClicks", "button" },
+    { "SetColorTexture", "texture" }, { "SetGradient", "texture" },
+    { "SetTextInsets", "editbox" }, { "SetMultiLine", "editbox" },
+    { "HasFocus", "editbox" }, { "SetNumeric", "editbox" },
 }
 
 local function checkClient()
@@ -66,15 +76,23 @@ local function checkClient()
         end)
     end
 
-    local probe = CreateFrame("EditBox", nil, UIParent)
-    local fs = probe:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    local scroll = CreateFrame("ScrollFrame", nil, UIParent)
+    local frame = CreateFrame("Frame", nil, UIParent)
+    local widgets = {
+        frame      = frame,
+        editbox    = CreateFrame("EditBox", nil, UIParent),
+        button     = CreateFrame("Button", nil, UIParent),
+        scroll     = CreateFrame("ScrollFrame", nil, UIParent),
+        secure     = CreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate"),
+        fontstring = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"),
+        texture    = frame:CreateTexture(nil, "ARTWORK"),
+    }
 
-    for _, method in ipairs(REQUIRED_METHODS) do
-        check("Client", method .. "()", function()
-            local owner = (probe[method] and probe)
-                or (fs[method] and fs) or (scroll[method] and scroll)
-            return owner ~= nil, owner == nil and "no widget here has it" or nil
+    for _, entry in ipairs(REQUIRED_METHODS) do
+        local method, kind = entry[1], entry[2]
+        check("Client", ("%s() on a %s"):format(method, kind), function()
+            local widget = widgets[kind]
+            return widget ~= nil and widget[method] ~= nil,
+                (widget and widget[method] == nil) and "missing on this build" or nil
         end)
     end
 
@@ -213,7 +231,9 @@ local function checkVersion()
                  .. table.concat(missing, ", "))
             or ("%d accessors present"):format(#EXPECTED))
 
-    local version = GetAddOnMetadata and GetAddOnMetadata("InomrahsMythicInstructions", "Version")
+    -- Moved under C_AddOns; asking for the old global reported "unknown".
+    local reader = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+    local version = reader and reader("InomrahsMythicInstructions", "Version")
     record("Self-test", "addon version", true, tostring(version or "unknown"))
 end
 

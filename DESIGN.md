@@ -249,6 +249,27 @@ see happen is most of the way to no undo at all.
 Settings are outside history, and combat refuses a step: undoing can delete the
 dungeon Run has built, and hiding secure buttons mid-fight is blocked.
 
+## What the restricted environment actually allows
+
+Measured in the client on 12.1.0 by the self-test addon, not inferred.
+
+A frame handle inside a snippet has: `Show`, `Hide`, `IsShown`, `SetWidth`,
+`SetHeight`, `SetPoint`, `ClearAllPoints`, `SetAttribute`, `GetAttribute`,
+`GetFrameRef`. A secure handler has `ClearBindings`, `SetBindingClick` and
+`SetBinding` on itself.
+
+It does **not** have `StartMoving`, `StopMovingOrSizing` or `StartSizing`.
+
+So closing and opening the window from a key works during a pull, and the
+per-page keybinds rebind on a page flip. Moving and resizing do not and cannot;
+they are plain scripts, refused in combat.
+
+An earlier version assumed the opposite and drove both through snippets calling
+methods that are not there. That did not merely fail in combat — it broke
+dragging and resizing outright, because once a snippet is installed it is the
+only path. The assumption sat in `STATUS.md` as unverified for seven versions
+before the self-test answered it, which is the argument for the self-test.
+
 ## Overlapping widgets
 
 Every overlap this addon has shipped was the same thing: two anchors whose

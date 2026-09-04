@@ -95,6 +95,102 @@ function UI.RegisterClicks(frame, ...)
     return frame
 end
 
+--------------------------------------------------------------------------------
+-- Capturing one key press
+--
+-- Taking the keyboard is the most dangerous thing this addon does. While a
+-- frame holds it, nothing reaches the game — including the Escape that opens
+-- the menu and the slash command that would fix it. A capture that can be left
+-- on is a keyboard that stops working with no way to type your way out, and
+-- that is exactly what shipped: the keybind dialog returned early when it was
+-- not waiting for anything, with the keyboard still held, swallowing every key
+-- including Escape.
+--
+-- So there is one implementation, used everywhere, and every path out of it
+-- releases: the key itself, Escape, the frame hiding, a key arriving while
+-- nothing is armed, and a timeout if none of those happen. The timeout is the
+-- one that matters — it is the guarantee that no fault here can cost more than
+-- a few seconds.
+--------------------------------------------------------------------------------
+
+local CAPTURE_SECONDS = 10
+
+local captureFrames = {}
+
+--- Prepares a frame to capture a key. Does not arm it.
+function UI.KeyCapture(frame)
+    captureFrames[#captureFrames + 1] = frame
+
+    frame.captureArmed = false
+    frame:EnableKeyboard(false)
+
+    local function release(announce)
+        frame.captureArmed = false
+        frame:EnableKeyboard(false)
+        frame:SetScript("OnUpdate", nil)
+        -- Back to passing keys through, so even a frame left enabled by some
+        -- path not thought of here cannot swallow them.
+        if frame.SetPropagateKeyboardInput then frame:SetPropagateKeyboardInput(true) end
+        if announce then Util.Print("|cffff4444no key pressed. the keyboard is yours again.|r") end
+        if frame.onCaptureEnd then frame.onCaptureEnd() end
+    end
+    frame.ReleaseKeys = release
+
+    frame:SetScript("OnKeyDown", function(self, key)
+        -- A key arriving while nothing is armed means the keyboard is held and
+        -- should not be. Give it back rather than eating it.
+        if not self.captureArmed then
+            release()
+            return
+        end
+
+        if key == "ESCAPE" then
+            release()
+            return
+        end
+
+        local chord = IMI.Binds.Chord(key, IsShiftKeyDown(), IsControlKeyDown(), IsAltKeyDown())
+        if not chord then return end        -- a bare modifier: keep waiting
+
+        local handler = self.onCaptureKey
+        release()
+        if handler then handler(chord) end
+    end)
+
+    frame:HookScript("OnHide", function() release() end)
+    return frame
+end
+
+--- Arms it: the next key press goes to onKey, and the keyboard comes back
+--- whatever happens.
+function UI.ArmKeyCapture(frame, onKey, onEnd)
+    frame.onCaptureKey, frame.onCaptureEnd = onKey, onEnd
+    frame.captureArmed = true
+    frame.captureUntil = (GetTime and GetTime() or 0) + CAPTURE_SECONDS
+
+    frame:EnableKeyboard(true)
+    if frame.SetPropagateKeyboardInput then frame:SetPropagateKeyboardInput(false) end
+
+    frame:SetScript("OnUpdate", function(self)
+        if not GetTime then return end
+        if GetTime() > (self.captureUntil or 0) then frame.ReleaseKeys(true) end
+    end)
+    return frame
+end
+
+--- Gives the keyboard back from every capture there is. The safety valve, for
+--- a fault not covered above.
+function UI.ReleaseAllKeys()
+    local released = 0
+    for _, frame in ipairs(captureFrames) do
+        if frame.ReleaseKeys then
+            frame.ReleaseKeys()
+            released = released + 1
+        end
+    end
+    return released
+end
+
 --- Shared with Picker, which draws its own dialog but must not draw its own
 --- kind of button.
 function UI.PanelButton(...) return panelButton(...) end
@@ -147,28 +243,28 @@ local CLOSE_SNIPPET = [==[
 -- combat — which is why /imi cannot reopen it mid-pull. A key bound to click
 -- this does the same work from inside the restricted environment, where it is
 -- allowed, so a keybind can do what the slash command cannot.
+--
+-- Show, Hide and IsShown are measured as available there. Moving and resizing
+-- are measured as not; see the note above the drag scripts.
 local TOGGLE_SNIPPET = [==[
     local window = self:GetFrameRef("window")
     if not window then return end
     if window:IsShown() then window:Hide() else window:Show() end
 ]==]
 
-local DRAG_START_SNIPPET = [==[
-    local window = self:GetFrameRef("window")
-    if window then window:StartMoving() end
-]==]
-
-local DRAG_STOP_SNIPPET = [==[
-    local window = self:GetFrameRef("window")
-    if window then window:StopMovingOrSizing() end
-]==]
-
-local SIZE_START_SNIPPET = [==[
-    local window = self:GetFrameRef("window")
-    if window then window:StartSizing(self:GetAttribute("edge")) end
-]==]
-
-local SIZE_STOP_SNIPPET = DRAG_STOP_SNIPPET
+-- There are no snippets for moving or resizing, and there cannot be.
+--
+-- Measured in the client, 12.1.0: a frame handle in the restricted environment
+-- has Show, Hide, IsShown, SetWidth, SetHeight, SetPoint, ClearAllPoints,
+-- SetAttribute, GetAttribute and GetFrameRef. It does not have StartMoving,
+-- StopMovingOrSizing or StartSizing.
+--
+-- So closing the window from a key works in combat, and moving or resizing it
+-- does not. An earlier version assumed otherwise and drove both through
+-- snippets that called methods which are not there — which broke dragging and
+-- resizing outright, in combat and out of it, because the snippet is the only
+-- path once it is installed. Both are plain scripts again, refused in combat
+-- and working the rest of the time.
 
 --- Points a secure handler at the window and gives it a snippet.
 ---
@@ -1003,20 +1099,19 @@ function UI.Init()
     bar:EnableMouse(true)
     bar:RegisterForDrag("LeftButton")
 
-    local secureDrag = bindSecure(bar, root, "_ondragstart", DRAG_START_SNIPPET)
-        and bindSecure(bar, root, "_ondragstop", DRAG_STOP_SNIPPET)
+    bar:SetScript("OnDragStart", function()
+        -- Moving a frame with protected children is refused in combat, and the
+        -- restricted environment cannot do it either. Saying so beats a window
+        -- that quietly will not move.
+        if InCombatLockdown() then
+            Util.Print("|cffff4444can't move the window in combat.|r")
+            return
+        end
+        root:StartMoving()
+    end)
 
-    if not secureDrag then
-        -- The template did not take. Dragging still works, just not in combat.
-        bar:SetScript("OnDragStart", function()
-            if not InCombatLockdown() then root:StartMoving() end
-        end)
-    end
-
-    -- Saving where it ended up is bookkeeping, not moving, so it stays here
-    -- whichever of the two did the moving.
     bar:SetScript("OnDragStop", function()
-        if not secureDrag then root:StopMovingOrSizing() end
+        root:StopMovingOrSizing()
         local point, _, rel, x, y = root:GetPoint()
         Core.Settings().point = { point = point, relativePoint = rel, x = x, y = y }
     end)
@@ -1101,32 +1196,22 @@ function UI.Init()
         IMI.Style.Tooltip(g, tip)
         g:SetAttribute("edge", direction)
 
-        -- Sizing from inside the restricted environment, for the same reason
-        -- the title bar drags from there: the window holds protected buttons,
-        -- and insecure code may not resize a frame holding those in combat.
-        local secure = bindSecure(g, root, "_onmousedown", SIZE_START_SNIPPET)
-            and bindSecure(g, root, "_onmouseup", SIZE_STOP_SNIPPET)
-
-        if not secure then
-            g:SetScript("OnMouseDown", function()
-                if InCombatLockdown() then
-                    Util.Print("|cffff4444can't resize in combat.|r")
-                    return
-                end
-                root:StartSizing(direction)
-            end)
-        end
+        g:SetScript("OnMouseDown", function()
+            if InCombatLockdown() then
+                Util.Print("|cffff4444can't resize the window in combat.|r")
+                return
+            end
+            root:StartSizing(direction)
+        end)
 
         g:SetScript("OnMouseUp", function()
-            if not secure then root:StopMovingOrSizing() end
+            root:StopMovingOrSizing()
 
             local settings = Core.Settings()
             settings.width, settings.height = root:GetWidth(), root:GetHeight()
 
             -- The panel is a different width now, so what is in it has to be
-            -- laid out again. Rebuilding the callouts is refused in combat, so
-            -- in a pull the frames stretch and the re-flow waits for the end of
-            -- it. Nothing is lost either way.
+            -- laid out again.
             if not UI.Relayout() then
                 pendingRelayout = true
                 UI.WatchCombat()
@@ -1511,22 +1596,7 @@ function UI.BuildSettings(parent)
                    .. "clicks a secure button rather than asking the addon to hide itself." })
     toggleBtn:SetPoint("TOPLEFT", 150, y)
 
-    local capture = CreateFrame("Frame", nil, parent)
-    capture:EnableKeyboard(false)
-    capture:SetScript("OnKeyDown", function(self, key)
-        if key == "ESCAPE" then
-            self:EnableKeyboard(false)
-            UI.RefreshSettings()
-            return
-        end
-        local chord = IMI.Binds.Chord(key, IsShiftKeyDown(), IsControlKeyDown(), IsAltKeyDown())
-        if not chord then return end          -- a bare modifier, or a key worth keeping
-
-        self:EnableKeyboard(false)
-        Core.Settings().toggleKey = chord
-        UI.ApplyToggleKey()
-        UI.RefreshSettings()
-    end)
+    local capture = UI.KeyCapture(CreateFrame("Frame", nil, parent))
 
     toggleBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     toggleBtn:SetScript("OnClick", function(self, mouseButton)
@@ -1541,7 +1611,11 @@ function UI.BuildSettings(parent)
             return
         end
         self:SetText("press a key")
-        capture:EnableKeyboard(true)
+        UI.ArmKeyCapture(capture, function(chord)
+            Core.Settings().toggleKey = chord
+            UI.ApplyToggleKey()
+            UI.RefreshSettings()
+        end, UI.RefreshSettings)
     end)
 
     bindRows[#bindRows + 1] = function()

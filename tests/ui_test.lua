@@ -1046,9 +1046,9 @@ check("switching to the view you are already on is not refused", function()
     if not ok then error("re-selecting the current view was refused in combat") end
 end)
 
--- Closing and dragging are done inside a secure snippet, which is allowed in
--- combat where a plain script is not.
-check("close and drag go through the restricted environment", function()
+-- Closing goes through a secure snippet, which is allowed in combat where a
+-- plain script is not.
+check("closing goes through the restricted environment", function()
     local closeBtn = IMI.UI.CloseButton()
     if not closeBtn then error("no close button") end
     if closeBtn:GetFrameRef("window") ~= IMI.UI.root then
@@ -1057,21 +1057,48 @@ check("close and drag go through the restricted environment", function()
     if not tostring(closeBtn:GetAttribute("_onclick")):find("Hide", 1, true) then
         error("the close button has no snippet, so it cannot close in combat")
     end
+end)
 
+-- Moving and resizing do not, and cannot. Measured in the client on 12.1.0: a
+-- frame handle in the restricted environment has Show, Hide, IsShown, SetWidth,
+-- SetHeight, SetPoint, ClearAllPoints, SetAttribute, GetAttribute and
+-- GetFrameRef — and none of StartMoving, StopMovingOrSizing or StartSizing.
+--
+-- Driving them through a snippet anyway called methods that are not there,
+-- which broke dragging and resizing outright rather than only in combat,
+-- because the snippet is the only path once it is installed.
+check("moving and resizing stay plain scripts", function()
     local titleBar = IMI.UI.TitleBar()
-    if titleBar:GetFrameRef("window") ~= IMI.UI.root then
-        error("the title bar does not point at the window")
+    if titleBar:GetAttribute("_ondragstart") then
+        error("dragging is driven by a snippet, and the restricted environment "
+              .. "cannot move a frame")
     end
-    if not tostring(titleBar:GetAttribute("_ondragstart")):find("StartMoving", 1, true) then
-        error("dragging is not secure, so the window cannot be moved in combat")
-    end
+    if not titleBar:GetScript("OnDragStart") then error("the title bar cannot be dragged") end
 
     for _, grip in ipairs(IMI.UI.ResizeGrips()) do
-        if not tostring(grip:GetAttribute("_onmousedown")):find("StartSizing", 1, true) then
-            error("a resize edge is not secure, so it cannot resize in combat")
+        if grip:GetAttribute("_onmousedown") then
+            error("a resize edge is driven by a snippet, and the restricted "
+                  .. "environment cannot resize a frame")
         end
+        if not grip:GetScript("OnMouseDown") then error("a resize edge does nothing") end
         if not grip:GetAttribute("edge") then error("a resize edge does not say which edge") end
     end
+end)
+
+-- Refused rather than silently doing nothing: the window not moving is the same
+-- picture whether it was told no or the call was dropped.
+check("moving and resizing are refused in combat, not attempted", function()
+    IMI.Core.Init({})
+    IMI.UI.ApplySettings()
+    local before = IMI.UI.root:GetWidth()
+
+    stub.inCombat = true
+    local grip = IMI.UI.ResizeGrips()[1]
+    grip:GetScript("OnMouseDown")(grip)
+    IMI.UI.TitleBar():GetScript("OnDragStart")()
+    stub.inCombat = false
+
+    if IMI.UI.root:GetWidth() ~= before then error("the window resized in combat") end
 end)
 
 check("a resize during a pull re-flows when the pull ends", function()
@@ -1327,6 +1354,69 @@ check("the picker opens on the colour already set, and can clear it", function()
     d.onReset()
     if IMI.Core.CategoryColor(cat.id) ~= nil then error("reset did not clear the colour") end
     if IMI.Style.DungeonColor() ~= nil then error("reset did not clear the live colour") end
+end)
+
+--------------------------------------------------------------------------------
+-- Capturing a key. The most dangerous thing this addon does: while a frame
+-- holds the keyboard nothing reaches the game, including the Escape that opens
+-- the menu and the slash command that would fix it.
+--------------------------------------------------------------------------------
+
+check("a key capture gives the keyboard back on the key", function()
+    local f = IMI.UI.KeyCapture(CreateFrame("Frame", nil, UIParent))
+    if f.keyboard then error("it took the keyboard before being armed") end
+
+    local got
+    IMI.UI.ArmKeyCapture(f, function(chord) got = chord end)
+    if not f.keyboard then error("arming did not take the keyboard") end
+
+    f:GetScript("OnKeyDown")(f, "K")
+    if got ~= "K" then error("the key did not reach the handler: " .. tostring(got)) end
+    if f.keyboard then error("the keyboard was not given back") end
+end)
+
+check("escape gives it back", function()
+    local f = IMI.UI.KeyCapture(CreateFrame("Frame", nil, UIParent))
+    IMI.UI.ArmKeyCapture(f, function() error("escape should not assign") end)
+    f:GetScript("OnKeyDown")(f, "ESCAPE")
+    if f.keyboard then error("escape left the keyboard held") end
+end)
+
+-- The fault that shipped: a key arriving while nothing was armed returned early
+-- with the keyboard still held, so every key was swallowed — Escape included,
+-- and with it any way to type the command that would have fixed it.
+check("a key arriving unarmed gives the keyboard back rather than eating it", function()
+    local f = IMI.UI.KeyCapture(CreateFrame("Frame", nil, UIParent))
+    f:EnableKeyboard(true)                     -- held, but nothing is waiting
+    f.captureArmed = false
+
+    f:GetScript("OnKeyDown")(f, "ESCAPE")
+    if f.keyboard then error("a stuck capture swallowed escape and kept the keyboard") end
+end)
+
+check("hiding the frame gives it back", function()
+    local f = IMI.UI.KeyCapture(CreateFrame("Frame", nil, UIParent))
+    IMI.UI.ArmKeyCapture(f, function() end)
+    f:GetScript("OnHide")(f)
+    if f.keyboard then error("closing the dialog left the keyboard held") end
+end)
+
+-- The guarantee: no fault here can cost more than a few seconds.
+check("it times out on its own", function()
+    local f = IMI.UI.KeyCapture(CreateFrame("Frame", nil, UIParent))
+    IMI.UI.ArmKeyCapture(f, function() end)
+
+    f.captureUntil = -1                        -- as if the wait had run out
+    f:GetScript("OnUpdate")(f)
+    if f.keyboard then error("the capture held the keyboard past its timeout") end
+    if f:GetScript("OnUpdate") then error("it is still watching after releasing") end
+end)
+
+check("and everything can be released at once", function()
+    local f = IMI.UI.KeyCapture(CreateFrame("Frame", nil, UIParent))
+    IMI.UI.ArmKeyCapture(f, function() end)
+    if IMI.UI.ReleaseAllKeys() < 1 then error("nothing was released") end
+    if f.keyboard then error("release-all left a capture holding the keyboard") end
 end)
 
 realPrint(("\n%d passed, %d failed"):format(pass, fail))

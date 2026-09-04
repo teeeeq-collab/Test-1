@@ -114,7 +114,7 @@ end
 
 local function stopWaiting()
     if not frame then return end
-    frame.dialog:EnableKeyboard(false)
+    if frame.dialog.ReleaseKeys then frame.dialog.ReleaseKeys() end
     if waitingRow then waitingRow.button:SetText(waitingRow.data.key or "Set") end
     waitingRow = nil
     frame.dialog.help:SetText(
@@ -189,29 +189,11 @@ local function build()
            tipDetail = "The two paging keys are kept: they belong to every page." })
     d.clearAll:SetPoint("BOTTOMLEFT", 14, 12)
 
-    -- The keyboard is taken only while a row is waiting, and given straight
-    -- back. Escape always reaches the client.
-    d:SetScript("OnKeyDown", function(self, key)
-        if not waitingRow then return end
-        if key == "ESCAPE" then
-            stopWaiting()
-            return
-        end
-
-        local chord = Binds.Chord(key, IsShiftKeyDown(), IsControlKeyDown(), IsAltKeyDown())
-        if not chord then return end   -- a bare modifier, or a key worth keeping
-
-        local rows = Binds.Rows(self.catId, self.pageId)
-        local clashIndex, clash = Binds.Conflict(rows, chord, waitingRow.index)
-        if clash then
-            assign(self.catId, self.pageId, clash, nil)
-            Util.Print(("|cffffff00%s|r taken from %s."):format(chord, clash.label))
-        end
-
-        assign(self.catId, self.pageId, waitingRow.data, chord)
-        stopWaiting()
-        Binds.Refresh()
-    end)
+    -- Through the shared capture, which is the only thing here allowed to hold
+    -- the keyboard. It gives it back on the key, on Escape, on the dialog
+    -- closing, and on a timeout — this used to hold it and swallow everything
+    -- whenever it was enabled without a row waiting, Escape included.
+    IMI.UI.KeyCapture(d)
 
     blocker.dialog = d
     frame = blocker
@@ -269,7 +251,32 @@ function Binds.Refresh()
             waitingRow = { data = data, button = self, index = i }
             self:SetText("press a key")
             d.help:SetText("|cffffd200Press a key. Escape cancels.|r")
-            d:EnableKeyboard(true)
+
+            IMI.UI.ArmKeyCapture(d, function(chord)
+                if not waitingRow then return end
+
+                local rows = Binds.Rows(d.catId, d.pageId)
+                local _, clash = Binds.Conflict(rows, chord, waitingRow.index)
+                if clash then
+                    assign(d.catId, d.pageId, clash, nil)
+                    Util.Print(("|cffffff00%s|r taken from %s."):format(chord, clash.label))
+                end
+
+                assign(d.catId, d.pageId, waitingRow.data, chord)
+                stopWaiting()
+                Binds.Refresh()
+            end, function()
+                -- Whatever ended the capture, the row stops saying "press a key".
+                if waitingRow then
+                    waitingRow.button:SetText(waitingRow.data.key or "Set")
+                    waitingRow = nil
+                end
+                if frame then
+                    frame.dialog.help:SetText(
+                        "|cffaaaaaaClick Set, then press the key. "
+                        .. "Right-click a key to clear it.|r")
+                end
+            end)
         end)
 
         row.frame:Show()

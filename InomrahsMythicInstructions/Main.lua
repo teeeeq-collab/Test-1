@@ -151,6 +151,14 @@ SlashCmdList.INOMRAHSMI = function(arg)
     elseif arg == "edit" then
         UI.Show("edit")
 
+    elseif arg == "unstick" then
+        -- The safety valve. The capture releases itself on every path there is,
+        -- including a timeout, so this should never be needed — but "should
+        -- never" is what the version that took your keyboard also said.
+        local released = UI.ReleaseAllKeys()
+        Util.Print(("released %d key capture%s. the keyboard is yours.")
+            :format(released, released == 1 and "" or "s"))
+
     elseif arg == "wipe" then
         if InCombatLockdown() then
             Util.Print("|cffff4444not in combat.|r")
@@ -167,6 +175,6 @@ SlashCmdList.INOMRAHSMI = function(arg)
 
     else
         UI.Toggle()
-        Util.Print("commands: starter | add | demo | debug | edit | settings | wipe")
+        Util.Print("commands: starter | add | demo | debug | edit | settings | unstick | wipe")
     end
 end
