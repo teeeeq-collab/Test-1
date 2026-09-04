@@ -159,6 +159,10 @@ in chat — type into any chat box:
 - `/imi keyboard` says what is holding it, and changes nothing.
 - `/imi unstick` gives it back, and says what it found.
 
+**Make a macro for this now, before you need it.** Put `/imi keyboard` and
+`/imi unstick` in a macro on your action bar: clicking it with the mouse works
+when typing does not, and a lockout can take the Enter key with everything else.
+
 If neither helps, `/reload` always does. Please send me what `/imi keyboard`
 printed: the two ways to lose a keyboard look identical from outside, and that
 line is the difference between fixing it and guessing.

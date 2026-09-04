@@ -20,3 +20,17 @@ lua5.1 tests/layout_test.lua
 # checks run against a list that no longer describes the addon — the one failure
 # mode a generated file exists to remove.
 lua5.1 tools/manifest.lua --check
+
+# The manifest is only worth generating if the self-test actually reads it. It
+# once shipped generated, listed in the .toc, and unused, because a hand-written
+# list it replaced was restored by a stray git checkout — and everything still
+# passed, because a stale list of nineteen names looks exactly like a fresh one.
+if ! grep -q "InomrahsMISelfTestManifest" InomrahsMISelfTest/SelfTest.lua; then
+    echo "  FAIL: the self-test does not read its manifest."
+    exit 1
+fi
+if ! grep -q "^Manifest.lua" InomrahsMISelfTest/InomrahsMISelfTest.toc; then
+    echo "  FAIL: Manifest.lua is not loaded by the self-test's .toc."
+    exit 1
+fi
+echo "self-test reads its manifest"

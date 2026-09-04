@@ -215,34 +215,68 @@ end
 -- the checks that used it did not run.
 --------------------------------------------------------------------------------
 
-local EXPECTED = {
-    { "UI", "root" }, { "UI", "CurrentView" }, { "UI", "ShowView" },
-    { "UI", "CloseButton" }, { "UI", "ToggleButton" }, { "UI", "Arrows" },
-    { "UI", "BarWidgets" }, { "UI", "SidebarWidgets" }, { "UI", "RunWidgets" },
-    { "UI", "PendingView" },
-    { "Edit", "HeaderWidgets" }, { "Edit", "BottomRowWidgets" },
-    { "Edit", "EnemiesPanelWidgets" }, { "Edit", "PagesPanelWidgets" },
-    { "Runtime", "Manager" }, { "Runtime", "PageButtons" },
-    { "Core", "Settings" }, { "Binds", "Chord" }, { "Color", "HSVtoRGB" },
-}
-
+--- Compares what is loaded against the manifest generated from the addon's
+--- source, rather than a list written from memory. A hand-kept list rots: add a
+--- panel, forget the line, and the check for it stops running — which looks
+--- exactly like a check that passed.
 local function checkVersion()
+    local manifest = _G.InomrahsMISelfTestManifest
+    record("Self-test", "the manifest loaded", type(manifest) == "table",
+        type(manifest) ~= "table" and "Manifest.lua is missing from this addon" or nil)
+
     local IMI = _G.InomrahsMI
-    if type(IMI) ~= "table" then return end
+    if type(manifest) ~= "table" or type(IMI) ~= "table" then return end
 
     local missing = {}
-    for _, entry in ipairs(EXPECTED) do
-        local module, name = entry[1], entry[2]
-        if type(IMI[module]) ~= "table" or IMI[module][name] == nil then
-            missing[#missing + 1] = module .. "." .. name
+    for _, path in ipairs(manifest.functions or {}) do
+        local module, name = path:match("^(%w+)%.(%w+)$")
+        if module and (type(IMI[module]) ~= "table" or IMI[module][name] == nil) then
+            missing[#missing + 1] = path
         end
     end
-
-    record("Self-test", "in step with the addon", #missing == 0,
+    record("Self-test", "every function the source defines is loaded", #missing == 0,
         #missing > 0
-            and ("this self-test is older than the addon; these checks did not run: "
+            and ("this self-test is out of step with the addon; missing: "
                  .. table.concat(missing, ", "))
-            or ("%d accessors present"):format(#EXPECTED))
+            or ("%d checked"):format(#(manifest.functions or {})))
+
+    local absentFrames = {}
+    for _, name in ipairs(manifest.frames or {}) do
+        if _G[name] == nil then absentFrames[#absentFrames + 1] = name end
+    end
+    -- A named frame absent at run time is usually just not built yet, so this
+    -- reports rather than fails.
+    record("Self-test", "named frames built", true,
+        #absentFrames > 0
+            and ("not built yet: " .. table.concat(absentFrames, ", "))
+            or ("all %d built"):format(#(manifest.frames or {})))
+
+    local absentSlash = {}
+    for _, command in ipairs(manifest.slash or {}) do
+        local found = false
+        for key in pairs(SlashCmdList or {}) do
+            for i = 1, 4 do
+                if _G["SLASH_" .. key .. i] == command then found = true end
+            end
+        end
+        if not found then absentSlash[#absentSlash + 1] = command end
+    end
+    record("Self-test", "slash commands registered", #absentSlash == 0,
+        #absentSlash > 0 and table.concat(absentSlash, ", ") or nil)
+
+    local absentSettings = {}
+    local settings = IMI.Core and IMI.Core.Settings and IMI.Core.Settings()
+    if type(settings) == "table" then
+        for _, key in ipairs(manifest.settings or {}) do
+            if settings[key] == nil then absentSettings[#absentSettings + 1] = key end
+        end
+    end
+    -- A setting with no value yet is normal; one the source no longer defaults
+    -- is the interesting case, and this is where it would show.
+    record("Self-test", "settings with no value", true,
+        #absentSettings > 0 and table.concat(absentSettings, ", ") or "none")
+
+    record("Self-test", "manifest built for", true, tostring(manifest.builtFor or "unknown"))
 
     -- Moved under C_AddOns; asking for the old global reported "unknown".
     local reader = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
