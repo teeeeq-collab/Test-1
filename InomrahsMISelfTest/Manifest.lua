@@ -97,6 +97,7 @@ InomrahsMISelfTestManifest = {
         "Edit.EnemiesPanelWidgets",
         "Edit.HeaderWidgets",
         "Edit.LineBoxes",
+        "Edit.MeasureWrapped",
         "Edit.PageRows",
         "Edit.PagesPanelWidgets",
         "Edit.Refresh",
@@ -287,5 +288,5 @@ InomrahsMISelfTestManifest = {
         "toggleKey",
         "width",
     },
-    builtFor = "0.35",
+    builtFor = "0.36",
 }

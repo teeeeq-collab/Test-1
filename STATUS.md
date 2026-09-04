@@ -19,6 +19,33 @@ that produced it.
 
 ## Known to have been broken, now fixed
 
+**Callout text was painted over the row beneath it** (v0.35 and earlier). Two
+causes, both in `boxHeight`:
+
+1. The box stopped growing at two lines until it had focus. An edit box does
+   not clip its own text and cannot ellipsize it, so a three-line callout in a
+   two-line box did not truncate — the third line was drawn over whatever was
+   under it. There is one line limit now and it applies whether the box has
+   focus or not, so a box always fits its text.
+2. The line count came from dividing the text's total width by the box's
+   width. Wrapping breaks at spaces, so long words leave the end of each line
+   empty and the real wrapping needs more lines than the division predicts.
+   The height now comes from the client's own wrapped measurement.
+
+A single-line box was also shorter than its own text — the height was taken
+straight from the measurement, which says nothing about the room a box has to
+leave above and below. There is explicit padding now.
+
+The boxes went back to `ChatFontNormal` after one version at panel size. Small
+enough to sit neatly with the labels turned out to be too small to write
+callouts in, and this is the text you do the work in.
+
+**Clicking the saturation/brightness field moved no marker** (v0.35 and
+earlier). The field's handler set the colour and called `Apply` but never
+`Repaint`, so the marker, the three sliders and their numbers all stayed where
+the last slider had left them. The hue strip had always called both.
+
+
 **The page row overlapped itself at the minimum window width** (v0.34 and
 earlier). "page 1 of 2" was drawn through the Keybinds button and the name box
 through both. The row was laid out left to right from a fixed 180-wide name

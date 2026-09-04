@@ -113,7 +113,35 @@ local function newFrame(frameType, name, parent, template)
     f.GetStringWidth  = function(self)
         return #tostring(self.text or "") * (self.fontSize or 10) * 0.5
     end
-    f.GetStringHeight = function(self) return (self.fontSize or 10) * 1.2 end
+    -- Wrapped height, not a constant. A box is sized from what its text
+    -- measures once wrapped, and a stub that reported one line for everything
+    -- could not tell a box that fits its text from one painting its last line
+    -- over the row beneath it.
+    f.GetStringHeight = function(self)
+        local line = (self.fontSize or 10) * 1.2
+        if not (self.widthSet and type(self.width) == "number" and self.width > 0
+            and self.wordWrap ~= false) then
+            return line
+        end
+
+        -- Packed word by word, not divided width by width. Wrapping breaks at
+        -- spaces, so text measuring twice the box can still need three lines
+        -- -- and a stub that divided agreed exactly with the code that
+        -- divided, which is how a box one line short of its text passed.
+        local perChar = (self.fontSize or 10) * 0.5
+        local lines, used = 1, 0
+        for word in tostring(self.text or ""):gmatch("%S+") do
+            local wordWidth = #word * perChar
+            local needed = (used > 0) and (used + perChar + wordWidth) or wordWidth
+            if used > 0 and needed > self.width then
+                lines = lines + 1
+                used = wordWidth
+            else
+                used = needed
+            end
+        end
+        return line * lines
+    end
     -- Scrolling, enough to check the wheel clamps at both ends.
     f.verticalScroll     = 0
     f.scrollRange        = 100

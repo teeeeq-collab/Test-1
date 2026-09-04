@@ -131,6 +131,12 @@ local function build()
     d.field = swatchGrid(d, FIELD_COLS, FIELD_ROWS, CELL, CELL, function(col, row)
         local s, v = Picker.FieldColor(col, row, d.state.h)
         d.state.s, d.state.v = s, v
+        -- Repaint as well as Apply, exactly as the hue strip does. Without it
+        -- a click on the field changed the colour and moved nothing: the
+        -- marker, the sliders and the numbers all stayed where the last slider
+        -- had left them, so the one control that says where you are was the
+        -- one control the field did not update.
+        d:Repaint()
         d:Apply()
     end)
     d.field:SetPoint("TOPLEFT", 14, -34)

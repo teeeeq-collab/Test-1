@@ -841,13 +841,12 @@ check("the wheel scrolls, and stops at both ends", function()
     if scroll.verticalScroll ~= 0 then error("scrolled above the top of the list") end
 end)
 
-check("a long callout line grows its box, and more while being typed into", function()
+check("a callout box always has room for every line of its text", function()
     IMI.Core.Init({})
     local cat = IMI.Core.AddCategory("Growing")
     local e = IMI.Core.AddEnemy(cat.id, "Mob")
     local short = IMI.Core.AddLine(cat.id, e.id, "", "/p kick")
-    -- Long enough to need more than the two lines shown when idle, so that
-    -- "more while editing" is actually being asked for.
+    -- Long enough to wrap several times.
     IMI.Core.AddLine(cat.id, e.id, "",
         "/p Prio kick the Envenom on the caster, stack behind the pillar for the cone, "
         .. "then spread wide for the bleed and save a stop for the second cast after that")
@@ -863,20 +862,74 @@ check("a long callout line grows its box, and more while being typed into", func
             :format(tostring(longH), tostring(shortH)))
     end
 
-    -- Idle it shows two lines; being typed into it shows more.
-    local idleH = longH
-    boxes[2]:SetFocus()
-    IMI.Edit.RefreshEnemies()
-    if IMI.Edit.LineBoxes()[2]:GetHeight() <= idleH then
-        error("the box did not grow further while being edited")
+    -- The box is tall enough for the wrapped text, not for a guess at it. An
+    -- edit box does not clip its own text and cannot ellipsize it, so a box
+    -- one line short does not truncate -- it paints that line over the row
+    -- beneath it, which is what shipped.
+    local box = boxes[2]
+    local wrapped = IMI.Edit.MeasureWrapped(box, box:GetText())
+    if longH < wrapped then
+        error(("the box is shorter than its own text: %s for %s of text")
+            :format(tostring(longH), tostring(wrapped)))
     end
 
-    boxes[2]:ClearFocus()
+    -- Even a single line needs room above and below it, which the height taken
+    -- straight from the measurement did not leave: descenders went through the
+    -- bottom edge.
+    -- A real margin, not one pixel of slack: the text sat flush against the
+    -- edges and the descenders went through the bottom.
+    local MARGIN = 4
+    local oneLine = IMI.Edit.MeasureWrapped(boxes[1], boxes[1]:GetText())
+    if shortH < oneLine + MARGIN then
+        error(("a one-line box left no room for its text: %s for %s")
+            :format(tostring(shortH), tostring(oneLine)))
+    end
+    if longH < wrapped + MARGIN then
+        error(("a wrapped box left no room for its text: %s for %s")
+            :format(tostring(longH), tostring(wrapped)))
+    end
+
+    -- Focus changes what you can do to a box, not how tall it is. It used to
+    -- change both, and that is where the overlap came from.
+    box:SetFocus()
     IMI.Edit.RefreshEnemies()
-    if IMI.Edit.LineBoxes()[2]:GetHeight() ~= idleH then
-        error("the box did not shrink back after editing")
+    if IMI.Edit.LineBoxes()[2]:GetHeight() ~= longH then
+        error("the box changed height when it gained focus")
+    end
+    box:ClearFocus()
+    IMI.Edit.RefreshEnemies()
+    if IMI.Edit.LineBoxes()[2]:GetHeight() ~= longH then
+        error("the box changed height when it lost focus")
     end
     if short == nil then error("the short line vanished") end
+end)
+
+-- The shape that actually shipped broken. Sizing a box by dividing the text's
+-- total width by the box's width assumes text can break anywhere; it breaks at
+-- spaces, so long words leave the end of each line empty and the real wrapping
+-- needs more lines than the division predicts. An edit box does not clip or
+-- ellipsize, so the missing line is painted over the row underneath.
+check("a box sized for long words counts the lines wrapping actually needs", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Wrapping")
+    local e = IMI.Core.AddEnemy(cat.id, "Mob")
+
+    -- Four words, each over half the box wide: two can never share a line, so
+    -- this is four lines however the widths add up.
+    local word = ("s"):rep(36)
+    IMI.Core.AddLine(cat.id, e.id, "",
+        ("%s %s %s %s"):format(word, word, word, word))
+
+    IMI.UI.Show("edit")
+    IMI.Edit.SetCategory(cat.id)
+    IMI.Edit.ShowTab("enemies")
+
+    local box = IMI.Edit.LineBoxes()[1]
+    local wrapped = IMI.Edit.MeasureWrapped(box, box:GetText())
+    if box:GetHeight() < wrapped + 4 then
+        error(("the box is %s tall for %s of wrapped text")
+            :format(tostring(box:GetHeight()), tostring(wrapped)))
+    end
 end)
 
 -- A newline in a macro body would break the macro, so it can never get there:
@@ -1322,6 +1375,26 @@ check("the markers move with the colour", function()
     d:Repaint()
     if not (select(1, anchorOf(d.fieldMarker)) < satX) then
         error("the field marker did not follow saturation")
+    end
+
+    -- Through the click, not through Repaint. The checks above drove Repaint
+    -- directly and so proved only that the marker can move: clicking the field
+    -- changed the colour and moved nothing, because that one path applied the
+    -- new colour without repainting anything.
+    d.state.h, d.state.s, d.state.v = 120, 1, 1
+    d:Repaint()
+
+    local click = d.field:GetScript("OnClick")
+    if not click then error("the colour field does not answer a click") end
+    click(d.field)
+
+    local fieldW, fieldH = d.field:GetWidth(), d.field:GetHeight()
+    local wantX, wantY = IMI.Picker.FieldOffset(d.state.s, d.state.v, fieldW, fieldH)
+    local gotX, gotY = anchorOf(d.fieldMarker)
+    if math.abs(gotX - wantX) > 0.5 or math.abs(gotY - (-wantY)) > 0.5 then
+        error(("clicking the field left the marker behind: it is at %s,%s and the "
+            .. "colour is at %s,%s"):format(tostring(gotX), tostring(gotY),
+            tostring(wantX), tostring(-wantY)))
     end
     IMI.Picker.Frame():Hide()
 end)

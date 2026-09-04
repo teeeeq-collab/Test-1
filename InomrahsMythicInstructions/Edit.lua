@@ -31,10 +31,21 @@ local ui = {}
 --- about a card and a half of visible list.
 local ROW_H, CARD_GAP, INDENT = 20, 6, 14
 
+--- Room above and below the text inside a callout box.
+local BOX_PAD = 8
+
 -- A callout is one line of macro text, but it is often longer than one line of
 -- panel. Two lines when you are only reading it, more while you are typing,
 -- because the box you are editing is the one you need to see all of.
-local LINES_IDLE, LINES_EDITING = 2, 6
+--- How many wrapped lines a callout box may grow to.
+---
+--- One number, not two. It used to stop at two lines until the box had focus,
+--- which meant a three-line callout was drawn in a two-line box: an edit box
+--- does not clip its own text and cannot ellipsize it, so the third line was
+--- simply painted over whatever sat underneath. A box that always fits its
+--- text cannot do that, and a body is capped at 255 characters anyway, so
+--- there is not much for it to grow into.
+local MAX_BOX_LINES = 10
 
 --------------------------------------------------------------------------------
 -- Widgets
@@ -60,13 +71,14 @@ end
 
 local function editBox(parent, maxLetters)
     local eb = CreateFrame("EditBox", nil, parent)
-    -- Panel size, not chat size. ChatFontNormal is 14pt and everything drawn
-    -- beside these boxes is 10 to 12, which is what made them look pasted in
-    -- from another window. The text scale setting still reaches them, so
-    -- anyone who wants the old size has it.
-    eb:SetFontObject("GameFontHighlight")
+    -- Readable first. Dropping these to panel size made them sit better with
+    -- the labels around them and made them too small to work in, which is the
+    -- worse of the two problems: this is the text you write your callouts in.
+    -- The height they are given is what has to follow the font, and that is
+    -- what boxHeight is for.
+    eb:SetFontObject("ChatFontNormal")
     IMI.Style.EditBox(eb)
-    eb:SetHeight(ROW_H - 2)
+    eb:SetHeight(ROW_H + 2)
     eb:SetAutoFocus(false)
     eb:SetMaxLetters(maxLetters or 64)
     eb:SetScript("OnEscapePressed", eb.ClearFocus)
@@ -108,32 +120,54 @@ end
 ---
 --- Measured against the box's own width with the font it is actually using,
 --- because how much fits depends on the text scale and on which characters they
---- are. One hidden font string does the measuring for every box.
-local measureFS
+--- are. Two hidden font strings do the measuring for every box: one unbounded,
+--- for what a single line measures, and one held to the box's width, for what
+--- the text measures once the game has wrapped it.
+local measureFS, wrapFS
 local function boxHeight(parent, eb, text, maxLines)
     if not measureFS then
         measureFS = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        measureFS:SetWordWrap(false)
         measureFS:Hide()
+
+        wrapFS = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        wrapFS:SetWordWrap(true)
+        wrapFS:Hide()
     end
 
     local file, size, flags = eb:GetFont()
-    if file and size then measureFS:SetFont(file, size, flags) end
-    measureFS:SetText(text or "")
-
-    local textWidth = measureFS:GetStringWidth()
-    local lineHeight = measureFS:GetStringHeight()
-    if type(lineHeight) ~= "number" or lineHeight <= 0 then return ROW_H - 2, 1 end
-
-
-    local available = (eb:GetWidth() or 200) - 12
-    local lines = 1
-    if type(textWidth) == "number" and available > 0 and textWidth > available then
-        lines = math.min(maxLines, math.ceil(textWidth / available))
+    if file and size then
+        measureFS:SetFont(file, size, flags)
+        wrapFS:SetFont(file, size, flags)
     end
 
-    -- The single-line height is what every other row uses, so a one-line box
-    -- still lines up with the buttons beside it.
-    return math.max(ROW_H - 2, lines * lineHeight + 4), lines
+    measureFS:SetText("Ag")
+    local lineHeight = measureFS:GetStringHeight()
+    if type(lineHeight) ~= "number" or lineHeight <= 0 then return ROW_H + 2, 1 end
+
+    -- Never below a sane width: at zero or less this would ask for an absurd
+    -- number of lines rather than one.
+    local available = math.max(40, (eb:GetWidth() or 200) - 12)
+
+    -- The game's own wrapping, not a ratio of two widths. Wrapping breaks at
+    -- spaces, so a sentence whose total width is twice the box can still need
+    -- three lines to hold it -- and a box sized from the ratio came up a line
+    -- short, with the last line painted over the row beneath it.
+    wrapFS:SetWidth(available)
+    wrapFS:SetText(text or "")
+
+    local wrapped = wrapFS:GetStringHeight()
+    local lines = 1
+    if type(wrapped) == "number" and wrapped > lineHeight then
+        lines = math.max(1, math.floor(wrapped / lineHeight + 0.5))
+    end
+    lines = math.min(maxLines or 1, lines)
+
+    -- Padding, not a rounding error. GetStringHeight reports what the text
+    -- measures and says nothing about the room the box still has to leave
+    -- above and below it, so a height taken straight from it puts the
+    -- descenders through the bottom edge -- which is what shipped.
+    return math.max(ROW_H + 2, lines * lineHeight + BOX_PAD), lines
 end
 
 --- Pools reuse frames, because frames cannot be destroyed. Every field a pooled
@@ -355,8 +389,7 @@ function Edit.RefreshEnemies()
                 box:SetTextInsets(6, 6, 0, 0)
             end
 
-            local boxH = boxHeight(ui.enemyList, box, box:GetText(),
-                box:HasFocus() and LINES_EDITING or LINES_IDLE)
+            local boxH = boxHeight(ui.enemyList, box, box:GetText(), MAX_BOX_LINES)
             box:SetHeight(boxH)
 
             y = y - boxH - 2
@@ -661,6 +694,22 @@ function Edit.HeaderWidgets()
         counter = ui.counter, stale = ui.stale,
         enemiesPanel = ui.enemiesPanel, pagesPanel = ui.pagesPanel,
     }
+end
+
+--- What a box's text actually measures once wrapped to that box's width.
+---
+--- Asks the client directly rather than going through boxHeight: a test whose
+--- expected value comes from the code under test agrees with it however wrong
+--- both are, which is exactly how a box one line short of its text passed.
+function Edit.MeasureWrapped(eb, text)
+    if not wrapFS then boxHeight(eb:GetParent(), eb, text, 1) end
+
+    local file, size, flags = eb:GetFont()
+    if file and size then wrapFS:SetFont(file, size, flags) end
+    wrapFS:SetWordWrap(true)
+    wrapFS:SetWidth(math.max(40, (eb:GetWidth() or 200) - 12))
+    wrapFS:SetText(text or "")
+    return wrapFS:GetStringHeight()
 end
 
 --- The rows of the Pages tab as laid out, for tests: whether their labels are
