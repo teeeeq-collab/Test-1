@@ -19,6 +19,34 @@ that produced it.
 
 ## Known to have been broken, now fixed
 
+**The self-test locked the keyboard** (self-test 0.3 and earlier). Running
+`/imitest` left the game unable to answer any key, Escape included, and only
+`/reload` fixed it. Two faults stacked:
+
+1. `checkClient` built a bare `CreateFrame("EditBox", nil, UIParent)` purely to
+   ask which methods an EditBox has. An EditBox is shown the moment it is
+   created and its autofocus defaults to on, so an invisible, unnamed,
+   zero-size box took focus and ate every key the player pressed.
+2. The addon's own escape hatch could not undo it. `keyboardHolders()` walked
+   every frame in the game and tested `IsKeyboardEnabled()` unguarded; 12.1
+   returns Secret Values from frames an addon has no business reading, and the
+   first truth test on one throws. That aborted `ReleaseAllKeys()` before it
+   released anything — which is why `/imi unstick` and "Give keyboard back"
+   both did nothing. The self-test's own copy of the walk had the same fault,
+   and threw during `checkClient`, which is why the last run produced a lockout
+   and no report window at all.
+
+Fixed in addon v0.33 and self-test 0.4. Probes are built once on a hidden
+parent with autofocus off; every frame read in a walk goes through `isTrue` /
+`safeString`, which do the test inside a `pcall` and hand back a plain value;
+every self-test section is guarded so one fault cannot take the report with it;
+the run releases the keyboard when it finishes and then checks that it did. The
+addon also runs a one-second watchdog (`UI.SweepKeyboard`) that releases any
+capture frame of ours holding the keyboard with nothing armed, so the next
+lockout of this shape heals itself rather than needing a command typed on a
+keyboard that has stopped working.
+
+
 **Callout buttons sent nothing** (v0.7 and earlier). Two differences from the
 probe's proven-working button were the cause: `RegisterForClicks("AnyUp")` where
 the probe registered both directions, and a missing `EnableMouse(true)`. Both

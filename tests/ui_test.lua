@@ -1518,5 +1518,61 @@ check("and it says what was holding it", function()
     end
 end)
 
+--------------------------------------------------------------------------------
+-- Secret Values
+--
+-- The walk that finds what is holding the keyboard touches every frame in the
+-- game, and 12.1 hands back Secret Values from frames this addon has no
+-- business reading: the read succeeds and the first truth test on the result
+-- throws. Unguarded, the walk aborted on the first one -- so the safety valve
+-- itself was the thing that stopped working, in the exact situation it exists
+-- for. These reproduce that shape: a frame that throws when it is asked.
+--------------------------------------------------------------------------------
+
+check("a frame that throws when read does not stop the release", function()
+    local hostile = CreateFrame("Frame", "SomeOtherAddonsSecretFrame", UIParent)
+    hostile.IsKeyboardEnabled = function()
+        error("attempt to perform boolean test on a secret boolean value")
+    end
+
+    local held = CreateFrame("Frame", "InomrahsMIStuckPastSecret", UIParent)
+    held:EnableKeyboard(true)
+    held:Show()
+
+    IMI.UI.ReleaseAllKeys()
+    if held.keyboard then
+        error("the walk stopped at the secret frame and released nothing after it")
+    end
+end)
+
+check("and a frame with a secret name is described rather than fatal", function()
+    local hostile = CreateFrame("Frame", "SecretlyNamedFrame", UIParent)
+    hostile:EnableKeyboard(true)
+    hostile:Show()
+    hostile.GetName = function()
+        error("attempt to concatenate a secret string value")
+    end
+
+    local report = IMI.UI.KeyboardReport()
+    if type(report) ~= "string" then error("the report threw on a secret name") end
+end)
+
+check("and a walk that cannot advance is reported, not thrown", function()
+    local real = _G.EnumerateFrames
+    local first = true
+    _G.EnumerateFrames = function(previous)
+        if first then first = false; return real() end
+        error("attempt to index a secret value")
+    end
+
+    local ok, report = pcall(IMI.UI.KeyboardReport)
+    _G.EnumerateFrames = real
+
+    if not ok then error("a broken walk escaped as an error: " .. tostring(report)) end
+    if not report:find("unreadable", 1, true) then
+        error("the report did not say frames went unread: " .. report)
+    end
+end)
+
 realPrint(("\n%d passed, %d failed"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

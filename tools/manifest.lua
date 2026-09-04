@@ -75,8 +75,12 @@ for _, path in ipairs(files()) do
         add(manifest.frames, name)
     end
 
-    for command in text:gmatch('SLASH_[%w_]+%d+%s*=%s*"([^"]+)"') do
-        add(manifest.slash, command)
+    -- Recorded as the global's own name and the command it holds, because
+    -- that is what the self-test can check directly. Walking SlashCmdList to
+    -- rediscover the name does not work in game: the first version did, and
+    -- reported a registered /imi as missing.
+    for global, command in text:gmatch('(SLASH_[%w_]+%d+)%s*=%s*"([^"]+)"') do
+        add(manifest.slash, global .. "=" .. command)
     end
 
     -- Any string literal that names a secure attribute, not only the ones

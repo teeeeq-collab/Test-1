@@ -178,36 +178,80 @@ function UI.ArmKeyCapture(frame, onKey, onEnd)
     return frame
 end
 
+--- Reads something the game may hand back as a Secret Value.
+---
+--- 12.1 returns Secret Values from ordinary widget getters on frames the addon
+--- has no business seeing. The read itself succeeds; what throws is the first
+--- thing done with the result -- a truth test, a comparison, a concatenation.
+--- So the test has to happen inside the pcall, and the caller only ever gets a
+--- plain true/false or a plain string back.
+---
+--- This is not a nicety. keyboardHolders walks every frame in the game, so it
+--- meets a secret value sooner or later, and an unguarded walk aborts on the
+--- first one -- taking ReleaseAllKeys, /imi unstick and the self-test's give
+--- keyboard back button down with it, which is exactly the moment they are
+--- needed.
+local function isTrue(frame, method)
+    local fn = frame and frame[method]
+    if type(fn) ~= "function" then return false end
+    local ok, result = pcall(function() return fn(frame) == true end)
+    return ok and result == true
+end
+
+local function safeString(frame, method)
+    local fn = frame and frame[method]
+    if type(fn) ~= "function" then return nil end
+    local ok, value = pcall(function()
+        local v = fn(frame)
+        if type(v) == "string" and v ~= "" then return v end
+        return nil
+    end)
+    if ok then return value end
+    return nil
+end
+
+--- Exposed so the self-test and anything else that walks frames reads them the
+--- same guarded way, rather than growing its own unguarded copy.
+UI.IsTrue, UI.SafeString = isTrue, safeString
+
 --- Every frame in the game that currently has the keyboard enabled and is on
---- screen, whether it belongs to this addon or not.
+--- screen, whether it belongs to this addon or not, plus a count of the frames
+--- that could not be read at all.
 ---
 --- EnumerateFrames walks all of them, which is the only way to answer "what is
 --- eating my keys". Focus is one way to lose the keyboard; a frame with
 --- EnableKeyboard set and propagation off is the other, and nothing about it is
 --- visible from the outside.
 local function keyboardHolders()
-    local out = {}
-    if type(EnumerateFrames) ~= "function" then return out end
+    local out, skipped = {}, 0
+    if type(EnumerateFrames) ~= "function" then return out, skipped end
 
     local frame = EnumerateFrames()
     while frame do
-        if frame.IsKeyboardEnabled and frame:IsKeyboardEnabled()
-            and frame.IsVisible and frame:IsVisible() then
+        if isTrue(frame, "IsKeyboardEnabled") and isTrue(frame, "IsVisible") then
             out[#out + 1] = frame
         end
-        frame = EnumerateFrames(frame)
+
+        -- Advancing the walk is guarded too: one frame that cannot be stepped
+        -- past must not end the walk for the rest of them.
+        local ok, nextFrame = pcall(EnumerateFrames, frame)
+        if not ok then
+            skipped = skipped + 1
+            break
+        end
+        frame = nextFrame
     end
-    return out
+    return out, skipped
 end
 
 local function describe(frame)
-    local name = frame.GetName and frame:GetName()
+    local name = safeString(frame, "GetName")
     if name then return name end
 
-    local parent = frame.GetParent and frame:GetParent()
-    local parentName = parent and parent.GetName and parent:GetName()
+    local ok, parent = pcall(function() return frame:GetParent() end)
+    local parentName = ok and parent and safeString(parent, "GetName")
     return ("unnamed %s in %s"):format(
-        tostring(frame.GetObjectType and frame:GetObjectType() or "?"),
+        tostring(safeString(frame, "GetObjectType") or "?"),
         tostring(parentName or "unnamed parent"))
 end
 
@@ -236,15 +280,72 @@ function UI.ReleaseAllKeys()
     -- clearing focus does nothing about. Only ours: taking the keyboard off
     -- another addon's frame would be a worse bug than the one being fixed.
     for _, frame in ipairs(keyboardHolders()) do
-        local name = frame.GetName and frame:GetName()
+        local name = safeString(frame, "GetName")
         if (name and name:find("InomrahsMI", 1, true)) or frame.ReleaseKeys then
-            frame:EnableKeyboard(false)
-            if frame.SetPropagateKeyboardInput then frame:SetPropagateKeyboardInput(true) end
+            pcall(function()
+                frame:EnableKeyboard(false)
+                if frame.SetPropagateKeyboardInput then frame:SetPropagateKeyboardInput(true) end
+            end)
             released = released + 1
         end
     end
 
     return released, focused
+end
+
+--- Gives the keyboard back on its own, without being asked.
+---
+--- Every lockout so far has needed the player to type a command with a keyboard
+--- that had stopped answering, which is a fix that arrives exactly when it
+--- cannot be used. This watches instead: once a second, any capture frame of
+--- ours still holding the keyboard with nothing armed is released, and any edit
+--- box of ours holding focus while it is off screen is cleared.
+---
+--- Only this addon's own frames, and only in states that are already wrong --
+--- an armed capture and a visible focused box are both left alone, so a player
+--- typing into the addon is never interrupted.
+local WATCHDOG_SECONDS = 1
+local watchdog
+
+function UI.KeyboardWatchdog()
+    if watchdog then return watchdog end
+
+    watchdog = CreateFrame("Frame")
+    watchdog.elapsed = 0
+    watchdog:SetScript("OnUpdate", function(self, delta)
+        self.elapsed = self.elapsed + (delta or 0)
+        if self.elapsed < WATCHDOG_SECONDS then return end
+        self.elapsed = 0
+        UI.SweepKeyboard()
+    end)
+    return watchdog
+end
+
+--- One pass of the watchdog. Separate so a test can run it directly rather than
+--- waiting a second for it.
+function UI.SweepKeyboard()
+    local freed = 0
+
+    for _, frame in ipairs(captureFrames) do
+        if not frame.captureArmed and isTrue(frame, "IsKeyboardEnabled") then
+            if frame.ReleaseKeys then frame.ReleaseKeys() else
+                pcall(function() frame:EnableKeyboard(false) end)
+            end
+            freed = freed + 1
+        end
+    end
+
+    local focused = _G.GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
+    if focused and focused.ClearFocus and not isTrue(focused, "IsVisible") then
+        local name = safeString(focused, "GetName")
+        local ours = (name and name:find("InomrahsMI", 1, true)) or focused.imiOwned
+        if ours then
+            focused:ClearFocus()
+            freed = freed + 1
+        end
+    end
+
+    return freed
 end
 
 --- Says what is holding the keyboard, without changing anything.
@@ -263,13 +364,7 @@ function UI.KeyboardReport()
     if not focused then
         who = "nothing has focus"
     else
-        local name = focused.GetName and focused:GetName()
-        local kind = focused.GetObjectType and focused:GetObjectType()
-        local parent = focused.GetParent and focused:GetParent()
-        local parentName = parent and parent.GetName and parent:GetName()
-        who = ("focus: %s (%s) in %s"):format(
-            tostring(name or "unnamed"), tostring(kind or "?"),
-            tostring(parentName or "unnamed parent"))
+        who = "focus: " .. describe(focused)
     end
 
     local armed = 0
@@ -278,13 +373,15 @@ function UI.KeyboardReport()
     end
 
     local holders = {}
-    for _, frame in ipairs(keyboardHolders()) do
+    local found, skipped = keyboardHolders()
+    for _, frame in ipairs(found) do
         holders[#holders + 1] = describe(frame)
     end
 
-    return ("%s | captures: %d built, %d armed | keyboard enabled on: %s"):format(
+    return ("%s | captures: %d built, %d armed | keyboard enabled on: %s%s"):format(
         who, #captureFrames, armed,
-        #holders > 0 and table.concat(holders, ", ") or "nothing")
+        #holders > 0 and table.concat(holders, ", ") or "nothing",
+        skipped > 0 and (" | %d frame(s) unreadable"):format(skipped) or "")
 end
 
 --- Shared with Picker, which draws its own dialog but must not draw its own
@@ -1178,6 +1275,8 @@ end
 --------------------------------------------------------------------------------
 
 function UI.Init()
+    UI.KeyboardWatchdog()
+
     root = CreateFrame("Frame", "InomrahsMIFrame", UIParent)
     root:SetSize(DEFAULT_W, DEFAULT_H)
     root:SetPoint("CENTER")

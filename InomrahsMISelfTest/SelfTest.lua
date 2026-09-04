@@ -48,35 +48,70 @@ end
 -- every frame in the game, which is the only way to find the second.
 --------------------------------------------------------------------------------
 
+--- A frame walk meets frames this addon has no business reading, and 12.1
+--- hands those back as Secret Values: the read succeeds and the first truth
+--- test on the result throws. So every test happens inside a pcall and the
+--- caller only sees a plain boolean or a plain string. Without this the walk
+--- aborts on the first such frame -- which is what broke the addon's own
+--- release path and is exactly the kind of thing this report exists to survive.
+local function isTrue(frame, method)
+    local fn = frame and frame[method]
+    if type(fn) ~= "function" then return false end
+    local ok, result = pcall(function() return fn(frame) == true end)
+    return ok and result == true
+end
+
+local function safeString(frame, method)
+    local fn = frame and frame[method]
+    if type(fn) ~= "function" then return nil end
+    local ok, value = pcall(function()
+        local v = fn(frame)
+        if type(v) == "string" and v ~= "" then return v end
+        return nil
+    end)
+    if ok then return value end
+    return nil
+end
+
+local function describeFrame(frame)
+    local name = safeString(frame, "GetName")
+    if name then return name end
+
+    local ok, parent = pcall(function() return frame:GetParent() end)
+    local parentName = ok and parent and safeString(parent, "GetName")
+    return ("unnamed %s in %s"):format(
+        tostring(safeString(frame, "GetObjectType") or "?"),
+        tostring(parentName or "?"))
+end
+
+--- Declared here because the report window's handler is written above it. A
+--- local used before its declaration resolves to a global and is nil.
+local releaseOurFrames
+
 local function keyboardReport()
     local parts = {}
 
     local focused = _G.GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
     if focused then
-        local name = focused.GetName and focused:GetName()
-        local parent = focused.GetParent and focused:GetParent()
-        local parentName = parent and parent.GetName and parent:GetName()
-        parts[#parts + 1] = ("focus: %s (%s) in %s"):format(
-            tostring(name or "unnamed"),
-            tostring(focused.GetObjectType and focused:GetObjectType() or "?"),
-            tostring(parentName or "unnamed parent"))
+        parts[#parts + 1] = "focus: " .. describeFrame(focused)
     else
         parts[#parts + 1] = "focus: nothing"
     end
 
-    local holders = {}
+    local holders, skipped = {}, 0
     if type(EnumerateFrames) == "function" then
         local frame = EnumerateFrames()
         while frame do
-            if frame.IsKeyboardEnabled and frame:IsKeyboardEnabled()
-                and frame.IsVisible and frame:IsVisible() then
-                local name = frame.GetName and frame:GetName()
-                local parent = frame.GetParent and frame:GetParent()
-                local parentName = parent and parent.GetName and parent:GetName()
-                holders[#holders + 1] = tostring(name
-                    or ("unnamed in " .. tostring(parentName or "?")))
+            if isTrue(frame, "IsKeyboardEnabled") and isTrue(frame, "IsVisible") then
+                holders[#holders + 1] = describeFrame(frame)
             end
-            frame = EnumerateFrames(frame)
+
+            local ok, nextFrame = pcall(EnumerateFrames, frame)
+            if not ok then
+                skipped = skipped + 1
+                break
+            end
+            frame = nextFrame
         end
     else
         holders[#holders + 1] = "EnumerateFrames missing, cannot look"
@@ -84,6 +119,9 @@ local function keyboardReport()
 
     parts[#parts + 1] = ("keyboard enabled on: %s"):format(
         #holders > 0 and table.concat(holders, ", ") or "nothing")
+    if skipped > 0 then
+        parts[#parts + 1] = ("%d frame(s) unreadable"):format(skipped)
+    end
 
     -- Override bindings are the third way keys can stop doing what they should,
     -- and the only one a reload fixes that nothing else does.
@@ -93,6 +131,54 @@ local function keyboardReport()
     end
 
     return table.concat(parts, " | ")
+end
+
+--- Puts the keyboard back the way the run found it.
+---
+--- Run before and after every self-test, because a diagnostic that leaves the
+--- game unplayable is worse than no diagnostic. It touches only frames this
+--- suite or the addon built, plus anything holding focus while off screen --
+--- which nothing legitimate does, and which is precisely the state an
+--- invisible probe box leaves behind.
+function releaseOurFrames()
+    local freed = 0
+
+    local focused = _G.GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
+    if focused and focused.ClearFocus then
+        local name = safeString(focused, "GetName")
+        if not isTrue(focused, "IsVisible")
+            or (name and name:find("InomrahsMI", 1, true)) then
+            pcall(function() focused:ClearFocus() end)
+            freed = freed + 1
+        end
+    end
+
+    if InomrahsMI and InomrahsMI.UI and InomrahsMI.UI.ReleaseAllKeys then
+        pcall(InomrahsMI.UI.ReleaseAllKeys)
+    end
+
+    if type(EnumerateFrames) ~= "function" then return freed end
+
+    local frame = EnumerateFrames()
+    while frame do
+        local name = safeString(frame, "GetName")
+        if name and name:find("InomrahsMI", 1, true)
+            and isTrue(frame, "IsKeyboardEnabled") then
+            pcall(function()
+                frame:EnableKeyboard(false)
+                if frame.SetPropagateKeyboardInput then
+                    frame:SetPropagateKeyboardInput(true)
+                end
+            end)
+            freed = freed + 1
+        end
+
+        local ok, nextFrame = pcall(EnumerateFrames, frame)
+        if not ok then break end
+        frame = nextFrame
+    end
+
+    return freed
 end
 
 --------------------------------------------------------------------------------
@@ -131,6 +217,8 @@ local REQUIRED_METHODS = {
     { "HasFocus", "editbox" }, { "SetNumeric", "editbox" },
 }
 
+local probes
+
 local function checkClient()
     for _, name in ipairs(REQUIRED_GLOBALS) do
         check("Client", name, function()
@@ -138,16 +226,37 @@ local function checkClient()
         end)
     end
 
-    local frame = CreateFrame("Frame", nil, UIParent)
-    local widgets = {
-        frame      = frame,
-        editbox    = CreateFrame("EditBox", nil, UIParent),
-        button     = CreateFrame("Button", nil, UIParent),
-        scroll     = CreateFrame("ScrollFrame", nil, UIParent),
-        secure     = CreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate"),
-        fontstring = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"),
-        texture    = frame:CreateTexture(nil, "ARTWORK"),
-    }
+    -- Probes live on a hidden parent and are built once.
+    --
+    -- This is the bug that made running the self-test lock the keyboard. An
+    -- EditBox is shown the moment it is created and its autofocus defaults to
+    -- on, so a bare CreateFrame("EditBox", nil, UIParent) -- built here only to
+    -- ask which methods it has -- silently took focus and ate every key the
+    -- player pressed, from an invisible, unnamed, zero-size box. A reload was
+    -- the only way out, which is exactly what was reported. Nothing built for
+    -- inspection may be visible or take focus.
+    if not probes then
+        local hidden = CreateFrame("Frame", nil, UIParent)
+        hidden:Hide()
+
+        local frame = CreateFrame("Frame", nil, hidden)
+        local editbox = CreateFrame("EditBox", nil, hidden)
+        editbox:SetAutoFocus(false)
+        editbox:ClearFocus()
+        editbox:EnableKeyboard(false)
+        editbox:Hide()
+
+        probes = {
+            frame      = frame,
+            editbox    = editbox,
+            button     = CreateFrame("Button", nil, hidden),
+            scroll     = CreateFrame("ScrollFrame", nil, hidden),
+            secure     = CreateFrame("Frame", nil, hidden, "SecureHandlerBaseTemplate"),
+            fontstring = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"),
+            texture    = frame:CreateTexture(nil, "ARTWORK"),
+        }
+    end
+    local widgets = probes
 
     for _, entry in ipairs(REQUIRED_METHODS) do
         local method, kind = entry[1], entry[2]
@@ -162,7 +271,12 @@ local function checkClient()
     -- client has; this says which that was.
     -- Recorded on every run, so a report sent after a lockout carries the
     -- answer even when nobody thought to ask for it.
-    record("Client", "who has the keyboard", true, keyboardReport())
+    -- Guarded: this used to be a bare call, and when the frame walk inside it
+    -- met a Secret Value it threw -- aborting the entire run, which is why a
+    -- locked-out player got no report window at all.
+    local okReport, report = pcall(keyboardReport)
+    record("Client", "who has the keyboard", true,
+        okReport and report or ("could not be read: " .. tostring(report)))
 
     check("Client", "a resize-bounds call exists", function()
         local f = CreateFrame("Frame", nil, UIParent)
@@ -209,6 +323,7 @@ local function checkRestricted()
     local header = CreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate")
     local target = CreateFrame("Button", "InomrahsMISelfTestTarget", UIParent,
         "SecureActionButtonTemplate")
+    target:Hide()
 
     check("Restricted environment", "the template took", function()
         return type(header.SetFrameRef) == "function",
@@ -313,15 +428,18 @@ local function checkVersion()
             and ("not built yet: " .. table.concat(absentFrames, ", "))
             or ("all %d built"):format(#(manifest.frames or {})))
 
+    -- Each entry is "SLASH_INOMRAHSMI1=/imi": the global that has to hold the
+    -- command, and the command it has to hold. Both halves are checked, plus
+    -- the handler the game dispatches to, since a command registered with no
+    -- handler behind it types the same as one that was never registered.
     local absentSlash = {}
-    for _, command in ipairs(manifest.slash or {}) do
-        local found = false
-        for key in pairs(SlashCmdList or {}) do
-            for i = 1, 4 do
-                if _G["SLASH_" .. key .. i] == command then found = true end
-            end
+    for _, entry in ipairs(manifest.slash or {}) do
+        local global, key, command = entry:match("^(SLASH_(.-)%d+)=(.+)$")
+        if global then
+            local registered = _G[global] == command
+                and type((SlashCmdList or {})[key]) == "function"
+            if not registered then absentSlash[#absentSlash + 1] = command end
         end
-        if not found then absentSlash[#absentSlash + 1] = command end
     end
     record("Self-test", "slash commands registered", #absentSlash == 0,
         #absentSlash > 0 and table.concat(absentSlash, ", ") or nil)
@@ -574,13 +692,71 @@ end
 -- The report
 --------------------------------------------------------------------------------
 
+--------------------------------------------------------------------------------
+-- 6. Did the self-test itself behave?
+--
+-- A diagnostic that breaks the game while measuring it is worse than none, and
+-- this suite did exactly that: a probe EditBox took focus and locked the
+-- keyboard. These check the measuring instrument, so that never ships twice.
+--------------------------------------------------------------------------------
+
+local function checkHygiene()
+    check("Self-test", "no probe of ours holds the keyboard", function()
+        if not probes then return true, "not built yet" end
+        for kind, widget in pairs(probes) do
+            if isTrue(widget, "IsKeyboardEnabled") then
+                return false, kind .. " has the keyboard enabled"
+            end
+            if isTrue(widget, "IsVisible") then
+                return false, kind .. " is on screen"
+            end
+        end
+        return true, "all hidden, none listening"
+    end)
+
+    check("Self-test", "the run left focus alone", function()
+        local focused = _G.GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
+        if not focused then return true, "nothing has focus" end
+        if not isTrue(focused, "IsVisible") then
+            return false, "something off screen has focus: " .. describeFrame(focused)
+        end
+        return true, "focus is on " .. describeFrame(focused)
+    end)
+end
+
+--- Every section runs even if one of them throws.
+---
+--- A run that aborted halfway produced no report at all, which is the worst
+--- possible outcome: the fault that stopped it is the one thing nobody can
+--- then see. Each section is guarded, and a section that throws records the
+--- error as a result instead of taking the rest of the run with it.
+local SECTIONS = {
+    { "Client", checkClient },
+    { "Restricted environment", checkRestricted },
+    { "Self-test", checkVersion },
+    { "Wiring", checkWiring },
+    { "Layout", checkLayout },
+}
+
 local function runAll()
     results = {}
-    checkClient()
-    checkRestricted()
-    checkVersion()
-    checkWiring()
-    checkLayout()
+    for _, section in ipairs(SECTIONS) do
+        local name, fn = section[1], section[2]
+        local ok, err = pcall(fn)
+        if not ok then
+            record(name, "this section could not finish", false, tostring(err))
+        end
+    end
+
+    -- Nothing this run built may still be holding the keyboard. The run itself
+    -- was the lockout once -- so release first, then check, and the check is
+    -- about the state the player is actually left in.
+    pcall(releaseOurFrames)
+
+    local ok, err = pcall(checkHygiene)
+    if not ok then
+        record("Self-test", "this section could not finish", false, tostring(err))
+    end
 end
 
 local function reportText()
@@ -684,20 +860,7 @@ local function showReport(text)
             end
 
             -- Anything of ours still holding it, whichever addon built it.
-            if type(EnumerateFrames) == "function" then
-                local frame = EnumerateFrames()
-                while frame do
-                    local name = frame.GetName and frame:GetName()
-                    if name and name:find("InomrahsMI", 1, true)
-                        and frame.IsKeyboardEnabled and frame:IsKeyboardEnabled() then
-                        frame:EnableKeyboard(false)
-                        if frame.SetPropagateKeyboardInput then
-                            frame:SetPropagateKeyboardInput(true)
-                        end
-                    end
-                    frame = EnumerateFrames(frame)
-                end
-            end
+            releaseOurFrames()
 
             print("|cff8f7fe8MI Self-Test|r after:  " .. keyboardReport())
         end)
@@ -711,6 +874,21 @@ local function showReport(text)
     window.box:SetText(text)
     window.box:ClearFocus()
     window:Show()
+end
+
+--- Shows the report, and says it in chat if it cannot.
+---
+--- The window is built from a Blizzard template and a template that goes away
+--- in a patch takes the whole report with it -- exactly when the report is what
+--- you need. Chat is ugly and always there.
+local function showReportSafely(text)
+    if pcall(showReport, text) then return end
+
+    print("|cff8f7fe8MI Self-Test|r the report window could not be built. "
+        .. "Printing it instead:")
+    for line in tostring(text):gmatch("[^\n]*") do
+        if line ~= "" then print(line) end
+    end
 end
 
 --------------------------------------------------------------------------------
@@ -732,8 +910,8 @@ SlashCmdList.INOMRAHSMISELFTEST = function(arg)
 
     if arg == "combat" then
         results = {}
-        checkCombat()
-        showReport(reportText())
+        pcall(checkCombat)
+        showReportSafely(reportText())
         return
     end
 
@@ -746,9 +924,7 @@ SlashCmdList.INOMRAHSMISELFTEST = function(arg)
         if window and window.box then window.box:ClearFocus() end
         if window then window:Hide() end
         print("|cff8f7fe8MI Self-Test|r before: " .. keyboardReport())
-        if InomrahsMI and InomrahsMI.UI and InomrahsMI.UI.ReleaseAllKeys then
-            InomrahsMI.UI.ReleaseAllKeys()
-        end
+        releaseOurFrames()
         print("|cff8f7fe8MI Self-Test|r after:  " .. keyboardReport())
         return
     end
@@ -763,7 +939,7 @@ SlashCmdList.INOMRAHSMISELFTEST = function(arg)
     local text = reportText()
 
     if arg == "copy" then
-        showReport(text)
+        showReportSafely(text)
         return
     end
 
@@ -773,5 +949,5 @@ SlashCmdList.INOMRAHSMISELFTEST = function(arg)
     end
     print(("|cff8f7fe8MI Self-Test|r %d checks, |cff%s%d failed|r. Showing the report.")
         :format(#results, failed > 0 and "ff4444" or "44ff44", failed))
-    showReport(text)
+    showReportSafely(text)
 end

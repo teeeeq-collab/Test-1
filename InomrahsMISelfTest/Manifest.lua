@@ -192,6 +192,7 @@ InomrahsMISelfTestManifest = {
         "UI.Init",
         "UI.KeyCapture",
         "UI.KeyboardReport",
+        "UI.KeyboardWatchdog",
         "UI.OpenRun",
         "UI.PanelButton",
         "UI.PendingRelayout",
@@ -221,6 +222,7 @@ InomrahsMISelfTestManifest = {
         "UI.SidebarWidgets",
         "UI.StringBox",
         "UI.StringWindow",
+        "UI.SweepKeyboard",
         "UI.TitleBar",
         "UI.Toggle",
         "UI.ToggleButton",
@@ -256,7 +258,7 @@ InomrahsMISelfTestManifest = {
         "InomrahsMIToggle",
     },
     slash = {
-        "/imi",
+        "SLASH_INOMRAHSMI1=/imi",
     },
     snippets = {
         "_onclick",
@@ -281,5 +283,5 @@ InomrahsMISelfTestManifest = {
         "toggleKey",
         "width",
     },
-    builtFor = "0.32",
+    builtFor = "0.33",
 }
