@@ -752,9 +752,11 @@ local function paintStep()
         F.step.body:SetText("Leave combat, then run |cffffd200/imitest runlab copy|r "
             .. "and send the report back.")
         F.step.next:Hide()
+        if F.step.skip then F.step.skip:Hide() end
         return
     end
 
+    if F.step.skip then F.step.skip:Hide() end
     F.step.title:SetText(("|cffffd200STEP %d / %d|r   %s")
         :format(stepIndex, #steps, step.phase or ""))
     F.step.body:SetText(step.text or "")
@@ -799,6 +801,7 @@ local function advance()
                     .. "\n\n|cffff6666Timed out. Press Retry, or /imitest runlab report.|r")
                 F.step.next:Show()
                 F.step.next.label:SetText("Retry step")
+                if F.step.skip then F.step.skip:Show() end
                 step.manual = true
                 step.retry = true
             end
@@ -850,6 +853,28 @@ local function buildStepPanel()
         advance()
     end)
     f.next:SetPoint("BOTTOMRIGHT", -10, 8)
+
+    -- A step that cannot be satisfied used to offer only Retry, which re-ran
+    -- the same step forever. Skipping records an honest INCONCLUSIVE and moves
+    -- on, so one stuck question does not cost the rest of the sequence.
+    f.skip = plainButton(f, "Skip step", 90, 20, function()
+        local step = currentStep()
+        if step then
+            step.retry, step.manual = nil, nil
+            record({
+                capability = step.capability or ("step " .. stepIndex),
+                -- inCombat() is declared further down the file and would be a
+                -- nil global from inside this closure.
+                context = InCombatLockdown() and "combat" or "out of combat",
+                trigger = "skipped by the player",
+                conclusion = "INCONCLUSIVE — step skipped",
+            })
+        end
+        stopWatching()
+        advance()
+    end)
+    f.skip:SetPoint("BOTTOMRIGHT", -126, 8)
+    f.skip:Hide()
 
     F.step = f
     return f
@@ -980,8 +1005,29 @@ end
 local function firedSince(which, mark) return (fired[which] or 0) > mark end
 
 --- Builds one "press the key, did the action fire" step.
-local function actionStep(phase, capability, text, prepare, restore)
+---
+--- `which` selects the action: 1 is the ordinary button, 2 the clipped one in
+--- the viewport, each with its own key, its own counter and its own frame. It
+--- was hardcoded to 1, so the clipped step told the reader to press F11, F11
+--- correctly incremented counter 2, and the step sat watching counter 1 until
+--- it timed out -- turning the one question that step exists to answer into an
+--- INCONCLUSIVE no matter what the client actually did.
+--- `expect` is the state the step is asking about: {text=, check=}. Without it
+--- a step measures whatever happens to be on screen, so forgetting to click the
+--- hide button first produced a confident YES for "the key works while hidden"
+--- measured against a button that was never hidden. A wrong answer here is worse
+--- than no answer, because nothing downstream would question it.
+local function actionStep(phase, capability, text, prepare, restore, which, expect)
+    which = which or 1
     local mark, before
+    local chord = CHORDS[which]
+    local function target() return which == 2 and F.clipped or F.action end
+    local function ready()
+        if not expect then return true end
+        local ok, result = pcall(expect.check)
+        return ok and result == true
+    end
+    local warned = false
     return {
         phase = phase,
         capability = capability,
@@ -989,31 +1035,49 @@ local function actionStep(phase, capability, text, prepare, restore)
         timeout = 90,
         enter = function()
             if prepare then pcall(prepare) end
-            mark = fired[1] or 0
+            mark = fired[which] or 0
+            local frame = target()
             before = {
-                shown = shown(F.action), visible = visible(F.action),
-                alpha = alpha(F.action), w = width(F.action), h = height(F.action),
-                left = left(F.action), top = top(F.action),
+                shown = shown(frame), visible = visible(frame),
+                alpha = alpha(frame), w = width(frame), h = height(frame),
+                left = left(frame), top = top(frame),
             }
         end,
         observe = function()
             if not inCombat() then
                 return false, "combat ended"
             end
-            return firedSince(1, mark)
+            if not ready() then
+                -- Re-mark, so a press made while the state was wrong is not
+                -- counted once the state becomes right.
+                mark = fired[which] or 0
+                if not warned and F.step then
+                    warned = true
+                    F.step.body:SetText((text or "") .. "\n\n|cffff8800Not yet: "
+                        .. (expect.text or "the state this step needs is not set")
+                        .. ".|r")
+                end
+                return false, "the state this step needs was never set: "
+                    .. (expect.text or "?")
+            end
+            if warned and F.step then
+                warned = false
+                F.step.body:SetText((text or "") .. "\n\n|cff44ff44Ready — press the key.|r")
+            end
+            return firedSince(which, mark)
         end,
         done = function()
             record({
                 capability = capability,
                 context = inCombat() and "combat" or "combat ended before measuring",
-                trigger = "override key " .. CHORDS[1].key,
+                trigger = "override key " .. (chord and chord.key or "?"),
                 target = "SecureActionButtonTemplate",
                 operation = "press the bound key",
                 before = ("shown %s, visible %s, alpha %s, %sx%s")
                     :format(tri(before.shown), tri(before.visible),
                             fmt(before.alpha), fmt(before.w), fmt(before.h)),
-                execBefore = mark, execAfter = fired[1],
-                conclusion = firedSince(1, mark)
+                execBefore = mark, execAfter = fired[which],
+                conclusion = firedSince(which, mark)
                     and "YES — observed" or "NO — observed refusal",
             })
             if restore then pcall(restore) end
@@ -1245,7 +1309,10 @@ local function buildSteps()
     add(actionStep("hidden states", "action key with the root hidden",
         "The root is hidden. Press |cffffd200" .. CHORDS[1].key .. "|r.\n"
         .. "This is the question that decides whether a keybind-first mode can "
-        .. "exist with nothing on screen."))
+        .. "exist with nothing on screen.",
+        nil, nil, 1,
+        { text = "the root is not hidden — click hide/show root",
+          check = function() return shown(F.root) == false end }))
 
     add({
         phase = "hidden states",
@@ -1268,55 +1335,108 @@ local function buildSteps()
         end,
     })
 
+    -- One click per step, always. These used to read "click X to bring it back,
+    -- then click Y" -- two actions, one button, one measurement. Clicking only
+    -- the first and pressing "I clicked it" left the next step measuring a
+    -- state that was never set, and the mistake only surfaced two steps later.
+    local function restoreStep(label, opLabel, check)
+        return {
+            phase = "hidden states",
+            capability = "restore: " .. label,
+            text = "Click |cffffd200" .. opLabel .. "|r to bring it back.\n"
+                .. "This step moves on by itself once " .. label .. ".",
+            timeout = 90,
+            observe = function()
+                local ok, result = pcall(check)
+                if ok and result == true then return true end
+                return false, "still waiting for: " .. label
+            end,
+        }
+    end
+
+    local function opAttr(opKey, name)
+        for _, entry in ipairs(F.ops or {}) do
+            if entry.key == opKey then
+                local ok, value = pcall(entry.button.GetAttribute, entry.button, name)
+                if ok then return value end
+            end
+        end
+        return nil
+    end
+
     add(secureOpStep("hidden states", "secure Hide on the protected ancestor",
         "hide/show ancestor",
         "Click |cffffd200hide/show ancestor|r. Only the inner panel should go.",
         "opanc"))
     add(actionStep("hidden states", "action key with the ancestor hidden",
-        "Press |cffffd200" .. CHORDS[1].key .. "|r with the ancestor hidden.",
-        nil,
-        function() end))
+        "The ancestor is hidden. Press |cffffd200" .. CHORDS[1].key .. "|r.",
+        nil, nil, 1,
+        { text = "the ancestor is not hidden — click hide/show ancestor",
+          check = function() return shown(F.ancestor) == false end }))
+
+    add(restoreStep("the ancestor is visible again", "hide/show ancestor",
+        function() return shown(F.ancestor) == true end))
 
     add(secureOpStep("hidden states", "secure Hide on the action button",
         "hide/show action",
-        "Click |cffffd200hide/show ancestor|r again to bring it back, then "
-        .. "|cffffd200hide/show action|r.", "opaction"))
+        "Click |cffffd200hide/show action|r. The orange button should go, and "
+        .. "nothing else.", "opaction"))
     add(actionStep("hidden states", "action key with the action button hidden",
-        "Press |cffffd200" .. CHORDS[1].key .. "|r with the button itself hidden.\n"
+        "The button itself is hidden. Press |cffffd200" .. CHORDS[1].key .. "|r.\n"
         .. "Production's toggle key proves a secure *handler* still answers when "
-        .. "hidden. Whether an action button does is a different question."))
+        .. "hidden. Whether an action button does is a different question.",
+        nil, nil, 1,
+        { text = "the action button is not hidden — click hide/show action",
+          check = function() return shown(F.action) == false end }))
+
+    add(restoreStep("the action button is visible again", "hide/show action",
+        function() return shown(F.action) == true end))
 
     add(secureOpStep("hidden states", "secure Hide on the visual-only child",
         "hide/show visual",
-        "Click |cffffd200hide/show action|r to bring it back, then "
-        .. "|cffffd200hide/show visual|r.", "opvisual"))
+        "Click |cffffd200hide/show visual|r. Only the button's decoration goes; "
+        .. "the button stays.", "opvisual"))
     add(actionStep("hidden states", "action key with only the visual child hidden",
-        "Press |cffffd200" .. CHORDS[1].key .. "|r. The button is shown; only its "
-        .. "decoration is gone."))
+        "The button is shown; only its decoration is gone.\n"
+        .. "Press |cffffd200" .. CHORDS[1].key .. "|r.",
+        nil, nil, 1,
+        { text = "the decoration is not hidden — click hide/show visual",
+          check = function() return shown(F.visual) == false end }))
+
+    add(restoreStep("the decoration is visible again", "hide/show visual",
+        function() return shown(F.visual) == true end))
 
     add(secureOpStep("hidden states", "secure re-anchor of the action button",
         "park/unpark",
-        "Click |cffffd200hide/show visual|r to bring it back, then "
-        .. "|cffffd200park/unpark|r to move the button far off screen.", "oppark"))
+        "Click |cffffd200park/unpark|r to move the button far off screen.",
+        "oppark"))
     add(actionStep("hidden states", "action key while the button is parked off screen",
-        "Press |cffffd200" .. CHORDS[1].key .. "|r while the button is parked."))
+        "The button is parked off screen. Press |cffffd200" .. CHORDS[1].key .. "|r.",
+        nil, nil, 1,
+        { text = "the button is not parked — click park/unpark",
+          check = function() return opAttr("oppark", "parked") == true end }))
+
+    add(restoreStep("the button is back in place", "park/unpark",
+        function() return opAttr("oppark", "parked") ~= true end))
 
     add(secureOpStep("hidden states", "secure resize of the action button to 1x1",
         "1x1 / normal",
-        "Click |cffffd200park/unpark|r to bring it back, then "
-        .. "|cffffd2001x1 / normal|r.", "opsize"))
+        "Click |cffffd2001x1 / normal|r to shrink the button to one pixel.",
+        "opsize"))
     add(actionStep("hidden states", "action key while the button is 1x1",
-        "Press |cffffd200" .. CHORDS[1].key .. "|r while the button is one pixel."))
+        "The button is one pixel. Press |cffffd200" .. CHORDS[1].key .. "|r.",
+        nil, nil, 1,
+        { text = "the button is not 1x1 — click 1x1 / normal",
+          check = function() return opAttr("opsize", "small") == true end }))
+
+    add(restoreStep("the button is its normal size again", "1x1 / normal",
+        function() return opAttr("opsize", "small") ~= true end))
 
     add(actionStep("hidden states", "action key on a clipped button",
         "Press |cffffd200" .. CHORDS[2].key .. "|r — the second action, which is "
         .. "inside a viewport and scrolled out of sight.\n"
         .. "It is shown, but clipped away.",
-        function()
-            pcall(function() F.action:SetWidth(baseline.actW or ACTION_W) end)
-            pcall(function() F.action:SetHeight(baseline.actH or ACTION_H) end)
-            Lab.clipMark = fired[2] or 0
-        end))
+        nil, nil, 2))
 
     ----------------------------------------------------------------------------
     -- Phase 3 — geometry on the protected ancestor: the Compact question.
@@ -1615,6 +1735,8 @@ local HELP = {
     "  /imitest runlab reset      back to baseline",
     "  /imitest runlab release    emergency: unbind, restore, let go",
     "",
+    "runlab goto <n>   resume at step n, out of combat",
+    "",
     "The lab guides you a step at a time once it is set up.",
     "Use a training dummy. Never during a real key.",
     "",
@@ -1711,6 +1833,37 @@ function Lab.Command(arg)
         say("they vanish on /reload, and on |cffffd200/imitest runlab release|r.")
         say("now get on a |cffffd200training dummy|r and follow the panel.")
         endCapture("arm")
+        return
+    end
+
+    -- Resuming. A run that dies at step 24 of 28 should not cost the 23 steps
+    -- that already worked: copy the report, reinstall, and start again where it
+    -- stopped. Everything before the target is recorded as not attempted, so a
+    -- resumed report can never be mistaken for a complete one.
+    local target = arg:match("^goto%s+(%d+)$")
+    if target then
+        if InCombatLockdown() then say("|cffff4444out of combat only.|r") return end
+        target = tonumber(target)
+        if not target or target < 1 or target > #steps then
+            say("step numbers run 1 to %d.", #steps)
+            return
+        end
+        restoreBaseline()
+        stepIndex = target - 1
+        for index = 1, stepIndex do
+            local step = steps[index]
+            if step and step.capability then
+                record({
+                    capability = step.capability,
+                    context = "not attempted",
+                    trigger = "skipped by |cffffd200runlab goto|r",
+                    conclusion = "INCONCLUSIVE — not attempted in this run",
+                })
+            end
+        end
+        advance()
+        say("resuming at step %d of %d. steps 1-%d are marked not attempted.",
+            target, #steps, stepIndex)
         return
     end
 

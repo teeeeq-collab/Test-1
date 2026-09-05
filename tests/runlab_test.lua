@@ -326,11 +326,120 @@ check("preflight, arm and help put their output in the report window", function(
     InomrahsMISelfTestAPI.Report = realReport
 end)
 
+-- The bug that stranded a live run at step 24 of 28: the clipped step told the
+-- reader to press the second key, and then watched the first key's counter.
+check("each action step watches the key it asks for", function()
+    Lab.Command("setup")
+    local source = io.open("InomrahsMISelfTest/RunLab.lua"):read("*a")
+
+    -- The generic builder must not name a single chord or counter any more.
+    local body = source:match("local function actionStep.-\nend\n")
+    if not body then error("could not find actionStep") end
+    for _, literal in ipairs({ "CHORDS%[1%]", "fired%[1%]", "firedSince%(1," }) do
+        if body:find(literal) then
+            error(("actionStep still hardcodes %s"):format(literal:gsub("%%", "")))
+        end
+    end
+
+    -- And the step that asks for the second key must actually ask for action 2.
+    -- Matched loosely on purpose: this asserts the pairing, not the shape of
+    -- the call, so reformatting the step does not fail the check for no reason.
+    local clipped = source:match('"action key on a clipped button"(.-)\n\n')
+    if not clipped then error("could not find the clipped step") end
+    if not clipped:find("CHORDS%[2%]") then
+        error("the clipped step does not ask for the second key")
+    end
+    if not clipped:find(",%s*2%s*%)%)%s*$") then
+        error("the clipped step does not select the second action")
+    end
+end)
+
+-- The reported failure: an instruction that said "click X to bring it back,
+-- then click Y" was one button and one measurement for two separate actions.
+-- Click only the first, press "I clicked it", and the next step measured a
+-- state nobody had set -- reporting a confident YES for a button that was
+-- never hidden. Two invariants close it: one action per step, and every step
+-- that names a state refuses to measure until that state actually holds.
+check("no step asks for two clicks, and stateful steps check their state", function()
+    local source = io.open("InomrahsMISelfTest/RunLab.lua"):read("*a")
+
+    local build = source:match("local function buildSteps.-\nend\n")
+    if not build then error("could not find buildSteps") end
+
+    if build:find("bring it back, then") then
+        error("a step still combines a restore and the next action in one click")
+    end
+
+    -- Judged on the capability, not the body text: the capability is what the
+    -- report will claim, and "Nothing is hidden yet" is a body that mentions a
+    -- state without asserting one.
+    --
+    -- The clipped step is exempt: its state is how the lab is built, not
+    -- something the reader has to click into place first.
+    for block in build:gmatch("add%(actionStep(.-)\n\n") do
+        local _, capability = block:match('"([^"]*)"%s*,%s*"([^"]*)"')
+        capability = capability or ""
+        local stateful = (capability:find("hidden") or capability:find("parked")
+            or capability:find("1x1")) and not capability:find("clipped")
+        if stateful and not block:find("check = function", 1, true) then
+            error(("the step %q describes a state but never checks it")
+                :format(capability))
+        end
+    end
+end)
+
+check("a stuck step can be skipped and a run can be resumed", function()
+    Lab.Command("setup")
+    local source = io.open("InomrahsMISelfTest/RunLab.lua"):read("*a")
+    if not source:find('f.skip = plainButton', 1, true) then
+        error("no skip button on the step panel")
+    end
+    if not source:find('F.step.skip:Show()', 1, true) then
+        error("the skip button is never shown")
+    end
+
+    -- goto refuses nonsense and does not throw on any of it.
+    for _, cmd in ipairs({ "goto 0", "goto 9999", "goto", "goto x" }) do
+        local ok, err = pcall(Lab.Command, cmd)
+        if not ok then error(("runlab %s -> %s"):format(cmd, tostring(err))) end
+    end
+
+    -- And a real jump marks everything before it as not attempted, so a
+    -- resumed report cannot be read as a complete one.
+    local realReport = InomrahsMISelfTestAPI.Report
+    local shown
+    InomrahsMISelfTestAPI.Report = function(text) shown = text end
+    Lab.Command("goto 4")
+    Lab.Command("copy")
+    InomrahsMISelfTestAPI.Report = realReport
+
+    if not shown then error("no report after goto") end
+    if not shown:find("not attempted", 1, true) then
+        error("goto did not mark the skipped steps as not attempted")
+    end
+end)
+
 check("the report survives having nothing to report", function()
     Lab.Command("setup")
     Lab.Command("report")
     Lab.Command("copy")
 end)
+
+-- Printed so a change in the sequence length is visible in the run output
+-- rather than something to be counted by hand before every handoff.
+InomrahsMISelfTestRunLab.Command("setup")
+do
+    local realReport = InomrahsMISelfTestAPI.Report
+    InomrahsMISelfTestAPI.Report = function() end
+    local out = print
+    print = function(line)
+        local n = tostring(line):match("step numbers run 1 to (%d+)")
+        if n then realPrint(("runlab sequence: %s steps"):format(n)) end
+    end
+    InomrahsMISelfTestRunLab.Command("goto 9999")
+    print = out
+    InomrahsMISelfTestAPI.Report = realReport
+end
 
 realPrint(("\nrunlab: %d passed, %d failed"):format(pass, fail))
 if fail > 0 then os.exit(1) end

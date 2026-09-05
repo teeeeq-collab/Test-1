@@ -1,5 +1,5 @@
 RUN CAPABILITY LAB — STAGE 1
-InomrahsMISelfTest 0.9.1
+InomrahsMISelfTest 0.9.2
 Production addon unchanged at v0.41
 
 ===============================================================================
@@ -78,9 +78,21 @@ C. WHAT TO DO IN GAME
        bound to something, tell me and I will change the key.
  5. Press ARM on the red bar         (or /imitest runlab arm)
  6. Go to a TRAINING DUMMY in any city. Not a real key. Not a real dungeon.
- 7. Follow the panel at the top of the screen. One instruction at a time.
-       Some steps advance by themselves once the lab sees what it was
-       waiting for. Others have a button to press when you have done them.
+ 7. Follow the panel at the top of the screen. 33 steps, one action each.
+       Some advance by themselves once the lab sees the state it was waiting
+       for. Others have a button to press when you have done them.
+
+       A step that names a state -- "the ancestor is hidden", "the button is
+       parked" -- will not measure anything until that state actually holds.
+       If it is not set, the panel says so in orange instead of recording a
+       result against the wrong state.
+
+       If a step will not advance, wait for its timeout and press Skip step.
+       The report records it as INCONCLUSIVE and the run continues.
+
+       To resume a run that stopped part way: /imitest runlab goto <n>.
+       Everything before n is recorded as not attempted, so a resumed report
+       can never be mistaken for a complete one.
  8. When the panel says it is finished, stop attacking and leave combat.
  9. Press COPY on the red bar   -> select all, copy, send it back
        (or /imitest runlab copy — the same thing)
