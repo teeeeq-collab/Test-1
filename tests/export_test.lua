@@ -210,3 +210,67 @@ ckr("with a reason", type(badErr) == "string" and badErr ~= "", badErr)
 
 print(("\nimport over profile: %d passed, %d failed"):format(pr, fr))
 if fr > 0 then os.exit(1) end
+
+--------------------------------------------------------------------------------
+-- Written text to import string, outside the game
+--
+-- tools/makestring.lua turns a written profile into the string Export produces
+-- in game. It works by loading these same files rather than reimplementing the
+-- format, and this is what holds that claim up: text in, string out, and the
+-- addon's own decoder gets back what was written.
+--------------------------------------------------------------------------------
+
+loadfile("InomrahsMythicInstructions/Sheet.lua")("InomrahsMythicInstructions", IMI)
+
+local pm, fm = 0, 0
+local function ckm(label, cond, got)
+    if cond then pm = pm + 1
+    else fm = fm + 1; print("  FAIL: " .. label .. (got and ("  " .. tostring(got)) or "")) end
+end
+
+local WRITTEN = table.concat({
+    "Dungeon: Altar of Fangs",
+    "Channel: /i",
+    "Enemy: Ravenous Descendant",
+    "Kick the Enrage",
+    "Spread for the cone",
+    "Enemy: Venom Leech",
+    "Dispel the leech",
+    "",
+    "Dungeon: Murder Row",
+    "Enemy: Gutter Thug",
+    "Kick the heal",
+}, "\n")
+
+local written = IMI.Sheet.Parse(WRITTEN)
+ckm("written text parses", written ~= nil)
+
+IMI.Core.Init({})
+for _, cat in ipairs(written.categories) do IMI.Export.Adopt(cat) end
+local made = IMI.Export.EncodeProfile()
+ckm("it encodes to a string", type(made) == "string" and made:sub(1, 6) == "!IMI1:",
+    made and made:sub(1, 12))
+
+local back, backErr, backCount = IMI.Export.Preview(made)
+ckm("and the addon's own decoder reads it", back ~= nil, backErr)
+ckm("with both dungeons", backCount == 2, backCount)
+
+if back then
+    local altar = back.categories[1]
+    ckm("named as written", altar.name == "Altar of Fangs", altar.name)
+    ckm("with its channel", altar.channel == "/i", altar.channel)
+
+    local list = altar.variants[1].enemies
+    ckm("with its enemies", #list == 2, #list)
+    ckm("in order", list[1].name == "Ravenous Descendant", list[1].name)
+    ckm("and their callouts", #list[1].lines == 2 and #list[2].lines == 1,
+        ("%d and %d"):format(#list[1].lines, #list[2].lines))
+    ckm("with the text intact", list[1].lines[1].body == "Kick the Enrage",
+        list[1].lines[1].body)
+end
+
+-- A string is worth having because it is one line and survives a chat window.
+ckm("the string is one line", made and not made:find("[\r\n]"))
+
+print(("\nmakestring: %d passed, %d failed"):format(pm, fm))
+if fm > 0 then os.exit(1) end
