@@ -658,6 +658,43 @@ check("every snippet records that it started before it can throw", function()
     end
 end)
 
+-- A snippet stops dead where it throws, so anything after that point is
+-- silent. Every geometry snippet stamps between its calls: entered, cleared,
+-- pointed, ran. Without that, "entered 1, ran 0" names a snippet but not the
+-- call inside it, which is a gap wide enough to theorise into.
+check("the geometry snippets stamp between each call", function()
+    local source = io.open("InomrahsMISelfTest/RunLab.lua"):read("*a")
+
+    for _, name in ipairs({ "TOGGLE_PARK", "TOGGLE_ANCHOR", "TOGGLE_SELF_ANCHOR" }) do
+        local body = source:match("local " .. name .. " = %[==%[(.-)%]==%]")
+        if not body then error("could not find " .. name) end
+
+        local order = {}
+        for stamp in body:gmatch('SetAttribute%("(%a+)"') do
+            if stamp == "entered" or stamp == "cleared" or stamp == "pointed"
+                or stamp == "ran" then
+                order[#order + 1] = stamp
+            end
+        end
+        local seen = table.concat(order, ",")
+        for _, stamp in ipairs({ "entered", "cleared", "pointed", "ran" }) do
+            if not seen:find(stamp, 1, true) then
+                error(("%s never stamps %s"):format(name, stamp))
+            end
+        end
+
+        -- And each stamp must follow the call it vouches for.
+        local clearAt = body:find("ClearAllPoints", 1, true)
+        local clearedAt = body:find('SetAttribute("cleared"', 1, true)
+        local pointAt = body:find("SetPoint", 1, true)
+        local pointedAt = body:find('SetAttribute("pointed"', 1, true)
+        if not (clearAt < clearedAt and clearedAt < pointAt and pointAt < pointedAt) then
+            error(("%s stamps out of order -- a stamp before its call proves nothing")
+                :format(name))
+        end
+    end
+end)
+
 check("the report survives having nothing to report", function()
     Lab.Command("setup")
     Lab.Command("report")

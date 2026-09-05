@@ -264,15 +264,17 @@ local TOGGLE_PARK = [==[
     -- after, so a refused SetPoint left the toggle believing it had never
     -- parked: the next click took the same branch, was refused in the same
     -- place, and the button could never come back.
+    target:ClearAllPoints()
+    self:SetAttribute("cleared", (self:GetAttribute("cleared") or 0) + 1)
+
     if self:GetAttribute("parked") then
         self:SetAttribute("parked", false)
-        target:ClearAllPoints()
         target:SetPoint("TOPLEFT", home, "TOPLEFT", 0, 0)
     else
         self:SetAttribute("parked", true)
-        target:ClearAllPoints()
         target:SetPoint("TOPLEFT", home, "TOPLEFT", PARK_X_VALUE, PARK_Y_VALUE)
     end
+    self:SetAttribute("pointed", (self:GetAttribute("pointed") or 0) + 1)
 
     self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
 ]==]
@@ -328,15 +330,17 @@ local TOGGLE_ANCHOR = [==[
     local home = self:GetFrameRef("home")
     if not target or not home then return end
 
+    target:ClearAllPoints()
+    self:SetAttribute("cleared", (self:GetAttribute("cleared") or 0) + 1)
+
     if self:GetAttribute("moved") then
         self:SetAttribute("moved", false)
-        target:ClearAllPoints()
         target:SetPoint("TOPLEFT", home, "TOPLEFT", 0, 0)
     else
         self:SetAttribute("moved", true)
-        target:ClearAllPoints()
         target:SetPoint("TOPLEFT", home, "TOPLEFT", 40, -40)
     end
+    self:SetAttribute("pointed", (self:GetAttribute("pointed") or 0) + 1)
 
     self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
 ]==]
@@ -412,15 +416,20 @@ local TOGGLE_SELF_ANCHOR = [==[
     local target = self:GetFrameRef("target")
     if not target then return end
 
+    -- A stamp between every call, because a snippet that throws stops dead and
+    -- everything after it is silent. entered/cleared/pointed/ran names the
+    -- exact call that is refused instead of leaving a gap to be theorised over.
+    target:ClearAllPoints()
+    self:SetAttribute("cleared", (self:GetAttribute("cleared") or 0) + 1)
+
     if self:GetAttribute("selfmoved") then
         self:SetAttribute("selfmoved", false)
-        target:ClearAllPoints()
         target:SetPoint("TOPLEFT", 10, -24)
     else
         self:SetAttribute("selfmoved", true)
-        target:ClearAllPoints()
         target:SetPoint("TOPLEFT", 50, -64)
     end
+    self:SetAttribute("pointed", (self:GetAttribute("pointed") or 0) + 1)
 
     self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
 ]==]
@@ -2270,11 +2279,12 @@ function Lab.Command(arg)
             -- entered 1 with ran 0 is a snippet that threw partway, which is a
             -- different fact from a click that never arrived, and the two were
             -- indistinguishable before.
-            say("%-18s clicks %-3s entered %-3s ran %-3s  at %s,%s  %sx%s  shown %s",
-                entry.text,
-                tostring(button.clicks or 0),
-                tostring(attr("entered")), tostring(attr("ran")),
-                fmt(l), fmt(t), fmt(w), fmt(h), tri(shown(button)))
+            say("%-18s clicks %s  entered %s cleared %s pointed %s ran %s  "
+                .. "at %s,%s  %sx%s",
+                entry.text, tostring(button.clicks or 0),
+                tostring(attr("entered")), tostring(attr("cleared")),
+                tostring(attr("pointed")), tostring(attr("ran")),
+                fmt(l), fmt(t), fmt(w), fmt(h))
         end
         endCapture("which buttons receive clicks")
         return
