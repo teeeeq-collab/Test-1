@@ -398,6 +398,15 @@ check("a stuck step can be skipped and a run can be resumed", function()
         error("the skip button is never shown")
     end
 
+    -- Shown by paintStep, so every step carries it from the moment it opens.
+    -- Gating it behind a timeout meant the steps most likely to be stuck were
+    -- the ones that made you wait ninety seconds to move on.
+    local paint = source:match("local function paintStep%b()(.-)\nend\n")
+    if not paint then error("could not find paintStep") end
+    if not paint:find("F.step.skip:Show()", 1, true) then
+        error("skip is not shown when a step is painted")
+    end
+
     -- goto refuses nonsense and does not throw on any of it.
     for _, cmd in ipairs({ "goto 0", "goto 9999", "goto", "goto x" }) do
         local ok, err = pcall(Lab.Command, cmd)
@@ -562,6 +571,36 @@ check("an unreadable state never satisfies a step", function()
     end
     if gates < 2 then
         error("a step gate accepts something other than an explicit true")
+    end
+end)
+
+-- A step that measures counters knows more than "nothing observed" does. Its
+-- record was thrown away whenever it timed out or was skipped -- which is
+-- exactly when the answer mattered, because the counters say whether the
+-- snippet ran.
+check("a timed-out counter step still records what it measured", function()
+    local source = io.open("InomrahsMISelfTest/RunLab.lua"):read("*a")
+
+    if not source:find("recordOnTimeout", 1, true) then
+        error("no recordOnTimeout path")
+    end
+
+    -- Both exits honour it: the timeout and the skip button.
+    local timeouts = 0
+    for _ in source:gmatch("step%.recordOnTimeout and step%.done") do
+        timeouts = timeouts + 1
+    end
+    if timeouts < 2 then
+        error(("only %d of the two exits run the step's own record"):format(timeouts))
+    end
+
+    -- And every step that counts clicks sets it, or its answer is lost.
+    for _, marker in ipairs({ "secure width and height on a protected ancestor",
+                             "secure re-anchor of a protected ancestor" }) do
+        local block = source:match('capability = "' .. marker:gsub("%p", "%%%1") .. '",(.-)\n%s*text =')
+        if not block or not block:find("recordOnTimeout", 1, true) then
+            error(("%s loses its record on a timeout"):format(marker))
+        end
     end
 end)
 

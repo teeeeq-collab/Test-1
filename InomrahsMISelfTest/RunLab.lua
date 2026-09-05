@@ -842,7 +842,11 @@ local function paintStep()
         return
     end
 
-    if F.step.skip then F.step.skip:Hide() end
+    -- Skip is on every step, from the moment it opens. It appeared only after
+    -- a 90 second timeout, then only on steps that declared a state to check,
+    -- which meant the steps most likely to be unsatisfiable -- the restores --
+    -- were the ones that made you sit and wait for permission to move on.
+    if F.step.skip then F.step.skip:Show() end
     F.step.title:SetText(("|cffffd200STEP %d / %d|r   %s")
         :format(stepIndex, #steps, step.phase or ""))
     F.step.body:SetText(step.text or "")
@@ -875,13 +879,21 @@ local function advance()
                 if step.done then pcall(step.done) end
                 advance()
             elseif waited > (step.timeout or 120) then
-                record({
-                    capability = step.capability or ("step " .. stepIndex),
-                    context = "combat", trigger = "waiting for the player",
-                    conclusion = "INCONCLUSIVE — nothing observed within "
-                        .. tostring(step.timeout or 120) .. " seconds",
-                    note = why or "",
-                })
+                -- A step that measures counters knows more about what happened
+                -- than "nothing observed" does. Its own record is written even
+                -- when it never advanced: the snippet ran, or it did not, and
+                -- that is the whole question for these steps.
+                if step.recordOnTimeout and step.done then
+                    pcall(step.done)
+                else
+                    record({
+                        capability = step.capability or ("step " .. stepIndex),
+                        context = "combat", trigger = "waiting for the player",
+                        conclusion = "INCONCLUSIVE — nothing observed within "
+                            .. tostring(step.timeout or 120) .. " seconds",
+                        note = why or "",
+                    })
+                end
                 stopWatching()
                 F.step.body:SetText((step.text or "")
                     .. "\n\n|cffff6666Timed out. Press Retry, or /imitest runlab report.|r")
@@ -945,6 +957,13 @@ local function buildStepPanel()
     -- on, so one stuck question does not cost the rest of the sequence.
     f.skip = plainButton(f, "Skip step", 90, 20, function()
         local step = currentStep()
+        if step and step.recordOnTimeout and step.done then
+            step.retry, step.manual = nil, nil
+            pcall(step.done)
+            stopWatching()
+            advance()
+            return
+        end
         if step then
             step.retry, step.manual = nil, nil
             record({
@@ -1634,6 +1653,7 @@ local function buildSteps(mode)
         phase = "geometry",
         capability = "secure width and height on a protected ancestor",
         timeout = 90,
+        recordOnTimeout = true,
         text = "Click |cffffd200ancestor w/h|r in the lab window.\n"
             .. "This is the shape a denser Run layout would need in combat.\n"
             .. "This step moves on by itself once it sees the click.",
@@ -1682,6 +1702,7 @@ local function buildSteps(mode)
         phase = "geometry",
         capability = "secure re-anchor of a protected ancestor",
         timeout = 90,
+        recordOnTimeout = true,
         text = "Click |cffffd200ancestor anchor|r.\n"
             .. "The inner panel should shift down and right.\n"
             .. "This step moves on by itself once it sees the click.",
@@ -1736,6 +1757,7 @@ local function buildSteps(mode)
             phase = "snippet route",
             capability = capability,
             timeout = 90,
+            recordOnTimeout = true,
             text = "Click |cffffd200" .. opLabel .. "|r in the lab window.\n"
                 .. "Ordinary code was refused this in combat. A snippet may not be.\n"
                 .. "This step moves on by itself once it sees the click.",
