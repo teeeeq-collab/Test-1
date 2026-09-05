@@ -1523,19 +1523,36 @@ local function buildSteps(mode)
     -- client's behaviour. These read the frame instead, using the same values
     -- runlab status prints without trouble.
     --
-    -- An unanchored frame counts as away from home on purpose: that is exactly
-    -- what a successful ClearAllPoints followed by a refused SetPoint leaves
-    -- behind, and it is emphatically not "still in place".
+    -- An unreadable position is unknown, not parked.
+    --
+    -- It counted as parked, on the theory that an unanchored frame is what a
+    -- refused SetPoint leaves behind. That theory was wrong -- the click had
+    -- never reached the button -- and the cost was the worst kind of result:
+    -- "action key while the button is parked off screen: YES" recorded against
+    -- a button sitting at 160x34 in its usual place. A step that cannot read
+    -- the state must stall and be skipped, never guess and pass.
     local function awayFromHome()
         local here, home = left(F.action), left(F.home)
-        if here == nil then return true end
-        if home == nil then return false end
+        if here == nil or home == nil then return nil end
         return math.abs(here - home) > 50
+    end
+
+    local function atHome()
+        local away = awayFromHome()
+        if away == nil then return nil end
+        return away == false
     end
 
     local function tiny()
         local w = width(F.action)
-        return w ~= nil and w <= 2
+        if w == nil then return nil end
+        return w <= 2
+    end
+
+    local function normalSize()
+        local small = tiny()
+        if small == nil then return nil end
+        return small == false
     end
 
     add(secureOpStep("hidden states", "secure Hide on the protected ancestor",
@@ -1590,8 +1607,7 @@ local function buildSteps(mode)
         { text = "the button is not parked — click park/unpark",
           check = awayFromHome }))
 
-    add(restoreStep("the button is back in place", "park/unpark",
-        function() return awayFromHome() == false end))
+    add(restoreStep("the button is back in place", "park/unpark", atHome))
 
     add(secureOpStep("hidden states", "secure resize of the action button to 1x1",
         "1x1 / normal",
@@ -1603,8 +1619,7 @@ local function buildSteps(mode)
         { text = "the button is not 1x1 — click 1x1 / normal",
           check = tiny }))
 
-    add(restoreStep("the button is its normal size again", "1x1 / normal",
-        function() return tiny() == false end))
+    add(restoreStep("the button is its normal size again", "1x1 / normal", normalSize))
 
     add(actionStep("hidden states", "action key on a clipped button",
         "Press |cffffd200" .. CHORDS[2].key .. "|r — the second action, which is "

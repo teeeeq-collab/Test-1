@@ -539,6 +539,32 @@ check("nothing sits on top of the operation buttons", function()
     end
 end)
 
+-- A state the lab cannot read must stall the step, never satisfy it. Treating
+-- an unreadable position as "parked" produced the worst line in the second live
+-- report: "action key while the button is parked off screen -- YES", recorded
+-- against a button the same entry shows sitting at 160x34 in its usual place.
+check("an unreadable state never satisfies a step", function()
+    local source = io.open("InomrahsMISelfTest/RunLab.lua"):read("*a")
+
+    for _, name in ipairs({ "awayFromHome", "tiny" }) do
+        local body = source:match("local function " .. name .. "%b()(.-)\n    end")
+        if not body then error("could not find " .. name) end
+        if not body:find("return nil", 1, true) then
+            error(("%s does not report an unreadable state as unknown"):format(name))
+        end
+    end
+
+    -- And both gates must demand an explicit true, so nil cannot pass.
+    local gates = 0
+    for _ in source:gmatch("ok and result == true") do gates = gates + 1 end
+    for _ in source:gmatch("if ok and result == true then return true end") do
+        gates = gates + 1
+    end
+    if gates < 2 then
+        error("a step gate accepts something other than an explicit true")
+    end
+end)
+
 check("the report survives having nothing to report", function()
     Lab.Command("setup")
     Lab.Command("report")
