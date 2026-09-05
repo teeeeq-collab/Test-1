@@ -1930,5 +1930,156 @@ check("a new page does not inherit the open page's override", function()
     if second.channel ~= nil then error("the new page copied the old one's channel") end
 end)
 
+--------------------------------------------------------------------------------
+-- Setting a keybind, through the dialog
+--
+-- Eighty-five checks covered the parts -- chords, conflicts, which row an
+-- assignment lands on -- and none of them covered the one thing that matters:
+-- click Set, press a key, is it stored. It was not, for every version the
+-- feature has existed in, and no test noticed because no test pressed a key.
+--------------------------------------------------------------------------------
+
+local function pageWithACallout()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Binding")
+    local mob = IMI.Core.AddEnemy(cat.id, "Mob")
+    local line = IMI.Core.AddLine(cat.id, mob.id, "", "/p kick")
+    local second = IMI.Core.AddLine(cat.id, mob.id, "", "/p stun")
+    local page = IMI.Core.AddPage(cat.id, "Route")
+    IMI.Core.AddEnemyToPage(cat.id, page.id, mob.id)
+
+    IMI.UI.Show("edit")
+    IMI.Edit.SetCategory(cat.id)
+    IMI.Edit.ShowTab("pages")
+    IMI.Binds.Open(cat.id, page.id)
+
+    return cat, page, line, second, IMI.Binds.Frame().dialog
+end
+
+local function press(d, key)
+    local script = d:GetScript("OnKeyDown")
+    if not script then error("the dialog does not answer the keyboard") end
+    script(d, key)
+end
+
+check("clicking Set and pressing a key stores the key", function()
+    local cat, page, line, _, d = pageWithACallout()
+
+    local row = d.rows[1]
+    if not row then error("the dialog listed no callouts") end
+
+    row.button:GetScript("OnClick")(row.button, "LeftButton")
+    if not d.captureArmed then error("clicking Set did not arm the capture") end
+
+    press(d, "E")
+
+    local stored = IMI.Core.LineBind(cat.id, page.id, line.id)
+    if stored ~= "E" then error("the key was not stored: " .. tostring(stored)) end
+    if d.captureArmed then error("the capture is still armed after the key") end
+end)
+
+check("and the row shows it afterwards", function()
+    local _, _, _, _, d = pageWithACallout()
+    d.rows[1].button:GetScript("OnClick")(d.rows[1].button, "LeftButton")
+    press(d, "E")
+
+    local shown = IMI.Binds.Frame().dialog.rows[1].button:GetText()
+    if shown ~= "E" then error("the row still reads " .. tostring(shown)) end
+end)
+
+check("a chord is stored whole", function()
+    local cat, page, line, _, d = pageWithACallout()
+    d.rows[1].button:GetScript("OnClick")(d.rows[1].button, "LeftButton")
+
+    stub.shift, stub.ctrl = true, true
+    press(d, "E")
+    stub.shift, stub.ctrl = false, false
+
+    local stored = IMI.Core.LineBind(cat.id, page.id, line.id)
+    if stored ~= "CTRL-SHIFT-E" then error("wrong chord: " .. tostring(stored)) end
+end)
+
+check("Escape sets nothing and gives the keyboard back", function()
+    local cat, page, line, _, d = pageWithACallout()
+    d.rows[1].button:GetScript("OnClick")(d.rows[1].button, "LeftButton")
+    press(d, "ESCAPE")
+
+    if IMI.Core.LineBind(cat.id, page.id, line.id) ~= nil then
+        error("Escape bound a key")
+    end
+    if d.keyboard then error("Escape left the keyboard held") end
+end)
+
+check("giving a key to a second callout takes it off the first", function()
+    local cat, page, first, second, d = pageWithACallout()
+
+    d.rows[1].button:GetScript("OnClick")(d.rows[1].button, "LeftButton")
+    press(d, "E")
+
+    local rows = IMI.Binds.Frame().dialog.rows
+    rows[2].button:GetScript("OnClick")(rows[2].button, "LeftButton")
+    press(IMI.Binds.Frame().dialog, "E")
+
+    if IMI.Core.LineBind(cat.id, page.id, second.id) ~= "E" then
+        error("the second callout did not take the key")
+    end
+    if IMI.Core.LineBind(cat.id, page.id, first.id) ~= nil then
+        error("both callouts answer to the same key")
+    end
+end)
+
+check("right-clicking a key clears it", function()
+    local cat, page, line, _, d = pageWithACallout()
+    d.rows[1].button:GetScript("OnClick")(d.rows[1].button, "LeftButton")
+    press(d, "E")
+
+    local rows = IMI.Binds.Frame().dialog.rows
+    rows[1].button:GetScript("OnClick")(rows[1].button, "RightButton")
+    if IMI.Core.LineBind(cat.id, page.id, line.id) ~= nil then
+        error("right-click did not clear the key")
+    end
+end)
+
+check("the paging rows bind too", function()
+    local _, _, _, _, d = pageWithACallout()
+
+    -- Last two rows are Next page and Previous page, shared by every page.
+    local rows = d.rows
+    local nextRow = rows[#IMI.Binds.Rows(d.catId, d.pageId) - 1]
+    nextRow.button:GetScript("OnClick")(nextRow.button, "LeftButton")
+    press(d, "F")
+
+    if IMI.Core.Settings().pageNextKey ~= "F" then
+        error("the paging key was not stored: "
+            .. tostring(IMI.Core.Settings().pageNextKey))
+    end
+end)
+
+-- A dialog covers what it is asking about, so it has to be readable over it
+-- and movable off it.
+check("a dialog does not fade with the opacity setting", function()
+    IMI.Style.SetOpacity(0.3)
+
+    local _, _, _, _, d = pageWithACallout()
+    if not d.ground then error("the dialog has no ground to check") end
+    if (d.ground.alpha or 1) < 1 then
+        error("the dialog faded with the panel: alpha " .. tostring(d.ground.alpha))
+    end
+
+    -- And the panel it sits over still does fade, or the setting would have
+    -- stopped working rather than stopped reaching dialogs.
+    if (IMI.UI.ContentPanel().ground.alpha or 1) >= 1 then
+        error("the content panel no longer follows opacity")
+    end
+
+    IMI.Style.SetOpacity(1)
+end)
+
+check("and can be dragged out of the way", function()
+    local _, _, _, _, d = pageWithACallout()
+    if not d:GetScript("OnDragStart") then error("the dialog cannot be moved") end
+    if not d:GetScript("OnDragStop") then error("a drag would never stop") end
+end)
+
 realPrint(("\n%d passed, %d failed"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

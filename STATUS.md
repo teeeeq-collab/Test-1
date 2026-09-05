@@ -37,6 +37,30 @@ that produced it.
 
 ## Known to have been broken, now fixed
 
+**Page keybinds could not be set at all** (every version the feature existed
+in). Clicking Set armed the capture and the key arrived, but nothing was
+stored. `UI.KeyCapture` called the tidy-up callback from inside its release,
+*before* the key handler ran — and the keybind dialog's tidy-up clears which
+row is waiting, which is the state the key handler needed. So the handler
+returned immediately, every time.
+
+Fixed in v0.41: the keyboard goes back first, the key is acted on, and the
+control is put back to normal last. The dialog also reads its row from the
+closure rather than from that shared state, so its behaviour no longer turns on
+the order two callbacks happen to run in.
+
+Eighty-five binds checks covered chords, conflicts and which row an assignment
+lands on. None of them clicked Set and pressed a key, which is the only thing
+that matters. Seven do now, and five of them fail against the old code.
+
+**Dialogs faded with the opacity setting and could not be moved** (v0.40 and
+earlier). Opacity is there to let the game show through the panel while you
+play; a dialog is a question on top of everything, and fading it makes the
+thing being asked about harder to read at the moment you have to read it. The
+keybind, colour, confirmation and name dialogs are opaque now, and can be
+dragged out of the way.
+
+
 **The spreadsheet import produced nonsense** (v0.38). Not the parser: WoW
 strips tab characters when text is pasted into an edit box, so a block copied
 across several spreadsheet columns arrives as one run-together line per row and

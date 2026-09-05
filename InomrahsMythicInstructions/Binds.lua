@@ -151,7 +151,7 @@ local function build()
     d:SetPoint("CENTER", IMI.UI.root, "CENTER", 0, 0)
     d:SetFrameStrata("FULLSCREEN_DIALOG")
     d:SetFrameLevel(blocker:GetFrameLevel() + 10)
-    IMI.Style.Panel(d, IMI.Style.colors.dialog)
+    IMI.Style.Dialog(d)
 
     d.title = IMI.Style.Header(d, "Keybinds")
     d.title:SetPoint("TOP", 0, -10)
@@ -252,17 +252,19 @@ function Binds.Refresh()
             self:SetText("press a key")
             d.help:SetText("|cffffd200Press a key. Escape cancels.|r")
 
+            -- Reads the row from this closure rather than from waitingRow.
+            -- Which row is waiting is shared state that the tidy-up clears, so
+            -- depending on it here made this handler's behaviour turn on the
+            -- order two callbacks happened to run in.
             IMI.UI.ArmKeyCapture(d, function(chord)
-                if not waitingRow then return end
-
                 local rows = Binds.Rows(d.catId, d.pageId)
-                local _, clash = Binds.Conflict(rows, chord, waitingRow.index)
+                local _, clash = Binds.Conflict(rows, chord, i)
                 if clash then
                     assign(d.catId, d.pageId, clash, nil)
                     Util.Print(("|cffffff00%s|r taken from %s."):format(chord, clash.label))
                 end
 
-                assign(d.catId, d.pageId, waitingRow.data, chord)
+                assign(d.catId, d.pageId, data, chord)
                 stopWaiting()
                 Binds.Refresh()
             end, function()

@@ -222,13 +222,40 @@ end
 
 function Style.Opacity() return currentOpacity end
 
-function Style.Background(frame, color, layer)
+--- @param opaque  keep this ground out of the opacity setting.
+---
+--- Opacity is there to let the game show through the panel while you play. A
+--- dialog is not something you play behind: it is a question, on top of
+--- everything, and fading it makes the thing you are being asked about harder
+--- to read at the moment you have to read it.
+function Style.Background(frame, color, layer, opaque)
     local tex = frame:CreateTexture(nil, layer or "BACKGROUND")
     tex:SetAllPoints()
     tex:SetColorTexture(unpackColor(color))
     -- Alpha here is separate from the colour's own alpha, so a button
     -- repainting itself on hover cannot undo it.
+    if opaque then return tex end
     return Style.Ground(tex)
+end
+
+--- A dialog panel: opaque, and something you can move out of the way.
+---
+--- Both for the same reason. A dialog covers what it is asking about, so it
+--- must be readable over it and must be movable off it. The blocker underneath
+--- keeps swallowing clicks wherever the panel ends up.
+function Style.Dialog(frame, color)
+    Style.Panel(frame, color or Style.colors.dialog, true)
+
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", function(self)
+        if InCombatLockdown and InCombatLockdown() then return end
+        self:StartMoving()
+    end)
+    frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+    frame:SetClampedToScreen(true)
+    return frame
 end
 
 --- A one-pixel rule, drawn as four thin textures.
@@ -269,8 +296,10 @@ function Style.SetBorderColor(frame, color)
 end
 
 --- A panel: dark ground, gold rule. Used for the window and each column.
-function Style.Panel(frame, color)
-    Style.Background(frame, color or Style.colors.panel)
+function Style.Panel(frame, color, opaque)
+    -- Kept on the frame so a test can ask whether this ground fades, which is
+    -- the whole of what "a dialog does not follow opacity" means.
+    frame.ground = Style.Background(frame, color or Style.colors.panel, nil, opaque)
     -- Follows the palette: this is the rule a dungeon's colour is most visible
     -- on, and the one Settings calls "panel edge".
     Style.Border(frame, Style.active.gold or Style.colors.gold, 1, "gold")

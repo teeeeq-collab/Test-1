@@ -120,7 +120,7 @@ local function build()
     d:SetPoint("CENTER", IMI.UI.root, "CENTER", 0, 0)
     d:SetFrameStrata("FULLSCREEN_DIALOG")
     d:SetFrameLevel(blocker:GetFrameLevel() + 10)
-    IMI.Style.Panel(d, IMI.Style.colors.dialog)
+    IMI.Style.Dialog(d)
 
     d.title = IMI.Style.Header(d, "")
     d.title:SetPoint("TOP", 0, -10)

@@ -129,7 +129,13 @@ function UI.KeyCapture(frame)
     frame.captureArmed = false
     frame:EnableKeyboard(false)
 
-    local function release(announce)
+    --- Gives the keyboard back. `keepEnd` holds back the tidy-up callback for
+    --- the caller to run itself, which matters more than it looks: onCaptureEnd
+    --- exists to put the waiting control back to normal, and a caller that
+    --- tracks which control is waiting will have cleared that state by the time
+    --- the key handler runs. Running the two in the wrong order is what stopped
+    --- page keybinds being settable at all.
+    local function release(announce, keepEnd)
         frame.captureArmed = false
         frame:EnableKeyboard(false)
         frame:SetScript("OnUpdate", nil)
@@ -137,7 +143,7 @@ function UI.KeyCapture(frame)
         -- path not thought of here cannot swallow them.
         if frame.SetPropagateKeyboardInput then frame:SetPropagateKeyboardInput(true) end
         if announce then Util.Print("|cffff4444no key pressed. the keyboard is yours again.|r") end
-        if frame.onCaptureEnd then frame.onCaptureEnd() end
+        if not keepEnd and frame.onCaptureEnd then frame.onCaptureEnd() end
     end
     frame.ReleaseKeys = release
 
@@ -157,9 +163,14 @@ function UI.KeyCapture(frame)
         local chord = IMI.Binds.Chord(key, IsShiftKeyDown(), IsControlKeyDown(), IsAltKeyDown())
         if not chord then return end        -- a bare modifier: keep waiting
 
+        -- The keyboard goes back first, then the key is acted on, and only
+        -- then is the control put back to normal. Releasing all three at once
+        -- ran the tidy-up before the handler, and the handler found the state
+        -- it needed already cleared.
         local handler = self.onCaptureKey
-        release()
+        release(false, true)
         if handler then handler(chord) end
+        if self.onCaptureEnd then self.onCaptureEnd() end
     end)
 
     frame:HookScript("OnHide", function() release() end)
@@ -704,7 +715,7 @@ function UI.Confirm(opts)
         d:SetPoint("CENTER", root, "CENTER", 0, 0)
         d:SetFrameStrata("FULLSCREEN_DIALOG")
         d:SetFrameLevel(blocker:GetFrameLevel() + 10)
-        IMI.Style.Panel(d, IMI.Style.colors.dialog)
+        IMI.Style.Dialog(d)
 
         d.title = IMI.Style.Header(d, "")
         d.title:SetPoint("TOP", 0, -12)
@@ -794,7 +805,7 @@ function UI.Prompt(opts)
         d:SetPoint("CENTER", root, "CENTER", 0, 0)
         d:SetFrameStrata("FULLSCREEN_DIALOG")
         d:SetFrameLevel(blocker:GetFrameLevel() + 10)
-        IMI.Style.Panel(d, IMI.Style.colors.dialog)
+        IMI.Style.Dialog(d)
 
         d.title = IMI.Style.Header(d, "")
         d.title:SetPoint("TOP", 0, -12)

@@ -177,6 +177,7 @@ InomrahsMISelfTestManifest = {
         "Style.Border",
         "Style.Button",
         "Style.Check",
+        "Style.Dialog",
         "Style.DungeonColor",
         "Style.EditBox",
         "Style.Ground",
@@ -318,5 +319,5 @@ InomrahsMISelfTestManifest = {
         "toggleKey",
         "width",
     },
-    builtFor = "0.40",
+    builtFor = "0.41",
 }
