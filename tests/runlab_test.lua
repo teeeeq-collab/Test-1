@@ -774,6 +774,33 @@ check("the frame-anchor probe attempts the useful form first", function()
     end
 end)
 
+-- Re-parenting moves a protected frame out of the hierarchy every other probe
+-- measures against. Left there, every later reading is taken in the wrong place
+-- and looks like a refusal.
+check("re-parenting is undone by the restore", function()
+    local source = io.open("InomrahsMISelfTest/RunLab.lua"):read("*a")
+
+    local restore = source:match("local function restoreBaseline%b()(.-)\nend\n")
+    if not restore then error("could not find restoreBaseline") end
+    if not restore:find("F.action:SetParent(F.ancestor)", 1, true) then
+        error("the restore does not put the action button back in its hierarchy")
+    end
+
+    -- The slots exist and are placed with offsets, which is legal out of
+    -- combat and is the whole point: the precision lives here, so the snippet
+    -- needs none.
+    Lab.Command("setup")
+    for _, name in ipairs({ "SlotA", "SlotB" }) do
+        local slot = _G["InomrahsMISelfTestRunLab" .. name]
+        if not slot then error("no " .. name) end
+        local point = slot.points and slot.points[1]
+        if not point then error(name .. " has no anchor") end
+        if (point.x or 0) == 0 and (point.y or 0) == 0 then
+            error(name .. " sits exactly on its parent's corner, so it proves nothing")
+        end
+    end
+end)
+
 check("the report survives having nothing to report", function()
     Lab.Command("setup")
     Lab.Command("report")

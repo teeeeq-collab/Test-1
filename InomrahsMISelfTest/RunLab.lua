@@ -519,6 +519,43 @@ local TOGGLE_ANCHOR_FRAME = [==[
     self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
 ]==]
 
+--- Re-parenting: the last route to a position that was chosen in advance.
+---
+--- Restricted SetPoint turns out to accept exactly one argument. A point, and
+--- nothing after it -- no offsets, no relative frame. So a protected frame can
+--- be pinned to one of its parent's nine anchor points, or made to fill it, and
+--- that is the whole vocabulary.
+---
+--- But SetParent is in the method inventory for both the generic frame and the
+--- action button, and has never been called. If it is permitted, the vocabulary
+--- is enough after all: build empty slot frames out of combat, positioned to
+--- the pixel wherever a layout wants them, and in combat move a protected frame
+--- between slots and fill each one. Arbitrary positions, all decided before the
+--- fight, reached with the two calls that are allowed during it.
+local TOGGLE_REPARENT = [==[
+    self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
+    local target = self:GetFrameRef("target")
+    local slotA = self:GetFrameRef("slotA")
+    local slotB = self:GetFrameRef("slotB")
+    if not target or not slotA or not slotB then return end
+
+    local slot = slotA
+    if self:GetAttribute("inB") then
+        self:SetAttribute("inB", false)
+    else
+        self:SetAttribute("inB", true)
+        slot = slotB
+    end
+
+    target:SetParent(slot)
+    self:SetAttribute("reparented", (self:GetAttribute("reparented") or 0) + 1)
+
+    target:SetAllPoints()
+    self:SetAttribute("filled", (self:GetAttribute("filled") or 0) + 1)
+
+    self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
+]==]
+
 --- The rescue. Shows everything the lab can hide, unconditionally, in one
 --- click. It is the reason a destructive probe is safe to run at all, so it
 --- takes no arguments, reads no state, and cannot be told not to.
@@ -687,6 +724,16 @@ local function build()
     F.home:SetSize(ACTION_W, ACTION_H)
     F.home:SetPoint("TOPLEFT", 8, -8)
 
+    -- Two empty slots, positioned to the pixel out of combat. Nothing draws
+    -- them; their only job is to be somewhere exact that a snippet can name.
+    F.slotA = CreateFrame("Frame", "InomrahsMISelfTestRunLabSlotA", F.ancestor)
+    F.slotA:SetSize(ACTION_W, ACTION_H)
+    F.slotA:SetPoint("TOPLEFT", 8, -8)
+
+    F.slotB = CreateFrame("Frame", "InomrahsMISelfTestRunLabSlotB", F.ancestor)
+    F.slotB:SetSize(ACTION_W / 2, ACTION_H)
+    F.slotB:SetPoint("TOPRIGHT", -8, -48)
+
     -- Now the underlay can take its position from the one frame no probe moves.
     F.underlay:SetPoint("TOPLEFT", F.home, "TOPLEFT", 0, 0)
 
@@ -829,6 +876,8 @@ local function build()
     op("OpCause",  "anchor: which",      TOGGLE_ANCHOR_CAUSE, { target = F.ancestor })
     op("OpToFrame", "anchor: to frame",  TOGGLE_ANCHOR_FRAME,
         { target = F.action, home = F.home })
+    op("OpReparent", "reparent to slot", TOGGLE_REPARENT,
+        { target = F.action, slotA = F.slotA, slotB = F.slotB })
 
     for i, entry in ipairs(F.ops) do
         local col = (i - 1) % 3
@@ -923,6 +972,10 @@ local function restoreBaseline()
     end
 
     pcall(function()
+        -- A re-parented action button stays re-parented until something says
+        -- otherwise, and every later measurement would be taken in the wrong
+        -- place without this.
+        F.action:SetParent(F.ancestor)
         F.action:ClearAllPoints()
         F.action:SetPoint("TOPLEFT", F.home, "TOPLEFT", 0, 0)
         F.action:SetWidth(baseline.actW or ACTION_W)
@@ -2401,9 +2454,12 @@ function Lab.Command(arg)
                 tostring(attr("pointed")), tostring(attr("allpoints")),
                 tostring(attr("centered")), tostring(attr("offset")),
                 tostring(attr("afterclear")), tostring(attr("ran")))
-            if attr("toframe") > 0 or attr("zerooffset") > 0 or entry.key == "optoframe" then
+            if entry.key == "optoframe" then
                 say("    %-14s toframe %s  zerooffset %s",
                     "", tostring(attr("toframe")), tostring(attr("zerooffset")))
+            elseif entry.key == "opreparent" then
+                say("    %-14s reparented %s  filled %s",
+                    "", tostring(attr("reparented")), tostring(attr("filled")))
             end
         end
         endCapture("which buttons receive clicks")
