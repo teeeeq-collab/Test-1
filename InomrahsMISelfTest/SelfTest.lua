@@ -1216,7 +1216,9 @@ SlashCmdList.INOMRAHSMISELFTEST = function(arg)
     -- The lab lives in its own file and owns everything after "runlab". It is
     -- loaded after this one, so it is reached through the global rather than a
     -- local: this file must keep working if the lab file is ever removed.
-    local runlabArg = arg:match("^runlab%s*(.*)$")
+    -- "^runlab%s*(.*)" also swallows "runlabs" and hands the lab "s". The word
+    -- has to end where the command does, or a typo becomes a silent lab call.
+    local runlabArg = (arg == "runlab") and "" or arg:match("^runlab%s+(.*)$")
     if runlabArg then
         local lab = _G.InomrahsMISelfTestRunLab
         if type(lab) ~= "table" or type(lab.Command) ~= "function" then

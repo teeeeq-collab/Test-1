@@ -217,6 +217,115 @@ check("the slash command still answers, lab and not", function()
     end
 end)
 
+-- "It did not error" is not the same fact as "it reached the lab". A handler
+-- that quietly fell through to the whole self-test would pass the check above
+-- while printing the ordinary report, which is exactly the symptom that is
+-- impossible to tell apart from a mistyped command in a screenshot. So spy on
+-- the lab and assert on what it was actually handed.
+check("runlab reaches the lab, with the rest of the line", function()
+    local handler = SlashCmdList.INOMRAHSMISELFTEST
+    local real = Lab.Command
+    local seen
+
+    Lab.Command = function(a) seen = a end
+    local restore = function() Lab.Command = real end
+
+    local cases = {
+        { typed = "runlab",              expect = "" },
+        { typed = "runlab help",         expect = "help" },
+        { typed = "runlab preflight",    expect = "preflight" },
+        { typed = "runlab arm",          expect = "arm" },
+        { typed = "RUNLAB ARM",          expect = "arm" },
+        { typed = "  runlab   status  ", expect = "status" },
+    }
+    for _, case in ipairs(cases) do
+        seen = nil
+        local ok, err = pcall(handler, case.typed)
+        if not ok then restore(); error(("/imitest %s -> %s"):format(case.typed, tostring(err))) end
+        if seen == nil then
+            restore()
+            error(("/imitest %s never reached the lab"):format(case.typed))
+        end
+        if seen ~= case.expect then
+            restore()
+            error(("/imitest %s handed the lab %q, expected %q")
+                :format(case.typed, seen, case.expect))
+        end
+    end
+
+    -- And the other direction: a command that is not the lab's must never be
+    -- handed to it. "runlabs" and "run lab" are near misses, not the prefix.
+    for _, typed in ipairs({ "keyboard", "clear", "combat", "runlabs", "run lab" }) do
+        seen = nil
+        pcall(handler, typed)
+        if seen ~= nil then
+            restore()
+            error(("/imitest %s was handed to the lab as %q"):format(typed, seen))
+        end
+    end
+
+    restore()
+end)
+
+-- The command row. These exist because a mistyped slash command falls through
+-- to the ordinary self-test and prints a report that looks like success.
+check("preflight, arm, status and copy are buttons on the rescue bar", function()
+    Lab.Command("setup")
+    local bar = _G.InomrahsMISelfTestRunLabRescueBar
+    if not bar then error("no rescue bar") end
+
+    local wanted = { PREFLIGHT = true, ARM = true, STATUS = true, COPY = true }
+    local found = {}
+    for _, child in ipairs(bar.children or {}) do
+        local text = child.label and child.label.text
+        if text and wanted[text] then found[text] = child end
+    end
+    for text in pairs(wanted) do
+        if not found[text] then error(("no %s button on the rescue bar"):format(text)) end
+        if not found[text].scripts or not found[text].scripts.OnClick then
+            error(("the %s button does nothing when clicked"):format(text))
+        end
+    end
+end)
+
+-- The bug this whole revision exists for: preflight and arm printed to chat
+-- only, so the report window still held the previous self-test report and a
+-- copy taken from it was indistinguishable from a successful lab run.
+check("preflight, arm and help put their output in the report window", function()
+    Lab.Command("setup")
+    local realReport = InomrahsMISelfTestAPI.Report
+    local shown
+    InomrahsMISelfTestAPI.Report = function(text) shown = text end
+
+    local function attempt(cmd)
+        shown = nil
+        local ok, err = pcall(Lab.Command, cmd)
+        if not ok then
+            InomrahsMISelfTestAPI.Report = realReport
+            error(("runlab %s -> %s"):format(cmd, tostring(err)))
+        end
+        return shown
+    end
+
+    for _, cmd in ipairs({ "help", "preflight", "arm", "status" }) do
+        local text = attempt(cmd)
+        if not text then
+            InomrahsMISelfTestAPI.Report = realReport
+            error(("runlab %s showed nothing in the report window"):format(cmd))
+        end
+        if not text:find("RUN CAPABILITY LAB", 1, true) then
+            InomrahsMISelfTestAPI.Report = realReport
+            error(("runlab %s did not label its output as the lab's"):format(cmd))
+        end
+        if text:find("|c", 1, true) then
+            InomrahsMISelfTestAPI.Report = realReport
+            error(("runlab %s left colour escapes in the window text"):format(cmd))
+        end
+    end
+
+    InomrahsMISelfTestAPI.Report = realReport
+end)
+
 check("the report survives having nothing to report", function()
     Lab.Command("setup")
     Lab.Command("report")

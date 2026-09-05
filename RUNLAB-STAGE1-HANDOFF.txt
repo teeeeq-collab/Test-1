@@ -1,5 +1,5 @@
 RUN CAPABILITY LAB — STAGE 1
-InomrahsMISelfTest 0.9
+InomrahsMISelfTest 0.9.1
 Production addon unchanged at v0.41
 
 ===============================================================================
@@ -70,16 +70,20 @@ C. WHAT TO DO IN GAME
  1. Replace the InomrahsMISelfTest folder with this one.
  2. /reload
  3. /imitest runlab setup
- 4. /imitest runlab preflight
-       Read what it prints. If it says a test key is already bound to
-       something, tell me and I will change the key.
- 5. /imitest runlab arm
+       The word "runlab" has to be in every one of these. Without it the
+       command falls through to the ordinary self-test, which prints a normal
+       looking report and no lab output at all.
+ 4. Press PREFLIGHT on the red bar   (or /imitest runlab preflight)
+       It opens a window with the result. If it says a test key is already
+       bound to something, tell me and I will change the key.
+ 5. Press ARM on the red bar         (or /imitest runlab arm)
  6. Go to a TRAINING DUMMY in any city. Not a real key. Not a real dungeon.
  7. Follow the panel at the top of the screen. One instruction at a time.
        Some steps advance by themselves once the lab sees what it was
        waiting for. Others have a button to press when you have done them.
  8. When the panel says it is finished, stop attacking and leave combat.
- 9. /imitest runlab copy       -> select all, copy, send it back
+ 9. Press COPY on the red bar   -> select all, copy, send it back
+       (or /imitest runlab copy — the same thing)
 10. /imitest copy              -> the ordinary self-test report, also useful
 11. /imitest runlab release    -> turns the test keys off
 

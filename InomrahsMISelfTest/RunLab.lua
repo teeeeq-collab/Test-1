@@ -39,7 +39,45 @@ InomrahsMISelfTestRunLab = {}
 local Lab = InomrahsMISelfTestRunLab
 
 local PREFIX = "|cff8f7fe8MI RunLab|r "
-local function say(...) print(PREFIX .. string.format(...)) end
+--- Chat, and optionally the report window as well.
+---
+--- preflight and arm printed to chat only, which was a mistake: a dozen lines
+--- scroll past, the report window still holds whatever was in it before, and a
+--- copy taken from that window is the ordinary self-test report. The two are
+--- indistinguishable in a screenshot, so the lab now puts its own output in the
+--- window every time rather than relying on the reader to notice.
+local capture = nil
+
+local function say(...)
+    local text = string.format(...)
+    print(PREFIX .. text)
+    if capture then
+        -- Colour escapes are markup for the chat frame; in an EditBox they show
+        -- up as literal |cffffd200, which is worse than no colour at all.
+        local plain = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+        capture[#capture + 1] = plain
+    end
+end
+
+local function beginCapture()
+    capture = {}
+end
+
+--- Close the buffer and show it. Never called from a combat path: the window
+--- is insecure and opening one mid-fight is exactly the kind of surprise this
+--- addon is supposed to avoid.
+local function endCapture(title)
+    local lines = capture
+    capture = nil
+    if not lines or #lines == 0 then return end
+    -- status is the one command that answers during a fight. Covering the
+    -- screen with a report window at that moment would hide the step panel the
+    -- lab is asking the reader to follow. Chat already has every line.
+    if InCombatLockdown() then return end
+    local text = ("RUN CAPABILITY LAB -- %s\n%s\n\n%s\n")
+        :format(title, ("="):rep(62), table.concat(lines, "\n"))
+    if API.Report then API.Report(text) else print(text) end
+end
 
 --------------------------------------------------------------------------------
 -- Results
@@ -497,7 +535,7 @@ local function build()
     ----------------------------------------------------------------------------
     F.rescueBar = CreateFrame("Frame", "InomrahsMISelfTestRunLabRescueBar", UIParent)
     F.rescueBar:SetFrameStrata("FULLSCREEN")
-    F.rescueBar:SetSize(240, 52)
+    F.rescueBar:SetSize(344, 78)
     F.rescueBar:SetPoint("TOP", UIParent, "TOP", 0, -40)
 
     local rescueBg = F.rescueBar:CreateTexture(nil, "BACKGROUND")
@@ -516,8 +554,27 @@ local function build()
     end)
     F.resetBtn:SetPoint("TOPRIGHT", -6, -6)
 
+    -- The command row. Every one of these has a slash command behind it and
+    -- does nothing the slash command does not; they exist because a mistyped
+    -- command falls through to the whole self-test and produces a report that
+    -- looks exactly like a successful run. A button cannot be mistyped.
+    F.cmdButtons = {}
+    local commands = {
+        { text = "PREFLIGHT", cmd = "preflight" },
+        { text = "ARM",       cmd = "arm" },
+        { text = "STATUS",    cmd = "status" },
+        { text = "COPY",      cmd = "copy" },
+    }
+    for index, entry in ipairs(commands) do
+        local b = plainButton(F.rescueBar, entry.text, 80, 22, function()
+            Lab.Command(entry.cmd)
+        end)
+        b:SetPoint("TOPLEFT", 6 + (index - 1) * 84, -32)
+        F.cmdButtons[index] = b
+    end
+
     F.rescueNote = F.rescueBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    F.rescueNote:SetPoint("BOTTOM", 0, 5)
+    F.rescueNote:SetPoint("BOTTOM", 0, 4)
     F.rescueNote:SetText("|cffffaaaaRunLab — restore is always here|r")
 
     ----------------------------------------------------------------------------
@@ -1560,13 +1617,18 @@ local HELP = {
     "",
     "The lab guides you a step at a time once it is set up.",
     "Use a training dummy. Never during a real key.",
+    "",
+    "PREFLIGHT, ARM, STATUS and COPY are also buttons on the red bar at the",
+    "top of the screen, so none of them has to be typed.",
 }
 
 function Lab.Command(arg)
     arg = (arg or ""):lower():match("^%s*(.-)%s*$")
 
     if arg == "" or arg == "help" then
-        for _, line in ipairs(HELP) do print(PREFIX .. line) end
+        beginCapture()
+        for _, line in ipairs(HELP) do say("%s", line) end
+        endCapture("help")
         return
     end
 
@@ -1603,6 +1665,7 @@ function Lab.Command(arg)
     if arg == "preflight" then
         if InCombatLockdown() then say("|cffff4444out of combat only.|r") return end
 
+        beginCapture()
         local missing = {}
         for _, key in ipairs({ "root", "ancestor", "action", "visual", "viewport",
                                "clipped", "underlay", "rescue", "rescueBar",
@@ -1631,6 +1694,7 @@ function Lab.Command(arg)
         inventory("secure header", F.ancestor, HEADER_METHODS)
         inventory("ScrollFrame", F.viewport, SCROLL_METHODS)
         say("restricted method inventories recorded — see the report.")
+        endCapture("preflight")
         return
     end
 
@@ -1639,16 +1703,19 @@ function Lab.Command(arg)
         local ok, why = armBindings()
         if not ok then say("could not arm: %s", tostring(why)) return end
 
-        say("|cffff8800TEST KEYS ARMED — these are temporary.|r")
+        beginCapture()
+        say("TEST KEYS ARMED — these are temporary.")
         for _, chord in ipairs(CHORDS) do
             say("  |cffffd200%s|r  %s", chord.key, chord.what)
         end
         say("they vanish on /reload, and on |cffffd200/imitest runlab release|r.")
         say("now get on a |cffffd200training dummy|r and follow the panel.")
+        endCapture("arm")
         return
     end
 
     if arg == "status" then
+        beginCapture()
         say("combat: %s | step %d/%d", inCombat() and "yes" or "no", stepIndex, #steps)
         say("root shown %s, visible %s, alpha %s",
             tri(shown(F.root)), tri(visible(F.root)), fmt(alpha(F.root)))
@@ -1659,6 +1726,7 @@ function Lab.Command(arg)
             fired[1] or 0, fired[2] or 0, F.underlay.count or 0)
         say("bindings armed: %s | rescue present: %s",
             armed and "yes" or "no", F.rescue and "yes" or "no")
+        endCapture("status")
         return
     end
 
