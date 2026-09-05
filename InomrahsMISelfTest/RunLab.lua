@@ -457,6 +457,40 @@ local TOGGLE_ANCHOR_FORMS = [==[
     self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
 ]==]
 
+--- Which of the two differences actually matters.
+---
+--- SetPoint("CENTER") works. SetPoint("TOPLEFT", 10, -24) does not, and neither
+--- does the version with a frame handle. Two things separate them and only one
+--- can be the cause:
+---
+---   offsets      the working call passes none, the failing ones pass numbers
+---   ClearAllPoints  the failing ones call it first, the working one does not
+---
+--- The consequence is not small. If offsets are refused, a protected frame can
+--- only be pinned to whole anchors and a Compact mode cannot nudge anything.
+--- If ClearAllPoints is what poisons the handle, repositioning is fully
+--- available in combat provided nothing clears first -- and "a protected frame
+--- cannot be moved", which I have now said twice, is wrong.
+---
+--- Ordered so the first refusal is named: a snippet stops where it throws, so
+--- the offset test has to come before anything clears.
+local TOGGLE_ANCHOR_CAUSE = [==[
+    self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
+    local target = self:GetFrameRef("target")
+    if not target then return end
+
+    target:SetPoint("CENTER", 40, -40)
+    self:SetAttribute("offset", (self:GetAttribute("offset") or 0) + 1)
+
+    target:ClearAllPoints()
+    self:SetAttribute("cleared", (self:GetAttribute("cleared") or 0) + 1)
+
+    target:SetPoint("CENTER")
+    self:SetAttribute("afterclear", (self:GetAttribute("afterclear") or 0) + 1)
+
+    self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
+]==]
+
 --- The rescue. Shows everything the lab can hide, unconditionally, in one
 --- click. It is the reason a destructive probe is safe to run at all, so it
 --- takes no arguments, reads no state, and cannot be told not to.
@@ -764,6 +798,7 @@ local function build()
     op("OpFade",   "root fade",          SNIPPET_ALPHA, { target = F.root })
     op("OpSelfAnc", "anchor, no ref",    TOGGLE_SELF_ANCHOR, { target = F.ancestor })
     op("OpForms",  "anchor forms",       TOGGLE_ANCHOR_FORMS, { target = F.ancestor })
+    op("OpCause",  "anchor: which",      TOGGLE_ANCHOR_CAUSE, { target = F.ancestor })
 
     for i, entry in ipairs(F.ops) do
         local col = (i - 1) % 3
@@ -2330,12 +2365,12 @@ function Lab.Command(arg)
             -- different fact from a click that never arrived, and the two were
             -- indistinguishable before.
             say("%-18s entered %s cleared %s pointed %s allpoints %s centered %s "
-                .. "ran %s  clicks %s  at %s,%s",
+                .. "offset %s afterclear %s ran %s",
                 entry.text,
                 tostring(attr("entered")), tostring(attr("cleared")),
                 tostring(attr("pointed")), tostring(attr("allpoints")),
-                tostring(attr("centered")), tostring(attr("ran")),
-                tostring(button.clicks or 0), fmt(l), fmt(t))
+                tostring(attr("centered")), tostring(attr("offset")),
+                tostring(attr("afterclear")), tostring(attr("ran")))
         end
         endCapture("which buttons receive clicks")
         return

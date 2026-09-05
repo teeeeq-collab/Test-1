@@ -725,6 +725,31 @@ check("conclusions are drawn from entered, not from the click hook", function()
     end
 end)
 
+-- A snippet stops where it throws, so a probe that tests two candidate causes
+-- has to attempt the one that must not be poisoned first. TOGGLE_ANCHOR_CAUSE
+-- tries SetPoint with offsets BEFORE it calls ClearAllPoints; the other order
+-- would answer nothing, because a refusal at the clear would hide the offset
+-- question entirely behind it.
+check("the cause probe attempts the offset before anything clears", function()
+    local source = io.open("InomrahsMISelfTest/RunLab.lua"):read("*a")
+    local body = source:match("local TOGGLE_ANCHOR_CAUSE = %[==%[(.-)%]==%]")
+    if not body then error("could not find TOGGLE_ANCHOR_CAUSE") end
+    body = body:gsub("%-%-[^\n]*", "")
+
+    local offsetAt = body:find('SetAttribute%("offset"')
+    local clearAt = body:find("ClearAllPoints", 1, true)
+    local afterAt = body:find('SetAttribute%("afterclear"')
+    if not (offsetAt and clearAt and afterAt) then
+        error("the probe does not stamp all three outcomes")
+    end
+    if offsetAt > clearAt then
+        error("the offset attempt comes after the clear, so it can never be reached")
+    end
+    if clearAt > afterAt then
+        error("afterclear is stamped before anything is cleared")
+    end
+end)
+
 check("the report survives having nothing to report", function()
     Lab.Command("setup")
     Lab.Command("report")
