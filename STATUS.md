@@ -5,6 +5,12 @@ that produced it.
 
 ## Works, verified in game
 
+- A one-line import string anything can build: `!IMIT1!` and the text with
+  backslashes and line breaks escaped — two substitutions, not serialisation
+- `tools/Inomrahs-Mythic-Instructions-profile-builder.xlsx`: a spreadsheet with
+  a tab per dungeon that writes its own import string with formulas, no script
+- `tools/makestring.lua`: written text to a compressed export string, offline
+
 - Chat channel overrides: master setting, per dungeon, per page — nearest wins
 - One spreadsheet paste builds a whole profile: every dungeon, its enemies,
   its callouts, its channel and its colour

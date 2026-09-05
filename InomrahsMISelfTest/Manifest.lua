@@ -167,7 +167,9 @@ InomrahsMISelfTestManifest = {
         "Sheet.Color",
         "Sheet.Format",
         "Sheet.Grid",
+        "Sheet.Pack",
         "Sheet.Parse",
+        "Sheet.Unpack",
         "Starter.Create",
         "Starter.DungeonCount",
         "Style.ApplyTextScale",
@@ -316,5 +318,5 @@ InomrahsMISelfTestManifest = {
         "toggleKey",
         "width",
     },
-    builtFor = "0.39",
+    builtFor = "0.40",
 }

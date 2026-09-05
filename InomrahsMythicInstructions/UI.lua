@@ -2260,13 +2260,22 @@ function UI.BuildSettings(parent)
                     .. "spreadsheet. It replaces what is loaded, and asks first." })
     profileImport:SetPoint("TOPLEFT", 336, y)
 
-    local profileSheet = panelButton(parent, "As sheet", 76, 20, function()
-        UI.ShowExport("Profile as spreadsheet rows",
-            IMI.Sheet.Format(Core.SnapshotProfile()))
-    end, { tip = "Copy out as a spreadsheet",
-           tipDetail = "Tab-separated rows. Paste them into Google Sheets or "
-                    .. "Excel and they land one cell per cell; paste them back "
-                    .. "into Import to bring the changes home." })
+    -- Right-click gives the same content on one line, which is the form that
+    -- fits in a chat message and the form a spreadsheet builds for itself.
+    local profileSheet = panelButton(parent, "As text", 76, 20, nil,
+        { tip = "Copy out as text",
+          tipDetail = "One instruction per line, ready to paste into a "
+                   .. "spreadsheet column or back into Import.\n"
+                   .. "Right-click for the same thing on one line, for sharing." })
+    profileSheet:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    profileSheet:SetScript("OnClick", function(_, mouseButton)
+        local text = IMI.Sheet.Format(Core.SnapshotProfile())
+        if mouseButton == "RightButton" then
+            UI.ShowExport("Profile as one line", IMI.Sheet.Pack(text))
+        else
+            UI.ShowExport("Profile as text", text)
+        end
+    end)
     profileSheet:SetPoint("TOPLEFT", 418, y)
     y = y - 30
 
@@ -2585,7 +2594,10 @@ function UI.ShowHelp()
         "     Dispel the leech",
         "  A line starting Dungeon:, Channel:, Color: or Enemy: says what",
         "  follows; every other line is a callout for the enemy above it.",
-        "  Lines starting # are notes. As sheet writes yours back out.",
+        "  Lines starting # are notes. As text writes yours back out;",
+        "  right-click it for the same thing on one line, for sharing.",
+        "  A spreadsheet can build that one-line string itself with a formula:",
+        "     =\"!IMIT1!\"&SUBSTITUTE(SUBSTITUTE(A1,\"\\\\\",\"\\\\\\\\\"),CHAR(10),\"\\\\n\")",
         "  One column, not several: WoW eats tab characters when you paste, so",
         "  cells copied across columns arrive run together. Import will say so",
         "  rather than importing the mess.",

@@ -47,6 +47,62 @@ local Sheet = IMI.Sheet
 local Util = IMI.Util
 
 --------------------------------------------------------------------------------
+-- The one-line form
+--
+-- The same text, on one line, so it fits in a chat message: a prefix, then the
+-- text with backslashes and line breaks escaped.
+--
+-- It exists so that anything can produce an import string. The compressed
+-- export string needs LibSerialize and DEFLATE, which means either the game or
+-- a port of both into whatever language you are writing in. This needs two
+-- substitutions, which a spreadsheet formula can do -- so a sheet can build its
+-- own import string with no script, no add-on and no tooling.
+--
+-- Deliberately not compressed. A profile is a few kilobytes of plain text and
+-- the saving is not worth being the only thing in the addon that cannot be
+-- produced by hand.
+--------------------------------------------------------------------------------
+
+Sheet.PREFIX = "!IMIT1!"
+
+--- Text to one line.
+function Sheet.Pack(text)
+    return Sheet.PREFIX .. tostring(text or "")
+        :gsub("\\", "\\\\")
+        :gsub("\r\n", "\\n")
+        :gsub("[\r\n]", "\\n")
+end
+
+--- One line back to text, or nil if it is not one of these.
+---
+--- Walked character by character rather than substituted back, because
+--- substitution cannot tell an escaped line break from a literal backslash
+--- followed by an n -- and a callout naming a macro could contain one.
+function Sheet.Unpack(str)
+    if type(str) ~= "string" then return nil end
+
+    local body = str:match("^%s*" .. Sheet.PREFIX:gsub("%p", "%%%0") .. "(.*)$")
+    if not body then return nil end
+
+    local out, i = {}, 1
+    while i <= #body do
+        local c = body:sub(i, i)
+        if c == "\\" then
+            local next = body:sub(i + 1, i + 1)
+            if next == "n" then out[#out + 1] = "\n"
+            elseif next == "\\" then out[#out + 1] = "\\"
+            else out[#out + 1] = next end
+            i = i + 2
+        else
+            out[#out + 1] = c
+            i = i + 1
+        end
+    end
+
+    return table.concat(out)
+end
+
+--------------------------------------------------------------------------------
 -- Reading the paste
 --------------------------------------------------------------------------------
 
@@ -218,6 +274,9 @@ end
 --- sees after a paste that was not a string either, so it says what this
 --- wanted rather than that something failed.
 function Sheet.Parse(text)
+    -- A one-line string is the same text wearing a coat.
+    text = Sheet.Unpack(text) or text
+
     local rows = Sheet.Grid(text)
 
     local categories = {}
@@ -421,46 +480,26 @@ local function variantOf(cat)
     return cat
 end
 
---- Every dungeon in a profile as tab-separated rows.
+--- Every dungeon in a profile, one instruction per line.
 ---
---- Enemies go across in blocks, because a spreadsheet with forty enemies in one
---- row is unreadable and unusable. The block width is the only thing here that
---- is a judgement rather than a rule.
-function Sheet.Format(profile, perBlock)
-    perBlock = perBlock or 4
+--- The same form Import reads, so what comes out goes back in. Written as a
+--- column rather than as a grid because a column is what survives being pasted
+--- into the game: WoW strips tabs, and a grid pasted back would arrive run
+--- together. Writing out a shape that cannot be pasted back would be a trap.
+function Sheet.Format(profile)
     local out = {}
-
-    local function row(...) out[#out + 1] = table.concat({ ... }, "\t") end
 
     for _, cat in ipairs((profile or {}).categories or {}) do
         local variant = variantOf(cat) or {}
 
-        row("Dungeon:", cat.name or "")
-        if cat.channel then row("Channel:", cat.channel) end
+        if #out > 0 then out[#out + 1] = "" end
+        out[#out + 1] = "Dungeon: " .. (cat.name or "")
+        if cat.channel then out[#out + 1] = "Channel: " .. cat.channel end
 
-        local enemies = variant.enemies or {}
-        for from = 1, math.max(1, #enemies), perBlock do
-            local block = {}
-            for i = from, math.min(from + perBlock - 1, #enemies) do
-                block[#block + 1] = enemies[i]
-            end
-            if #block > 0 then
-                local names, deepest = { "Enemy:" }, 0
-                for _, enemy in ipairs(block) do
-                    names[#names + 1] = enemy.name or ""
-                    deepest = math.max(deepest, #(enemy.lines or {}))
-                end
-                row(unpack(names))
-
-                for line = 1, deepest do
-                    local cells = { "" }
-                    for _, enemy in ipairs(block) do
-                        local body = (enemy.lines or {})[line]
-                        cells[#cells + 1] = body and body.body or ""
-                    end
-                    row(unpack(cells))
-                end
-                row("")
+        for _, enemy in ipairs(variant.enemies or {}) do
+            out[#out + 1] = "Enemy: " .. (enemy.name or "")
+            for _, line in ipairs(enemy.lines or {}) do
+                if line.body and line.body ~= "" then out[#out + 1] = line.body end
             end
         end
     end

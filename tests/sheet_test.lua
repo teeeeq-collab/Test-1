@@ -219,6 +219,21 @@ end)
 
 -- More enemies than fit across a readable sheet are written in blocks, and the
 -- blocks have to read back as one dungeon rather than several.
+-- What is written out must be pasteable back in. Written as a grid it would
+-- not be: WoW strips tabs, so a grid pasted back arrives run together, and
+-- writing out a shape that cannot come home would be a trap.
+check("what is written out is a column, not a grid", function()
+    local original = IMI.Sheet.Parse("Dungeon:\tWide\nEnemy:\tA\tB\n\tkick\tstun")
+    local written = IMI.Sheet.Format(original)
+    if written:find("\t", 1, true) then
+        error("the written form contains tabs, which a paste would eat:\n" .. written)
+    end
+
+    local back = IMI.Sheet.Parse(written)
+    if #enemies(back) ~= 2 then error("enemies lost: " .. #enemies(back)) end
+    if enemies(back)[2].lines[1].body ~= "stun" then error("callouts moved") end
+end)
+
 check("a dungeon wider than one block survives the trip", function()
     local rows = { "Dungeon:\tWide", "Enemy:" }
     local names = { "Enemy:" }
@@ -351,6 +366,80 @@ check("a paste with its columns run together is refused, not imported", function
     end
     if not tostring(err):find("run together", 1, true) then
         error("the message does not say what happened: " .. tostring(err))
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- The one-line form
+--
+-- What makes a spreadsheet able to build its own import string: a prefix and
+-- two substitutions, rather than serialisation and compression. If this breaks,
+-- every sheet anyone has built stops working, so it is checked in both
+-- directions and on the awkward content.
+--------------------------------------------------------------------------------
+
+check("text survives being packed onto one line and back", function()
+    local text = "Dungeon: Altar of Fangs\nEnemy: Mob\nkick it"
+    local packed = IMI.Sheet.Pack(text)
+
+    if packed:find("[\r\n]") then error("the packed form is not one line") end
+    if packed:sub(1, 7) ~= "!IMIT1!" then error("wrong prefix: " .. packed:sub(1, 10)) end
+    if IMI.Sheet.Unpack(packed) ~= text then
+        error("it did not come back: " .. tostring(IMI.Sheet.Unpack(packed)))
+    end
+end)
+
+-- A callout can name a macro, and a macro can contain a backslash. Substituting
+-- back cannot tell an escaped line break from a literal backslash and an n.
+check("a literal backslash-n in a callout is not a line break", function()
+    local text = "Enemy: Mob\nsay \\n to break a line"
+    local back = IMI.Sheet.Unpack(IMI.Sheet.Pack(text))
+    if back ~= text then error("mangled: [" .. tostring(back) .. "]") end
+
+    local profile = IMI.Sheet.Parse(IMI.Sheet.Pack(text))
+    local list = enemies(profile)
+    if #list ~= 1 then error("it split into " .. #list .. " enemies") end
+    if #list[1].lines ~= 1 then error("it split into " .. #list[1].lines .. " callouts") end
+end)
+
+check("a packed string imports exactly as its text would", function()
+    local text = table.concat({
+        "Dungeon: Altar of Fangs",
+        "Channel: /i",
+        "Enemy: Ravenous Descendant",
+        "Kick the Enrage",
+        "Enemy: Venom Leech",
+        "Dispel the leech",
+    }, "\n")
+
+    local plain = IMI.Sheet.Parse(text)
+    local packed = IMI.Sheet.Parse(IMI.Sheet.Pack(text))
+    if not packed then error("the packed form did not parse") end
+
+    if #enemies(plain) ~= #enemies(packed) then error("different enemy counts") end
+    if packed.categories[1].name ~= "Altar of Fangs" then error("wrong dungeon") end
+    if packed.categories[1].channel ~= "/i" then error("the channel was lost") end
+    if enemies(packed)[1].lines[1].body ~= "Kick the Enrage" then
+        error("wrong callout: " .. enemies(packed)[1].lines[1].body)
+    end
+end)
+
+check("something that is not one of these is left alone", function()
+    if IMI.Sheet.Unpack("Dungeon: Altar\nEnemy: Mob") ~= nil then
+        error("plain text was mistaken for a packed string")
+    end
+    if IMI.Sheet.Unpack(nil) ~= nil then error("nil was not handled") end
+end)
+
+-- A sheet says nothing about pages, and should not have to: pages are quicker
+-- to build in game. Every dungeon still needs one to have anything to show.
+check("a sheet with no mention of pages still gives each dungeon one", function()
+    local profile = IMI.Sheet.Parse(IMI.Sheet.Pack(
+        "Dungeon: A\nEnemy: One\nkick\n\nDungeon: B\nEnemy: Two\nstun"))
+    for _, cat in ipairs(profile.categories) do
+        local pages = cat.variants[1].pages
+        if #pages ~= 1 then error(cat.name .. " got " .. #pages .. " pages") end
+        if #pages[1].enemyIds ~= 1 then error(cat.name .. "'s enemy is not on its page") end
     end
 end)
 
