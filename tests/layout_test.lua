@@ -13,7 +13,7 @@ for _, f in ipairs({ "Libs/LibStub/LibStub", "Libs/LibDeflate/LibDeflate",
     loadfile("InomrahsMythicInstructions/" .. f .. ".lua")()
 end
 for _, f in ipairs({ "Util", "Color", "Style", "Core", "History", "Runtime", "UI",
-                     "Picker", "Binds", "Edit", "Export", "Starter", "Capture" }) do
+                     "Picker", "Binds", "Edit", "Export", "Sheet", "Starter", "Capture" }) do
     local chunk, err = loadfile("InomrahsMythicInstructions/" .. f .. ".lua")
     if not chunk then realPrint("  FAIL loading " .. f .. ": " .. tostring(err)); os.exit(1) end
     chunk("InomrahsMythicInstructions", IMI)
@@ -166,6 +166,15 @@ noOverlaps("Keybind dialog",
 IMI.Binds.Frame():Hide()
 
 --------------------------------------------------------------------------------
+-- Settings: the Profile row, which is the busiest row in the addon.
+--------------------------------------------------------------------------------
+IMI.UI.Show("settings")
+noOverlaps("Profile row", IMI.UI.ProfileWidgets())
+
+IMI.UI.Show("edit")
+IMI.Edit.SetCategory(cat.id)
+
+--------------------------------------------------------------------------------
 -- The window at its smallest.
 --
 -- Every overlap check above ran at the default size, where there is room to
@@ -191,6 +200,28 @@ noOverlaps("Edit header at the minimum width, Enemies tab", IMI.Edit.HeaderWidge
 noOverlaps("Edit bottom row at the minimum width", IMI.Edit.BottomRowWidgets())
 
 noOverlaps("Title bar at the minimum width", IMI.UI.BarWidgets())
+
+-- Overlap is not the only way a row goes wrong at a narrow window. The
+-- Settings page is a fixed-width scroll child that only scrolls up and down,
+-- so a control past the right edge of the panel is not merely ugly: it cannot
+-- be clicked at all.
+IMI.UI.Show("settings")
+noOverlaps("Profile row at the minimum width", IMI.UI.ProfileWidgets())
+
+do
+    local panel = geom.rect(IMI.UI.SettingsScroll())
+    local out = {}
+    for name, frame in pairs(IMI.UI.ProfileWidgets()) do
+        local r = frame and geom.rect(frame)
+        if r and panel and r.right > panel.right + 1 then
+            out[#out + 1] = ("%s reaches %d, panel ends at %d")
+                :format(name, r.right, panel.right)
+        end
+    end
+    ck("Profile row: every control is reachable at the minimum width",
+        #out == 0, table.concat(out, "\n         "))
+end
+IMI.UI.Show("edit")
 noOverlaps("Dungeon column at the minimum width", IMI.UI.SidebarWidgets())
 
 IMI.UI.Show("run")

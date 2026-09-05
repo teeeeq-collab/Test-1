@@ -61,7 +61,10 @@ end
 
 --- The whole profile. This is the backup unit, and belongs in a file.
 function Export.EncodeProfile()
-    return encode({ v = VERSION, kind = "profile", data = Core.Profile() })
+    -- The snapshot, not the live table: it carries the look as well as the
+    -- dungeons, which is what makes a profile string restore a profile rather
+    -- than just its contents.
+    return encode({ v = VERSION, kind = "profile", data = Core.SnapshotProfile() })
 end
 
 --------------------------------------------------------------------------------
@@ -223,6 +226,58 @@ local function adoptCategory(source)
     Core.SetActiveVariant(cat.id, Core.Variants(cat.id)[1].id)
     return cat
 end
+
+--- What a string would become, as a profile, without applying any of it.
+---
+--- Both kinds answer the same question -- a category string is a profile with
+--- one dungeon in it -- so the caller can describe what is about to happen
+--- before it happens, which is the whole point of asking first.
+function Export.Preview(str)
+    local kind, data, err = Export.Decode(str)
+    if not kind then return nil, err end
+
+    if kind == "category" then
+        local ok, reason = validCategory(data)
+        if not ok then return nil, reason end
+        return { categories = { data } }, nil, 1
+
+    elseif kind == "profile" then
+        if type(data) ~= "table" or type(data.categories) ~= "table" then
+            return nil, "profile is malformed"
+        end
+        for _, cat in ipairs(data.categories) do
+            local ok, reason = validCategory(cat)
+            if not ok then return nil, reason end
+        end
+        return data, nil, #data.categories
+    end
+
+    return nil, ("unknown export kind %q"):format(tostring(kind))
+end
+
+--- Replaces what is loaded with what the string holds.
+---
+--- The destructive one, and deliberately so: an import that added to what was
+--- already there left no way to say "make mine look like yours", which is what
+--- a string handed between teammates is usually for. Everything it can destroy
+--- is offered for saving first, one dialog earlier.
+---
+--- Rebuilt through the same Add calls an import has always used rather than
+--- assigned wholesale, so every id is freshly minted and a string carrying ids
+--- that clash with the ones already in the file cannot poison the result.
+function Export.ImportReplacing(str)
+    local profile, err, count = Export.Preview(str)
+    if not profile then return nil, err end
+
+    Core.ReplaceProfile({ categories = {}, settings = profile.settings })
+    for _, cat in ipairs(profile.categories) do adoptCategory(cat) end
+
+    return ("%d dungeon%s"):format(count, count == 1 and "" or "s")
+end
+
+--- Rebuilding one category into the loaded profile, for callers that have
+--- already decided what happens to what was there.
+function Export.Adopt(cat) return adoptCategory(cat) end
 
 --- Never overwrites. An import lands as a new category or a new profile, so a
 --- bad paste cannot destroy existing work.

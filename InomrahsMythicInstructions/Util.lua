@@ -21,6 +21,19 @@ local Util = IMI.Util
 -- and being wrong at the boundary costs a corrupted macro.
 Util.MAX_MACRO_CHARS = 255
 
+--- A copy that shares nothing with the original.
+---
+--- Profiles are saved and switched by copying, and a shallow copy would leave
+--- two profiles pointing at the same dungeon tables: editing one would silently
+--- edit the other, and the saved copy would not be a saved copy at all.
+function Util.DeepCopy(value)
+    if type(value) ~= "table" then return value end
+
+    local out = {}
+    for k, v in pairs(value) do out[Util.DeepCopy(k)] = Util.DeepCopy(v) end
+    return out
+end
+
 --- Character count, not byte count. strlenutf8 is a WoW global; the fallback
 --- pattern counts anything that is not a UTF-8 continuation byte, which is the
 --- same thing for well-formed text.

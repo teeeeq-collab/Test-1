@@ -481,28 +481,31 @@ end
 --- WoW's own menu API was reworked in 12.x and this addon cannot verify which
 --- form is current from outside the game. A button and a list of buttons has no
 --- such risk, and behaves identically.
-function UI.Dropdown(parent, width)
-    local dd = panelButton(parent, "", width or 150, 20)
+--- The list half of a dropdown, hung under whatever opened it.
+---
+--- Split out so a plain button and an editable name box can both wear one. The
+--- rows are ordinary panel buttons, so the mouseover highlight every other
+--- button in the addon has comes with them rather than being reinvented here.
+local function attachList(owner, anchor, width)
+    owner.list = CreateFrame("Frame", nil, anchor)
+    owner.list:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
+    owner.list:SetWidth(width)
+    owner.list:SetFrameStrata("DIALOG")
+    owner.list:Hide()
 
-    dd.list = CreateFrame("Frame", nil, dd)
-    dd.list:SetPoint("TOPLEFT", dd, "BOTTOMLEFT", 0, -2)
-    dd.list:SetWidth(width or 150)
-    dd.list:SetFrameStrata("DIALOG")
-    dd.list:Hide()
+    IMI.Style.Background(owner.list, IMI.Style.colors.window)
+    IMI.Style.Border(owner.list, IMI.Style.colors.gold)
 
-    IMI.Style.Background(dd.list, IMI.Style.colors.window)
-    IMI.Style.Border(dd.list, IMI.Style.colors.gold)
+    owner.rows = {}
 
-    dd.rows = {}
-
-    function dd:SetItems(items, onSelect)
+    function owner:SetItems(items, onSelect)
         for _, row in ipairs(self.rows) do row:Hide() end
 
         local y = -2
         for i, item in ipairs(items) do
             local row = self.rows[i]
             if not row then
-                row = panelButton(self.list, "", (width or 150) - 6, 18, nil,
+                row = panelButton(self.list, "", width - 6, 18, nil,
                     { justify = "LEFT" })
                 self.rows[i] = row
             end
@@ -519,11 +522,61 @@ function UI.Dropdown(parent, width)
         self.list:SetHeight(math.max(10, math.abs(y) + 2))
     end
 
-    dd:SetScript("OnClick", function(self)
+    function owner:ToggleList()
         if self.list:IsShown() then self.list:Hide() else self.list:Show() end
+    end
+
+    return owner
+end
+
+function UI.Dropdown(parent, width)
+    width = width or 150
+    local dd = attachList(panelButton(parent, "", width, 20), nil, width)
+    dd.list:SetParent(dd)
+    dd.list:ClearAllPoints()
+    dd.list:SetPoint("TOPLEFT", dd, "BOTTOMLEFT", 0, -2)
+
+    dd:SetScript("OnClick", function(self) self:ToggleList() end)
+    return dd
+end
+
+--- Makes an editable name box into a chooser as well.
+---
+--- Clicking a box that shows the name of one of several things should show the
+--- others; typing in it should still rename the one you are on. Both, on one
+--- widget, the same way the dungeon list already works: click picks, double
+--- click renames. Without this the only way to reach page four was to press
+--- the arrow three times and count.
+---
+--- The click is taken by an invisible button over the box rather than by the
+--- box itself, because an edit box takes focus the instant it is clicked and
+--- there is no way to ask it not to.
+function UI.AttachChooser(box, width)
+    local chooser = attachList({}, box, width or (box:GetWidth() or 150))
+
+    chooser.overlay = CreateFrame("Button", nil, box:GetParent())
+    chooser.overlay:SetAllPoints(box)
+    chooser.overlay:SetFrameLevel((box:GetFrameLevel() or 1) + 2)
+    chooser.overlay:RegisterForClicks("LeftButtonUp")
+
+    chooser.overlay:SetScript("OnClick", function() chooser:ToggleList() end)
+    chooser.overlay:SetScript("OnDoubleClick", function(self)
+        chooser.list:Hide()
+        self:Hide()
+        box:SetFocus()
+        box:HighlightText()
     end)
 
-    return dd
+    -- The overlay comes back the moment the box is done being typed into,
+    -- however that happened: Enter, Escape, a click elsewhere, or the panel
+    -- being hidden underneath it.
+    box:HookScript("OnEditFocusLost", function() chooser.overlay:Show() end)
+    box:HookScript("OnHide", function() chooser.overlay:Show() end)
+
+    IMI.Style.Tooltip(chooser.overlay, "Pick or rename",
+        "Click to see the whole list. Double-click to rename this one.")
+
+    return chooser
 end
 
 UI.Skin = skin
@@ -666,6 +719,15 @@ function UI.Confirm(opts)
         d.cancel = panelButton(d, "Cancel", 96, 22, function() blocker:Hide() end)
         d.cancel:SetPoint("RIGHT", d.accept, "LEFT", -8, 0)
 
+        -- A third answer, for the questions that have one. Importing over a
+        -- profile is the case it exists for: keeping the old one and throwing
+        -- it away are two different decisions, and folding them into one
+        -- button would make the safe answer and the destructive answer the
+        -- same click.
+        d.alt = panelButton(d, "", 130, 22)
+        d.alt:SetPoint("RIGHT", d.cancel, "LEFT", -8, 0)
+        d.alt:Hide()
+
         blocker.dialog = d
         confirmFrame = blocker
 
@@ -684,9 +746,103 @@ function UI.Confirm(opts)
         if opts.onAccept then opts.onAccept() end
     end)
 
+    d.alt:SetShown(opts.alt ~= nil)
+    if opts.alt then
+        d.alt:SetText(opts.alt)
+        d.alt:SetWidth(math.max(96, 16 + (d.alt.label and d.alt.label:GetStringWidth() or 96)))
+        d.alt:SetScript("OnClick", function()
+            confirmFrame:Hide()
+            if opts.onAlt then opts.onAlt() end
+        end)
+    end
+
+    -- Wide enough for three answers when there are three. A dialog that clips
+    -- the button you need is worse than one that is bigger than it has to be.
+    d:SetSize(opts.alt and 440 or 320, 140)
+
     confirmFrame:Show()
     return confirmFrame
 end
+
+--------------------------------------------------------------------------------
+-- Asking for a name
+--
+-- Saving a profile and renaming one both need a word from the player before
+-- anything happens. Its own dialog rather than a box tucked into the panel:
+-- the answer decides what the next action does to their data, so it should be
+-- the only thing on screen at that moment.
+--------------------------------------------------------------------------------
+
+local promptFrame
+
+function UI.Prompt(opts)
+    opts = opts or {}
+
+    if not promptFrame then
+        local blocker = CreateFrame("Frame", "InomrahsMIPrompt", root)
+        blocker:SetAllPoints(root)
+        blocker:SetFrameStrata("FULLSCREEN_DIALOG")
+        blocker:EnableMouse(true)
+        blocker:Hide()
+
+        local d = CreateFrame("Frame", nil, blocker)
+        d:SetSize(340, 130)
+        d:SetPoint("CENTER", root, "CENTER", 0, 0)
+        d:SetFrameStrata("FULLSCREEN_DIALOG")
+        d:SetFrameLevel(blocker:GetFrameLevel() + 10)
+        IMI.Style.Panel(d, IMI.Style.colors.dialog)
+
+        d.title = IMI.Style.Header(d, "")
+        d.title:SetPoint("TOP", 0, -12)
+
+        d.box = CreateFrame("EditBox", nil, d)
+        d.box:SetFontObject("ChatFontNormal")
+        IMI.Style.EditBox(d.box)
+        d.box:SetAutoFocus(false)
+        d.box:SetMaxLetters(40)
+        d.box:SetHeight(22)
+        d.box:SetPoint("TOPLEFT", 16, -44)
+        d.box:SetPoint("TOPRIGHT", -16, -44)
+        -- Never leaves the keyboard behind: this is a modal box, and one that
+        -- keeps focus after it closes takes every key you press with it.
+        d.box:HookScript("OnHide", function(self) self:ClearFocus() end)
+        d.box:SetScript("OnEscapePressed", function() blocker:Hide() end)
+
+        d.accept = panelButton(d, "Save", 96, 22)
+        d.accept:SetPoint("BOTTOMRIGHT", -14, 14)
+
+        d.cancel = panelButton(d, "Cancel", 96, 22, function() blocker:Hide() end)
+        d.cancel:SetPoint("RIGHT", d.accept, "LEFT", -8, 0)
+
+        blocker.dialog = d
+        promptFrame = blocker
+
+        if type(UISpecialFrames) == "table" then
+            table.insert(UISpecialFrames, "InomrahsMIPrompt")
+        end
+    end
+
+    local d = promptFrame.dialog
+    d.title:SetText(opts.title or "Name it")
+    d.box:SetText(opts.text or "")
+    d.accept:SetText(opts.accept or "Save")
+
+    local function submit()
+        local value = d.box:GetText() or ""
+        d.box:ClearFocus()
+        promptFrame:Hide()
+        if opts.onAccept then opts.onAccept((value:gsub("^%s+", ""):gsub("%s+$", ""))) end
+    end
+
+    d.accept:SetScript("OnClick", submit)
+    d.box:SetScript("OnEnterPressed", submit)
+
+    promptFrame:Show()
+    return promptFrame
+end
+
+--- The name prompt, for tests.
+function UI.PromptFrame() return promptFrame end
 
 --- The confirmation, for tests: its two buttons are the only way past it.
 function UI.ConfirmFrame() return confirmFrame end
@@ -1169,6 +1325,11 @@ function UI.SidebarCollapsed() return sidebarCollapsed end
 --- The two panels, for tests: how they are anchored is the thing that went
 --- wrong, and it is not visible from outside any other way.
 function UI.ContentPanel() return content end
+
+--- The Settings panel's scroll frame. Exposed so a test can ask what is
+--- actually reachable inside it: the page it scrolls is a fixed width and only
+--- scrolls up and down, so a control past its right edge cannot be clicked.
+function UI.SettingsScroll() return views and views.settings and views.settings.scroll end
 
 --- The smallest the window may be. Exposed so the overlap tests can run at the
 --- size where rows actually collide, rather than only at the roomy default.
@@ -1681,6 +1842,9 @@ function UI.Init()
     IMI.Style.WheelScroll(settingsScroll)
 
     views.settings.page = CreateFrame("Frame", nil, settingsScroll)
+    -- A starting size only. BuildSettings sets the real height from what it
+    -- actually laid out, because a page shorter than its contents scrolls to a
+    -- point and then stops, with the last section unreachable.
     views.settings.page:SetSize(600, 620)
     settingsScroll:SetScrollChild(views.settings.page)
     views.settings.scroll = settingsScroll
@@ -1978,6 +2142,123 @@ function UI.BuildSettings(parent)
     resetColors:SetPoint("TOPLEFT", 40, y)
     y = y - 30
 
+    -- Profiles ---------------------------------------------------------------
+    -- A profile is everything: the dungeons, their variants and pages, and the
+    -- palette. Saving one is how you keep a set of routes you are happy with
+    -- before trying someone else's, and importing is what makes that necessary
+    -- -- an import replaces what is loaded rather than adding to it.
+    y = y - 20
+    local profileHeader = IMI.Style.Header(parent, "Profile")
+    profileHeader:SetPoint("TOPLEFT", 12, y)
+    y = y - 24
+
+    local profileLabel = fontString(parent, "Loaded")
+    profileLabel:SetPoint("TOPLEFT", 14, y - 4)
+
+    local profilePick = UI.Dropdown(parent, 176)
+    profilePick:SetPoint("TOPLEFT", 90, y)
+    IMI.Style.Tooltip(profilePick, "Loaded profile",
+        "Everything the addon holds belongs to one of these. Switching loads "
+        .. "that profile's dungeons and its colours.")
+
+    local profileSaveAs = panelButton(parent, "Save as...", 90, 20, function()
+        UI.Prompt({
+            title = "Save this profile as",
+            text = Core.ActiveProfile(),
+            accept = "Save",
+            onAccept = function(name)
+                local used = Core.SaveProfileAs(name)
+                Core.SwitchProfile(used)
+                UI.RefreshSettings()
+                UI.RefreshCategories()
+                Util.Print(("saved and loaded profile |cffffff00%s|r."):format(used))
+            end,
+        })
+    end, { tip = "Save as",
+           tipDetail = "Keeps a copy of everything as it is now, under a name "
+                    .. "you choose, and loads it." })
+    profileSaveAs:SetPoint("TOPLEFT", 272, y)
+    y = y - 26
+
+    local profileRename = panelButton(parent, "Rename", 76, 20, function()
+        local from = Core.ActiveProfile()
+        UI.Prompt({
+            title = "Rename profile",
+            text = from,
+            accept = "Rename",
+            onAccept = function(name)
+                if not Core.RenameProfile(from, name) then
+                    Util.Print("|cffff4444that name is taken, or empty.|r")
+                    return
+                end
+                UI.RefreshSettings()
+            end,
+        })
+    end)
+    profileRename:SetPoint("TOPLEFT", 90, y)
+
+    local profileDelete = panelButton(parent, "Delete", 76, 20, function()
+        local name = Core.ActiveProfile()
+        UI.Confirm({
+            title = "Delete profile",
+            body = ("Delete %q and everything in it? This cannot be undone.")
+                :format(name),
+            accept = "Delete", danger = true,
+            onAccept = function()
+                if not Core.DeleteProfile(name) then
+                    Util.Print("|cffff4444that is the only profile there is.|r")
+                    return
+                end
+                Core.SwitchProfile(Core.ActiveProfile())
+                UI.RefreshSettings()
+                UI.RefreshCategories()
+                Util.Print(("deleted profile |cffffff00%s|r."):format(name))
+            end,
+        })
+    end, { danger = true, tip = "Delete profile",
+           tipDetail = "Removes this profile and every dungeon in it." })
+    profileDelete:SetPoint("TOPLEFT", 172, y)
+
+    local profileExport = panelButton(parent, "Export", 76, 20, function()
+        local str, err = IMI.Export.EncodeProfile()
+        if not str then
+            Util.Print("|cffff4444" .. (err or "could not export") .. "|r")
+            return
+        end
+        Core.MarkExported()
+        UI.ShowExport("Profile string", str)
+    end, { tip = "Export profile",
+           tipDetail = "A string holding every dungeon and your colours. Keep it "
+                    .. "somewhere safe, or hand it to someone." })
+    profileExport:SetPoint("TOPLEFT", 254, y)
+
+    local profileImport = panelButton(parent, "Import", 76, 20, function()
+        UI.ShowImport("Import a profile", UI.ImportOverProfile,
+            "Paste a string, or rows copied straight out of a spreadsheet. "
+            .. "This replaces the loaded profile — it will ask first.")
+    end, { tip = "Import",
+           tipDetail = "Paste a string, or paste rows copied straight out of a "
+                    .. "spreadsheet. It replaces what is loaded, and asks first." })
+    profileImport:SetPoint("TOPLEFT", 336, y)
+    y = y - 30
+
+    rows[#rows + 1] = function()
+        profilePick:SetText(Core.ActiveProfile() or "Default")
+
+        local items = {}
+        for _, name in ipairs(Core.ProfileNames()) do
+            items[#items + 1] = { text = name, value = name }
+        end
+        profilePick:SetItems(items, function(name)
+            if name == Core.ActiveProfile() then return end
+            Core.SwitchProfile(name)
+            UI.ApplySettings()
+            UI.RefreshSettings()
+            UI.RefreshCategories()
+            Util.Print(("loaded profile |cffffff00%s|r."):format(name))
+        end)
+    end
+
     local resetAll = panelButton(parent, "Reset all", 90, 22, function()
         for key, value in pairs(SETTING_DEFAULTS) do
             Core.Settings()[key] = value
@@ -2003,6 +2284,17 @@ function UI.BuildSettings(parent)
         for _, refresh in ipairs(bindRows) do refresh() end
         for _, refresh in ipairs(swatchRows) do refresh() end
         if chanBtn then chanBtn:SetText(Core.Settings().channel or Util.DEFAULT_CHANNEL) end
+    end
+
+    --- The Profile row, for the overlap test and for tests that drive it. Named
+    --- rather than reached for through the panel, so the check runs against the
+    --- real widgets instead of a list written from memory.
+    function UI.ProfileWidgets()
+        return {
+            label = profileLabel, pick = profilePick, saveAs = profileSaveAs,
+            rename = profileRename, delete = profileDelete,
+            export = profileExport, import = profileImport,
+        }
     end
 
     -- The page is a scroll child, so it has to be as tall as what is on it
@@ -2099,15 +2391,20 @@ function UI.ShowExport(title, text)
     f.editBox:ClearFocus()
 end
 
-function UI.ShowImport(title, onImport)
+function UI.ShowImport(title, onImport, hint)
     local f = ensureStringWindow()
     f.title:SetText(title)
-    f.hint:SetText("Paste here, then Import. Nothing is overwritten.")
+    f.hint:SetText(hint or "Paste here, then Import. Nothing is overwritten.")
     f.editBox:SetText("")
     f.action:SetText("Import")
     f.action:SetScript("OnClick", function()
         local what, err = onImport(f.editBox:GetText())
-        if what then
+        if what == true then
+            -- Handed on to a dialog, which will say what happened when it
+            -- knows. Announcing an import here would be announcing one that
+            -- has not been agreed to yet.
+            f:Hide()
+        elseif what then
             Util.Print(("imported %s."):format(what))
             f:Hide()
         else
@@ -2116,6 +2413,69 @@ function UI.ShowImport(title, onImport)
     end)
     f:Show()
     f.editBox:SetFocus()
+end
+
+--- Imports over the loaded profile, having asked what to do with it first.
+---
+--- Three answers, because there are three: keep the old one under a name, throw
+--- it away, or change your mind. Folding the first two into one button would
+--- make the safe answer and the destructive answer the same click, on the
+--- action with the least undo in the addon.
+---
+--- The string is decoded and validated before the question is asked, so a bad
+--- paste says so instead of offering to destroy a profile for nothing.
+function UI.ImportOverProfile(text)
+    local profile, err, count = IMI.Export.Preview(text)
+    if not profile then
+        -- Not one of ours. It may still be a spreadsheet, which is a paste
+        -- people will reasonably try before they ever make a string.
+        local sheet, sheetErr, sheetCount = IMI.Sheet.Parse(text)
+        if not sheet then
+            return nil, (sheetErr and (err .. ", and " .. sheetErr)) or err
+        end
+        profile, count = sheet, sheetCount
+    end
+
+    local what = ("%d dungeon%s"):format(count, count == 1 and "" or "s")
+    local current = Core.ActiveProfile()
+
+    local function apply()
+        Core.ReplaceProfile({ categories = {}, settings = profile.settings })
+        for _, cat in ipairs(profile.categories) do IMI.Export.Adopt(cat) end
+        UI.RefreshCategories()
+        UI.ApplySettings()
+        UI.RefreshSettings()
+        if UI.CurrentView() == "edit" then IMI.Edit.SetCategory(nil) end
+        Util.Print(("imported %s over |cffffff00%s|r."):format(what, Core.ActiveProfile()))
+    end
+
+    UI.Confirm({
+        title = "Import over this profile",
+        body = ("This replaces %q with %s. Everything in it now is lost unless "
+            .. "you save it first."):format(current, what),
+        alt = "Save and import",
+        onAlt = function()
+            UI.Prompt({
+                title = "Save the current profile as",
+                text = current,
+                accept = "Save and import",
+                onAccept = function(name)
+                    local used = Core.SaveProfileAs(name)
+                    Util.Print(("kept the old profile as |cffffff00%s|r."):format(used))
+                    -- Saved as a copy, so what is loaded is still the profile
+                    -- being replaced, which is what the player asked to
+                    -- replace. Importing into the copy would leave the thing
+                    -- they wanted overwritten untouched.
+                    apply()
+                end,
+            })
+        end,
+        accept = "Don't save, import", danger = true,
+        onAccept = apply,
+    })
+
+    -- The dialog answers later; the string window has done its part.
+    return true, nil
 end
 
 --------------------------------------------------------------------------------
@@ -2137,6 +2497,20 @@ function UI.ShowHelp()
         "  Enemies: give an enemy a name, then add lines under it. Click any box",
         "  and type straight into it. A line is one macro: /p, /i, /cast, and so on.",
         "  Pages: choose which enemies appear on which page of the route.",
+        "  Click a name box that has arrows beside it to see the whole list;",
+        "  double-click it to rename what you are on.",
+        "  per row: how many of an enemy\'s callouts sit side by side in Run.",
+        "",
+        "PROFILES  (Settings)",
+        "  A profile is everything: every dungeon, page and colour. Save as",
+        "  keeps a copy under a name; the list loads one back.",
+        "  Import replaces the loaded profile rather than adding to it, and asks",
+        "  first, so you can keep the old one under a name before it goes.",
+        "  Import also takes rows pasted straight out of a spreadsheet:",
+        "     Enemy:   Ravenous Descendant     Venom Leech",
+        "              Kick the Enrage         Dispel the leech",
+        "  A row starting Dungeon, Page or Enemy tells it what follows; every",
+        "  other row is callouts, read down each enemy\'s own column.",
         "",
         "WHAT COMBAT BLOCKS",
         "  Loading a dungeon, editing, and changing scale all need to be out of",

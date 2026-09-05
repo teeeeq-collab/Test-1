@@ -10,7 +10,7 @@ for _, f in ipairs({
 }) do loadfile("InomrahsMythicInstructions/" .. f .. ".lua")() end
 
 for _, f in ipairs({ "Util", "Color", "Style", "Core", "History", "Runtime", "UI",
-                     "Picker", "Binds", "Edit", "Export", "Starter", "Capture" }) do
+                     "Picker", "Binds", "Edit", "Export", "Sheet", "Starter", "Capture" }) do
     local chunk, err = loadfile("InomrahsMythicInstructions/" .. f .. ".lua")
     if not chunk then realPrint("  FAIL loading " .. f .. ": " .. tostring(err)); os.exit(1) end
     chunk("InomrahsMythicInstructions", IMI)
@@ -1645,6 +1645,148 @@ check("and a walk that cannot advance is reported, not thrown", function()
     if not report:find("unreadable", 1, true) then
         error("the report did not say frames went unread: " .. report)
     end
+end)
+
+--------------------------------------------------------------------------------
+-- Importing over a profile
+--
+-- The one action in the addon with no undo behind it: it replaces everything
+-- loaded. So the question in front of it has three answers, and each of them
+-- has to do exactly what it says.
+--------------------------------------------------------------------------------
+
+local function makeString()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Theirs")
+    local mob = IMI.Core.AddEnemy(cat.id, "Their mob")
+    IMI.Core.AddLine(cat.id, mob.id, "", "/p theirs")
+    IMI.Core.AddPage(cat.id, "Their page")
+    return IMI.Export.EncodeProfile()
+end
+
+local function withMine(str)
+    IMI.Core.Init({})
+    IMI.Core.AddCategory("Mine")
+    IMI.UI.Show("edit")
+    return str
+end
+
+check("importing asks before it replaces anything", function()
+    local str = withMine(makeString())
+    IMI.UI.ImportOverProfile(str)
+
+    local d = IMI.UI.ConfirmFrame()
+    if not d or not d:IsShown() then error("nothing asked") end
+    if not d.dialog.alt:IsShown() then error("there is no third answer") end
+    if IMI.Core.Categories()[1].name ~= "Mine" then
+        error("it replaced the profile before asking")
+    end
+    d:Hide()
+end)
+
+check("cancelling changes nothing", function()
+    local str = withMine(makeString())
+    IMI.UI.ImportOverProfile(str)
+    IMI.UI.ConfirmFrame().dialog.cancel:GetScript("OnClick")()
+
+    if IMI.Core.Categories()[1].name ~= "Mine" then error("cancel imported anyway") end
+    if #IMI.Core.ProfileNames() ~= 1 then error("cancel saved something") end
+end)
+
+check("importing without saving replaces what was loaded", function()
+    local str = withMine(makeString())
+    IMI.UI.ImportOverProfile(str)
+    IMI.UI.ConfirmFrame().dialog.accept:GetScript("OnClick")()
+
+    if #IMI.Core.Categories() ~= 1 then error("expected one dungeon") end
+    if IMI.Core.Categories()[1].name ~= "Theirs" then
+        error("the import did not land: " .. IMI.Core.Categories()[1].name)
+    end
+    if #IMI.Core.ProfileNames() ~= 1 then error("it saved a copy it was told not to") end
+end)
+
+check("saving first keeps the old profile under the name given", function()
+    local str = withMine(makeString())
+    IMI.UI.ImportOverProfile(str)
+    IMI.UI.ConfirmFrame().dialog.alt:GetScript("OnClick")()
+
+    local prompt = IMI.UI.PromptFrame()
+    if not prompt or not prompt:IsShown() then error("it did not ask for a name") end
+    prompt.dialog.box:SetText("My season 2")
+    prompt.dialog.accept:GetScript("OnClick")()
+
+    local saved
+    for _, name in ipairs(IMI.Core.ProfileNames()) do
+        if name == "My season 2" then saved = name end
+    end
+    if not saved then
+        error("the old profile was not kept: " .. table.concat(IMI.Core.ProfileNames(), ", "))
+    end
+    if #IMI.Core.db.profiles[saved].categories ~= 1
+        or IMI.Core.db.profiles[saved].categories[1].name ~= "Mine" then
+        error("the saved copy is not what was loaded")
+    end
+
+    -- And the import still happened, into the profile that was being replaced
+    -- rather than into the copy.
+    if IMI.Core.Categories()[1].name ~= "Theirs" then
+        error("it saved but did not import")
+    end
+end)
+
+check("a paste that is neither a string nor a sheet is refused", function()
+    withMine(makeString())
+    local ok, err = IMI.UI.ImportOverProfile("just some words")
+    if ok then error("nonsense was accepted") end
+    if type(err) ~= "string" then error("no reason given") end
+    if IMI.Core.Categories()[1].name ~= "Mine" then error("it changed something anyway") end
+end)
+
+check("a spreadsheet paste goes through the same question", function()
+    withMine(makeString())
+    IMI.UI.ImportOverProfile("Enemy:\tBig Mob\n\tkick it")
+
+    local d = IMI.UI.ConfirmFrame()
+    if not d or not d:IsShown() then error("a sheet paste did not ask") end
+    d.dialog.accept:GetScript("OnClick")()
+
+    if IMI.Core.Categories()[1].name ~= "Imported" then
+        error("the sheet did not import: " .. IMI.Core.Categories()[1].name)
+    end
+    local enemies = IMI.Core.Enemies(IMI.Core.Categories()[1].id)
+    if #enemies ~= 1 or enemies[1].name ~= "Big Mob" then error("wrong enemy") end
+    if #enemies[1].lines ~= 1 then error("the callout did not come with it") end
+end)
+
+--------------------------------------------------------------------------------
+-- Picking from a list rather than stepping through it
+--------------------------------------------------------------------------------
+
+check("the page name box is also the list of pages", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Paged")
+    for i = 1, 4 do IMI.Core.AddPage(cat.id, "Page " .. i) end
+
+    IMI.UI.Show("edit")
+    IMI.Edit.SetCategory(cat.id)
+    IMI.Edit.ShowTab("pages")
+
+    local chooser = IMI.Edit.PagePicker()
+    if not chooser then error("the page box has no list") end
+    if #chooser.rows < 4 then
+        error("the list does not hold every page: " .. #chooser.rows)
+    end
+
+    -- The fourth page, without pressing the arrow three times.
+    chooser.rows[4]:GetScript("OnClick")()
+    if IMI.Edit.Context().pageId ~= IMI.Core.Pages(cat.id)[4].id then
+        error("picking from the list did not change page")
+    end
+
+    -- Renaming still has to work, which is the whole reason it is a box and
+    -- not a button.
+    chooser.overlay:GetScript("OnDoubleClick")(chooser.overlay)
+    if chooser.overlay:IsShown() then error("double-click did not hand over to the box") end
 end)
 
 realPrint(("\n%d passed, %d failed"):format(pass, fail))

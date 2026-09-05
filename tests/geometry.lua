@@ -76,6 +76,19 @@ end
 
 function M.resolve(frame)
     local points = frame.points or {}
+
+    -- A scroll child is positioned by its scroll frame, not by anchors of its
+    -- own: it sits at the scroll frame's top left and is moved from there as
+    -- the list scrolls. Without this every widget on the Settings page came
+    -- back unresolved and the whole panel went unchecked.
+    if #points == 0 and frame.parent and frame.parent.scrollChild == frame then
+        local parentRect = M.rect(frame.parent)
+        if not parentRect then return nil, "scroll frame unresolved" end
+        local w, h = M.size(frame)
+        return { left = parentRect.left, right = parentRect.left + (w or 0),
+                 top = parentRect.top, bottom = parentRect.top - (h or 0) }
+    end
+
     if #points == 0 then return nil, "no anchors" end
 
     -- SetAllPoints: exactly the target's rectangle.

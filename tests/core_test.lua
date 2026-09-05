@@ -285,3 +285,76 @@ ck4("and leaves the old name in place", Core.GetCategory(ids[2]).name == "Bravo 
 
 print(("\ndungeon list: %d passed, %d failed"):format(p4, f4))
 if f4 > 0 then os.exit(1) end
+
+--------------------------------------------------------------------------------
+-- Profiles
+--
+-- A profile is everything the addon holds. Saving one has to take a copy that
+-- nothing else can reach into: two profiles sharing a dungeon table would mean
+-- editing one silently edited the other, and the saved copy would not be a
+-- saved copy at all.
+--------------------------------------------------------------------------------
+
+local p5, f5 = 0, 0
+local function ck5(label, cond, got)
+    if cond then p5 = p5 + 1
+    else f5 = f5 + 1; print("  FAIL: " .. label .. (got and ("  " .. tostring(got)) or "")) end
+end
+
+Core.Init({})
+local first = Core.AddCategory("Altar of Fangs")
+Core.Settings().textScale = 1.4
+
+local saved = Core.SaveProfileAs("Season 2")
+ck5("saving names the profile", saved == "Season 2", saved)
+ck5("and it holds what was loaded",
+    #Core.db.profiles["Season 2"].categories == 1)
+ck5("and the look with it",
+    Core.db.profiles["Season 2"].settings.textScale == 1.4)
+
+-- The copy has to be a copy.
+Core.RenameCategory(first.id, "Renamed after saving")
+ck5("the saved profile does not follow later edits",
+    Core.db.profiles["Season 2"].categories[1].name == "Altar of Fangs",
+    Core.db.profiles["Season 2"].categories[1].name)
+
+-- Switching loads the dungeons and the look together.
+Core.Settings().textScale = 1.0
+Core.SwitchProfile("Season 2")
+ck5("switching loads that profile", Core.ActiveProfile() == "Season 2")
+ck5("and restores its look", Core.Settings().textScale == 1.4)
+ck5("and its dungeons", Core.Categories()[1].name == "Altar of Fangs")
+
+-- Where the window is belongs to the player, not to the profile: loading one
+-- should not pick your window up and move it.
+Core.Settings().width = 900
+Core.SaveProfileAs("Wide")
+Core.Settings().width = 600
+Core.SwitchProfile("Wide")
+ck5("loading a profile does not move the window", Core.Settings().width == 600,
+    Core.Settings().width)
+
+-- Replacing is what import does, and it must leave nothing of the old one.
+Core.SwitchProfile("Season 2")
+Core.ReplaceProfile({ categories = { { name = "Replaced", variants = {} } } })
+ck5("replacing wipes what was there", #Core.Categories() == 1)
+ck5("and puts the new contents in", Core.Categories()[1].name == "Replaced")
+
+-- A profile from a string was written by someone else, on some other version.
+Core.ReplaceProfile({ categories = {}, settings = { textScale = "enormous",
+                                                    opacity = 0.5,
+                                                    nonsense = true } })
+ck5("a setting of the wrong type is ignored", Core.Settings().textScale == 1.4,
+    Core.Settings().textScale)
+ck5("a setting of the right type is taken", Core.Settings().opacity == 0.5)
+ck5("a setting this build has never heard of is dropped",
+    Core.Settings().nonsense == nil)
+
+ck5("renaming moves the profile", Core.RenameProfile("Season 2", "Season Two")
+    and Core.db.profiles["Season Two"] ~= nil and Core.db.profiles["Season 2"] == nil)
+ck5("and follows the active one", Core.ActiveProfile() == "Season Two")
+ck5("renaming onto an existing name is refused",
+    Core.RenameProfile("Season Two", "Wide") == false)
+
+print(("\nprofiles: %d passed, %d failed"):format(p5, f5))
+if f5 > 0 then os.exit(1) end

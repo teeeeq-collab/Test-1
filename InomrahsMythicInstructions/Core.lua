@@ -193,6 +193,97 @@ function Core.DeleteProfile(name)
     return true
 end
 
+--- Everything a profile owns, copied.
+---
+--- The dungeons and the look together: a profile that restored your dungeons
+--- but left the previous one's colours and scales behind would not be the
+--- thing you saved. Settings that describe the window rather than the profile
+--- -- where it is and how big -- are deliberately left out, so loading a
+--- profile does not move your window.
+local WINDOW_SETTINGS = { point = true, width = true, height = true }
+
+--- Only settings this build knows about, and only where the type matches what
+--- it expects.
+---
+--- A profile can arrive from a string somebody else made, on a version that is
+--- not this one. Copying whatever it contains into the live settings would let
+--- a stale or hand-edited file put a table where a number belongs, and the
+--- failure would surface much later, somewhere unrelated to importing.
+local function sanitiseSettings(incoming, into)
+    if type(incoming) ~= "table" then return end
+
+    local defaults = defaultSettings()
+    for key, default in pairs(defaults) do
+        local value = incoming[key]
+        if value ~= nil and not WINDOW_SETTINGS[key]
+            and (default == nil or type(value) == type(default)) then
+            into[key] = Util.DeepCopy(value)
+        end
+    end
+end
+
+function Core.SnapshotProfile()
+    local settings = {}
+    for key, value in pairs(Core.db.settings) do
+        if not WINDOW_SETTINGS[key] then settings[key] = Util.DeepCopy(value) end
+    end
+
+    return {
+        categories = Util.DeepCopy(Core.Profile().categories or {}),
+        settings   = settings,
+    }
+end
+
+--- Saves what is loaded right now under a name of its own. Returns the name
+--- actually used, which may be suffixed if that one was taken.
+function Core.SaveProfileAs(name)
+    return Core.CreateProfile(name, Core.SnapshotProfile())
+end
+
+--- Loads a profile, look and all.
+---
+--- Separate from SetActiveProfile, which only moves the pointer: import needs
+--- to move the pointer without disturbing the settings, and a player switching
+--- profiles needs the settings to follow. One function doing both would have to
+--- guess which was meant.
+function Core.SwitchProfile(name)
+    if not Core.SetActiveProfile(name) then return false end
+
+    sanitiseSettings(Core.db.profiles[name].settings, Core.db.settings)
+    return true
+end
+
+function Core.RenameProfile(from, to)
+    to = (to and to:match("%S") and to) or nil
+    if not to or not Core.db.profiles[from] or Core.db.profiles[to] then return false end
+
+    Core.db.profiles[to] = Core.db.profiles[from]
+    Core.db.profiles[from] = nil
+    if Core.db.activeProfile == from then Core.db.activeProfile = to end
+    edited()
+    return true
+end
+
+--- Overwrites what is loaded. This is what import does, and the reason import
+--- asks first: nothing here is recoverable afterwards.
+function Core.ReplaceProfile(data)
+    if type(data) ~= "table" or type(data.categories) ~= "table" then return false end
+
+    local profile = Core.Profile()
+    profile.categories = Util.DeepCopy(data.categories)
+
+    if type(data.settings) == "table" then
+        sanitiseSettings(data.settings, Core.db.settings)
+        profile.settings = Util.DeepCopy(Core.db.settings)
+    end
+
+    edited()
+    return true
+end
+
+--- Which profile is loaded.
+function Core.ActiveProfile() return Core.db.activeProfile end
+
 --------------------------------------------------------------------------------
 -- Categories
 --------------------------------------------------------------------------------

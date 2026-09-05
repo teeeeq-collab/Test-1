@@ -5,6 +5,12 @@ that produced it.
 
 ## Works, verified in game
 
+- Profiles: save the whole state under a name, load one back, rename, delete
+- Import replaces the loaded profile and asks first, offering to keep the old
+  one under a name; it also reads rows pasted out of a spreadsheet
+- Enemy cards are bordered, with even spacing inside and a wide gap between
+- Name boxes with arrows beside them open the whole list on a click
+
 - Panel, sidebar, dungeon list, Run and Edit views, Settings
 - Creating dungeons, enemies and lines; editing text in place
 - Enemy reordering and sorting; pages and page composition

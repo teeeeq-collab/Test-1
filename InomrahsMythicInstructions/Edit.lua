@@ -29,7 +29,16 @@ local ui = {}
 --- Tightened once already. The boxes were built at chat-window size while
 --- everything around them was panel size, which read as out of scale and cost
 --- about a card and a half of visible list.
-local ROW_H, CARD_GAP, INDENT = 20, 6, 14
+local ROW_H, CARD_GAP, INDENT = 20, 16, 14
+
+--- The two gaps inside a card: under the enemy's name, and between one line
+--- box and the next. Even spacing within a card and a wide one between cards is
+--- what makes a card read as one thing -- the name used to sit directly on top
+--- of the first callout, so the eye had nothing to group by.
+local NAME_GAP, LINE_GAP = 6, 4
+
+--- Room around a card's contents, inside its border.
+local CARD_PAD = 6
 
 --- Room above and below the text inside a callout box.
 local BOX_PAD = 8
@@ -237,7 +246,20 @@ end
 -- Enemies tab
 --------------------------------------------------------------------------------
 
-local namePool, linePool, btnPool = {}, {}, {}
+local namePool, linePool, btnPool, cardPool = {}, {}, {}, {}
+
+--- The panel drawn behind one enemy: its border is the answer to "what belongs
+--- with what". Behind everything else in the card, and sized only once the
+--- card's contents have been laid out, since that is when its height is known.
+local function card(index)
+    return acquire(cardPool, index, function()
+        local f = CreateFrame("Frame", nil, ui.enemyList)
+        f:SetFrameLevel(math.max(1, (ui.enemyList:GetFrameLevel() or 1)))
+        IMI.Style.Background(f, IMI.Style.colors.row)
+        IMI.Style.Border(f, IMI.Style.colors.rowEdge)
+        return f
+    end)
+end
 
 local function refreshSortControls()
     if not ui.sortBtn then return end
@@ -263,9 +285,17 @@ function Edit.RefreshEnemies()
 
     local width = ui.enemyList:GetWidth() or 460
     local y = -4
+    local ci = 1
 
     for _, enemy in ipairs(Core.EnemiesInOrder(state.categoryId,
             Core.Settings().enemySort, Core.Settings().enemySortDesc)) do
+        -- The panel behind this enemy. Placed now, at the top of the card, and
+        -- given its height at the bottom of the loop once the card is built.
+        local panel = card(ci); ci = ci + 1
+        local cardTop = y + CARD_PAD
+
+        y = y - 2
+
         -- Name -----------------------------------------------------------------
         local name = acquire(namePool, ni, function()
             local eb = editBox(ui.enemyList, 64)
@@ -318,7 +348,7 @@ function Edit.RefreshEnemies()
             Edit.RefreshEnemies()
         end)
 
-        y = y - ROW_H
+        y = y - ROW_H - NAME_GAP
 
         -- Lines ----------------------------------------------------------------
         for _, line in ipairs(enemy.lines) do
@@ -392,7 +422,7 @@ function Edit.RefreshEnemies()
             local boxH = boxHeight(ui.enemyList, box, box:GetText(), MAX_BOX_LINES)
             box:SetHeight(boxH)
 
-            y = y - boxH - 2
+            y = y - boxH - LINE_GAP
         end
 
         -- Per-enemy controls ---------------------------------------------------
@@ -410,6 +440,13 @@ function Edit.RefreshEnemies()
         local perRow = acquire(btnPool, bi, function() return button(ui.enemyList, "", 70, 18) end)
         bi = bi + 1
         perRow:SetText(("per row: %d"):format(enemy.perRow or 1))
+        -- What it does is not guessable from a number, and a control nobody
+        -- understands is a control nobody uses.
+        IMI.Style.Tooltip(perRow, "Callouts per row",
+            "How many of this enemy's callouts sit side by side in Run.\n"
+            .. "1 stacks them down the panel. 2 or more fills across, which is "
+            .. "what you want for a boss with a callout per phase.\n"
+            .. "It changes the layout only — never what gets sent.")
         perRow:SetWidth(80)
         perRow:ClearAllPoints()
         perRow:SetPoint("LEFT", addLine, "RIGHT", 6, 0)
@@ -420,10 +457,20 @@ function Edit.RefreshEnemies()
             Edit.RefreshEnemies()
         end)
 
-        y = y - ROW_H - CARD_GAP
+        y = y - ROW_H
+
+        -- Now the card's height is known, which is the only reason the panel is
+        -- sized here rather than where it is placed.
+        panel:ClearAllPoints()
+        panel:SetPoint("TOPLEFT", ui.enemyList, "TOPLEFT", 4, cardTop)
+        panel:SetWidth(math.max(40, width - 8))
+        panel:SetHeight(math.max(ROW_H, cardTop - y + CARD_PAD))
+
+        y = y - CARD_GAP
     end
 
     releaseFrom(namePool, ni); releaseFrom(linePool, li); releaseFrom(btnPool, bi)
+    releaseFrom(cardPool, ci)
 
     ui.enemyEmpty:SetShown(#Core.Enemies(state.categoryId) == 0)
     ui.enemyList:SetHeight(math.max(20, math.abs(y) + 10))
@@ -454,6 +501,17 @@ function Edit.RefreshPages()
 
     local page = state.pageId and Core.GetPage(state.categoryId, state.pageId)
     ui.pageName:SetText(page and page.name or "")
+
+    if ui.pagePick then
+        local items = {}
+        for i, p in ipairs(Core.Pages(state.categoryId)) do
+            items[#items + 1] = { text = ("%d. %s"):format(i, p.name or ""), value = p.id }
+        end
+        ui.pagePick:SetItems(items, function(pageId)
+            state.pageId = pageId
+            Edit.RefreshPages()
+        end)
+    end
     ui.pageIndex:SetText(page
         and ("page %d of %d"):format(Util.IndexById(Core.Pages(state.categoryId), page.id) or 1,
             #Core.Pages(state.categoryId))
@@ -650,7 +708,7 @@ end
 
 function Edit.AddRow()
     return { box = ui.addBox, add = ui.addBtn, addTarget = ui.addTarget,
-             export = ui.exportBtn, import = ui.importBtn }
+             export = ui.exportBtn }
 end
 
 function Edit.SendHint() return ui.sendHint end
@@ -677,7 +735,7 @@ end
 function Edit.BottomRowWidgets()
     return {
         label = ui.addLabel, box = ui.addBox, add = ui.addBtn,
-        addTarget = ui.addTarget, export = ui.exportBtn, import = ui.importBtn,
+        addTarget = ui.addTarget, export = ui.exportBtn,
     }
 end
 
@@ -711,6 +769,9 @@ function Edit.MeasureWrapped(eb, text)
     wrapFS:SetText(text or "")
     return wrapFS:GetStringHeight()
 end
+
+--- The page name box's list, for tests.
+function Edit.PagePicker() return ui.pagePick end
 
 --- The rows of the Pages tab as laid out, for tests: whether their labels are
 --- bounded on the right is the difference between an ellipsis and a name
@@ -1011,6 +1072,10 @@ function Edit.Build(parent)
     ui.pageName:SetPoint("LEFT", ui.pagePrev, "RIGHT", 8, 0)
     ui.pageName:SetPoint("RIGHT", ui.pageNext, "LEFT", -6, 0)
 
+    -- The arrows stay, and the name becomes the list. Stepping through pages
+    -- one at a time to find the fourth is fine when there are two.
+    ui.pagePick = IMI.UI.AttachChooser(ui.pageName, 200)
+
     local pagesScroll = CreateFrame("ScrollFrame", nil, ui.pagesPanel, "UIPanelScrollFrameTemplate")
     ui.pagesScroll = IMI.Style.WheelScroll(pagesScroll)
     pagesScroll:SetPoint("TOPLEFT", 0, -28)
@@ -1085,25 +1150,15 @@ function Edit.Build(parent)
     IMI.Style.Tooltip(exportBtn, "Export",
         "A string you can copy out, to back up or to share.")
 
-    ui.importBtn = button(parent, "Import", 54, 20, function()
-        IMI.UI.ShowImport("Import", function(text)
-            local what, err = IMI.Export.Import(text)
-            if what then
-                IMI.UI.RefreshCategories()
-                Edit.RefreshEnemies()
-            end
-            return what, err
-        end)
-    end)
-    local exportBtn, importBtn = ui.exportBtn, ui.importBtn
-    importBtn:SetPoint("BOTTOMRIGHT", -10, 12)
-    exportBtn:SetPoint("RIGHT", importBtn, "LEFT", -4, 0)
+    -- Import lives in Settings, under Profile, and not here. It replaces the
+    -- loaded profile rather than adding to it, which is not a thing to offer
+    -- from the row you add an enemy in: it belongs next to saving a profile,
+    -- where what it can destroy is visible and can be kept first.
+    local exportBtn = ui.exportBtn
+    exportBtn:SetPoint("BOTTOMRIGHT", -10, 12)
     ui.addTarget:SetPoint("RIGHT", exportBtn, "LEFT", -4, 0)
     ui.addBtn:SetPoint("RIGHT", ui.addTarget, "LEFT", -4, 0)
     ui.addBox:SetPoint("BOTTOMRIGHT", ui.addBtn, "BOTTOMLEFT", -6, 0)
-
-    IMI.Style.Tooltip(importBtn, "Import",
-        "Paste a string in. It is added alongside what you have; nothing is overwritten.")
 
     Edit.RefreshSendHint()
     Edit.SetCategory(nil)

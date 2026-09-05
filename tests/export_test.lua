@@ -144,3 +144,69 @@ vck("its content survives", Core.Enemies(oldCat.id)[1].lines[1].body == "/p from
 
 print(("variants across export: %d passed, %d failed"):format(vp, vf))
 if vf > 0 then os.exit(1) end
+
+--------------------------------------------------------------------------------
+-- Importing over a profile
+--
+-- The destructive path. It replaces what is loaded rather than adding to it,
+-- which is what makes the dialog in front of it necessary and what makes these
+-- checks worth having.
+--------------------------------------------------------------------------------
+
+local pr, fr = 0, 0
+local function ckr(label, cond, got)
+    if cond then pr = pr + 1
+    else fr = fr + 1; print("  FAIL: " .. label .. (got and ("  " .. tostring(got)) or "")) end
+end
+
+IMI.Core.Init({})
+local mine = IMI.Core.AddCategory("Mine")
+local mob = IMI.Core.AddEnemy(mine.id, "My mob")
+IMI.Core.AddLine(mine.id, mob.id, "", "/p mine")
+IMI.Core.AddPage(mine.id, "My page")
+IMI.Core.Settings().textScale = 1.25
+
+local profileString = IMI.Export.EncodeProfile()
+
+-- A different profile entirely, to import over the first.
+IMI.Core.Init({})
+local theirs = IMI.Core.AddCategory("Theirs")
+local theirMob = IMI.Core.AddEnemy(theirs.id, "Their mob")
+IMI.Core.AddLine(theirs.id, theirMob.id, "", "/p theirs")
+IMI.Core.AddPage(theirs.id, "Their page")
+
+local preview, err, count = IMI.Export.Preview(profileString)
+ckr("a string can be inspected before it is applied", preview ~= nil, err)
+ckr("and says how much it will replace", count == 1, count)
+ckr("without applying any of it", IMI.Core.Categories()[1].name == "Theirs")
+
+local what, err2 = IMI.Export.ImportReplacing(profileString)
+ckr("importing reports what arrived", what == "1 dungeon", what or err2)
+ckr("what was there is gone", #IMI.Core.Categories() == 1)
+ckr("and what arrived is loaded", IMI.Core.Categories()[1].name == "Mine")
+ckr("with its contents", #IMI.Core.Enemies(IMI.Core.Categories()[1].id) == 1)
+ckr("and the look it was saved with", IMI.Core.Settings().textScale == 1.25)
+
+-- Ids are minted fresh on the way in, so a string carrying ids that clash with
+-- the file's own cannot poison it.
+local imported = IMI.Core.Categories()[1]
+ckr("the imported dungeon has an id of its own", imported.id ~= mine.id,
+    imported.id)
+
+-- A single-dungeon string is a profile with one dungeon in it, so the same
+-- path handles both rather than needing a second kind of import.
+IMI.Core.Init({})
+IMI.Core.AddCategory("Before")
+local catString = IMI.Export.EncodeCategory(IMI.Core.Categories()[1].id)
+IMI.Core.AddCategory("Also before")
+local what2 = IMI.Export.ImportReplacing(catString)
+ckr("a category string replaces too", what2 == "1 dungeon", what2)
+ckr("and leaves only itself", #IMI.Core.Categories() == 1
+    and IMI.Core.Categories()[1].name == "Before")
+
+local bad, badErr = IMI.Export.Preview("not a string at all")
+ckr("a bad paste is refused before anything is destroyed", bad == nil)
+ckr("with a reason", type(badErr) == "string" and badErr ~= "", badErr)
+
+print(("\nimport over profile: %d passed, %d failed"):format(pr, fr))
+if fr > 0 then os.exit(1) end
