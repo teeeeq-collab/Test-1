@@ -2,9 +2,10 @@
 ## Title: Inomrah's MI Self-Test
 ## Notes: Checks Inomrah's Mythic Instructions against the live client. Not needed to play.
 ## Author: Inomrah
-## Version: 0.8
+## Version: 0.9
 ## Dependencies: InomrahsMythicInstructions
 ## SavedVariables: InomrahsMISelfTestDB
 
 Manifest.lua
 SelfTest.lua
+RunLab.lua

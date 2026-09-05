@@ -1,0 +1,206 @@
+RUN CAPABILITY LAB — STAGE 1
+InomrahsMISelfTest 0.9
+Production addon unchanged at v0.41
+
+===============================================================================
+A. FILES CHANGED
+===============================================================================
+
+InomrahsMISelfTest/
+  RunLab.lua                 NEW — the whole lab
+  SelfTest.lua               manifest comparison, shared helpers, runlab dispatch
+  InomrahsMISelfTest.toc     version 0.9, loads RunLab.lua
+  Manifest.lua               regenerated from v0.41
+
+tests/
+  runlab_test.lua            NEW — 17 offline checks
+  wowstub.lua                named frames become globals; GetBuildInfo modelled
+  run.sh                     runs the new file
+
+InomrahsMythicInstructions/  NOTHING. Zero production changes.
+
+===============================================================================
+B. WHAT THE LAB MEASURES
+===============================================================================
+
+Evidence, before anything is trusted
+  /run counter works out of combat        proves the mechanism
+  /run counter works in combat, visible   proves it again where it matters
+
+Alpha and mouse — the highest-value question
+  insecure SetAlpha(0) on the lab root during combat
+  action key while the root is invisible
+  whether an invisible frame steals a mouse click (underlay counter)
+  whether EnableMouse(false) is permitted in combat
+  whether alpha 0 + mouse off gives real click-through
+  action key with alpha 0 and the mouse off
+  alpha on the visual-only child alone
+  repeated alpha transitions 0 -> 1 -> 0.35 -> 1
+  insecure SetScale on a protected ancestor
+
+Visibility strategies, each entered by a real hardware click on a secure button
+  root hidden
+  protected ancestor hidden
+  action button itself hidden
+  visual-only child hidden
+  action parked far off screen
+  action resized to 1x1
+  action clipped out of a viewport
+  and, separately, whether the external rescue restores a hidden root in combat
+
+Geometry — the Compact question
+  secure SetWidth/SetHeight on a protected ancestor
+  secure ClearAllPoints/SetPoint on a protected ancestor
+  both recorded as before / requested / after with a 0.01 tolerance
+
+Restricted method inventories, kept apart by handle type
+  generic frame
+  SecureActionButtonTemplate
+  secure header
+  ScrollFrame
+
+Scrolling
+  NOT reimplemented. The probes added in 0.8 already cover it, and the sequence
+  tells you when to run /imitest combat so they finally execute during a fight.
+
+===============================================================================
+C. WHAT TO DO IN GAME
+===============================================================================
+
+ 1. Replace the InomrahsMISelfTest folder with this one.
+ 2. /reload
+ 3. /imitest runlab setup
+ 4. /imitest runlab preflight
+       Read what it prints. If it says a test key is already bound to
+       something, tell me and I will change the key.
+ 5. /imitest runlab arm
+ 6. Go to a TRAINING DUMMY in any city. Not a real key. Not a real dungeon.
+ 7. Follow the panel at the top of the screen. One instruction at a time.
+       Some steps advance by themselves once the lab sees what it was
+       waiting for. Others have a button to press when you have done them.
+ 8. When the panel says it is finished, stop attacking and leave combat.
+ 9. /imitest runlab copy       -> select all, copy, send it back
+10. /imitest copy              -> the ordinary self-test report, also useful
+11. /imitest runlab release    -> turns the test keys off
+
+The armed keys are:
+
+    CTRL-SHIFT-F12   the synthetic action
+    CTRL-SHIFT-F11   the second, clipped action
+
+They are override bindings. They cannot be written to a saved file, cannot
+change any of your real keybinds, and cannot survive a /reload.
+
+===============================================================================
+D. WHAT THE REPORT LOOKS LIKE
+===============================================================================
+
+Every result carries what was asked for and what came back, so a conclusion can
+be argued with rather than taken on faith.
+
+  [YES] secure width and height on a protected ancestor
+    context: combat
+    trigger: hardware click on SecureHandlerClickTemplate
+    target: SecureHandlerBaseTemplate containing a SecureActionButton
+    operation: SetWidth and SetHeight from a snippet
+    before: 300.0000 x 120.0000
+    requested: 150.0000 x 60.0000
+    after: 150.0000 x 60.0000
+    note: snippet ran 0 -> 1
+    conclusion: YES — observed
+
+  [NO] action key with the action button hidden
+    context: combat
+    trigger: override key CTRL-SHIFT-F12
+    target: SecureActionButtonTemplate
+    action executions: 7 -> 7
+    conclusion: NO — observed refusal
+
+  [INCONCLUSIVE] secure re-anchor of a protected ancestor
+    note: snippet ran 3 -> 3
+    conclusion: INCONCLUSIVE — the snippet did not run
+
+That last shape matters. "The snippet did not run" means the click missed or
+was refused before anything was attempted, which is a different fact from the
+operation being blocked. They are never merged.
+
+A "NO" is not a failure of the lab. Most of these questions have a legitimate
+no, and knowing which ones is the entire point.
+
+===============================================================================
+E. IF SOMETHING GETS STUCK
+===============================================================================
+
+RESTORE LAB — the red button at the top of the screen. Always there, never
+hidden by any probe, works during combat. It shows everything the lab can hide
+and puts the action button back to its normal size and place.
+
+RESET LAB — beside it. Out of combat, returns everything to baseline.
+
+/imitest runlab release — clears the test keys, restores every frame, releases
+the keyboard. Safe to run twice.
+
+/reload — last resort. Clears every override binding by construction.
+
+Disabling the self-test addon entirely is safe. It has never written to your
+profile, your settings, or your keybinds, and the real addon does not depend on
+it.
+
+===============================================================================
+F. WHY THIS CANNOT BREAK THE REAL ADDON
+===============================================================================
+
+Insecure code touching a production secure frame taints it, and tainted callout
+buttons stop working mid-fight with no visible cause. So the lab does not touch
+production at all — not the frames, not the bindings, not the profile.
+
+That is checked rather than promised. tests/runlab_test.lua reads RunLab.lua as
+text and fails if it so much as names a production frame or reaches for
+production data. A reference added by accident later would compile perfectly
+and be invisible; this catches it.
+
+===============================================================================
+G. WHAT STAGE 1 DOES NOT ANSWER
+===============================================================================
+
+Deferred to Stage 2, deliberately:
+
+  - Full / Compact / Minimal as a three-state secure model
+  - direct mode keys and a cycle key
+  - mode switch then page switch, and the reverse, with the right bindings
+  - the deliberate ClearBindings collision probe, to measure the constraint
+    on purpose rather than trip over it
+  - prebuilt visual-state wrappers
+  - secure scroll buttons, and any mouse-wheel route
+  - anything about how it should look
+
+The lab is laid out so Stage 2 can add a second binding owner beside the
+existing one without moving anything: page and action keys on one, mode keys on
+the other, because ClearBindings is not selective and one owner holding both
+would delete the other's keys every time it re-applied.
+
+===============================================================================
+H. VERIFIED OFFLINE BEFORE THIS WAS SENT
+===============================================================================
+
+The 17 checks in tests/runlab_test.lua confirm, without the game:
+
+  the self-test loads, and exposes the small API the lab borrows
+  the lab loads after it
+  every command is safe before setup, so a mistyped first command cannot throw
+  setup, reset and release are each idempotent
+  the evidence counter is a global, which is the only way a macro can reach it
+  the action button really is a macro button carrying that counter
+  the rescue control is outside everything the lab hides
+  the step panel is outside it too, so instructions cannot vanish mid-probe
+  the underlay sits exactly where the action does, or the mouse probes prove
+    nothing
+  the slash command still answers, for the lab and for what came before it
+  the lab names no production frame and reaches for no production data
+
+What none of it can confirm is a single combat capability. That needs the live
+client, which is the whole reason the lab exists.
+
+Also fixed while in this file: /imitest clear threw if SavedVariables had not
+loaded yet, and the manifest check recorded a hardcoded pass so it could never
+report drift at any version. It compares properly now.

@@ -181,6 +181,17 @@ function releaseOurFrames()
     return freed
 end
 
+--- Geometry is never exactly what you asked for.
+---
+--- Setting a width of 90 reads back 90.000007629395 on this client. Every
+--- comparison of a requested dimension against the one the client returns has
+--- to allow for that, and the capability lab makes dozens of them.
+local function approximately(a, b, epsilon)
+    epsilon = epsilon or 0.01
+    return type(a) == "number" and type(b) == "number"
+        and math.abs(a - b) <= epsilon
+end
+
 --------------------------------------------------------------------------------
 -- 1. Does this client have what the addon assumes?
 --
@@ -456,12 +467,26 @@ local function checkVersion()
     record("Self-test", "settings with no value", true,
         #absentSettings > 0 and table.concat(absentSettings, ", ") or "none")
 
-    record("Self-test", "manifest built for", true, tostring(manifest.builtFor or "unknown"))
-
     -- Moved under C_AddOns; asking for the old global reported "unknown".
     local reader = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
-    local version = reader and reader("InomrahsMythicInstructions", "Version")
-    record("Self-test", "addon version", true, tostring(version or "unknown"))
+    local version = tostring((reader and reader("InomrahsMythicInstructions", "Version"))
+        or "unknown")
+    local builtFor = tostring(manifest.builtFor or "unknown")
+
+    -- A real comparison, at last.
+    --
+    -- This recorded a hardcoded true and printed the two versions beside each
+    -- other, which looks like a check and is not one: it has never been capable
+    -- of failing, at any version. A manifest built for an older addon means
+    -- every function, frame and setting this section checks is being checked
+    -- against a list that no longer describes the addon -- so the coverage is
+    -- stale in a way that reads exactly like coverage.
+    record("Self-test", "manifest matches the addon", builtFor == version,
+        builtFor == version
+            and ("both %s"):format(version)
+            or ("manifest built for %s, addon is %s -- regenerate it with "
+                .. "lua5.1 tools/manifest.lua"):format(builtFor, version))
+    record("Self-test", "addon version", true, version)
 end
 
 --------------------------------------------------------------------------------
@@ -1168,8 +1193,39 @@ loader:SetScript("OnEvent", function(self, _, name)
 end)
 
 SLASH_INOMRAHSMISELFTEST1 = "/imitest"
+--- The pieces the capability lab is allowed to borrow.
+---
+--- Deliberately small and deliberately shared rather than copied: two report
+--- windows or two ways of deciding whether a number matches would be two things
+--- to keep right, and the second one would rot. Everything here is already used
+--- by the checks above, so the lab inherits their defensiveness rather than
+--- inventing its own.
+InomrahsMISelfTestAPI = {
+    Report        = function(text) return showReportSafely(text) end,
+    Approximately = approximately,
+    IsTrue        = isTrue,
+    SafeString    = safeString,
+    Describe      = describeFrame,
+    KeyboardReport = function() return keyboardReport() end,
+    ReleaseKeyboard = function() return releaseOurFrames() end,
+}
+
 SlashCmdList.INOMRAHSMISELFTEST = function(arg)
     arg = (arg or ""):lower():match("^%s*(.-)%s*$")
+
+    -- The lab lives in its own file and owns everything after "runlab". It is
+    -- loaded after this one, so it is reached through the global rather than a
+    -- local: this file must keep working if the lab file is ever removed.
+    local runlabArg = arg:match("^runlab%s*(.*)$")
+    if runlabArg then
+        local lab = _G.InomrahsMISelfTestRunLab
+        if type(lab) ~= "table" or type(lab.Command) ~= "function" then
+            print("|cff8f7fe8MI Self-Test|r the capability lab is not loaded.")
+            return
+        end
+        lab.Command(runlabArg)
+        return
+    end
 
     if arg == "combat" then
         results = {}
@@ -1193,6 +1249,10 @@ SlashCmdList.INOMRAHSMISELFTEST = function(arg)
     end
 
     if arg == "clear" then
+        -- Built here rather than assumed. The table is normally made when the
+        -- addon loads, but a command typed before that, or a SavedVariables
+        -- file that did not load, made this throw instead of clearing.
+        InomrahsMISelfTestDB = InomrahsMISelfTestDB or {}
         InomrahsMISelfTestDB.errors = {}
         print("|cff8f7fe8MI Self-Test|r error log cleared.")
         return

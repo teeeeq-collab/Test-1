@@ -1,0 +1,1708 @@
+--------------------------------------------------------------------------------
+-- RunLab: a synthetic hierarchy for measuring what combat actually permits.
+--
+-- Stage 1. The question behind all of it is whether a future Run presentation
+-- can become visually absent while its callout keys keep working -- and, just
+-- as importantly, without leaving a large invisible frame that eats mouse
+-- clicks meant for the game. A transparent UI that steals clicks is not a
+-- Minimal mode; it is a bug with a nice description.
+--
+-- Everything here is synthetic. The lab builds its own frames, its own secure
+-- manager, its own action buttons and its own bindings, and never touches the
+-- production addon. That is not tidiness: insecure code that reaches into a
+-- production secure frame taints it, and the player would find their real
+-- callouts silently dead mid-key with no idea a test addon did it. There is no
+-- code path in this file that mutates a production frame, and the report says
+-- so from a fact rather than from a promise.
+--
+-- What is measured and what is merely observed are kept apart throughout:
+--
+--   * a method appearing on a restricted handle is not a capability;
+--   * a call returning without error is not an effect;
+--   * a binding being registered is not an execution;
+--   * a snippet believing it ran is not the frame having changed.
+--
+-- So every probe records what it asked for, what the client reported
+-- afterwards, and -- where it matters -- whether the synthetic secure action
+-- actually fired. The three are reported separately and can disagree.
+--------------------------------------------------------------------------------
+
+local ADDON = ...
+
+local API = _G.InomrahsMISelfTestAPI or {}
+local approximately = API.Approximately or function(a, b, e)
+    e = e or 0.01
+    return type(a) == "number" and type(b) == "number" and math.abs(a - b) <= e
+end
+
+InomrahsMISelfTestRunLab = {}
+local Lab = InomrahsMISelfTestRunLab
+
+local PREFIX = "|cff8f7fe8MI RunLab|r "
+local function say(...) print(PREFIX .. string.format(...)) end
+
+--------------------------------------------------------------------------------
+-- Results
+--
+-- One shape for every observation, because the report is meant to be pasted
+-- into another conversation and read by someone who was not here. A conclusion
+-- on its own is worth very little; a conclusion next to what was asked for and
+-- what came back can be argued with.
+--------------------------------------------------------------------------------
+
+local results = {}
+
+--- @param r table with any of: capability, context, trigger, target, operation,
+---   before, requested, after, visible, execBefore, execAfter, underlayBefore,
+---   underlayAfter, intercept, restore, restoreResult, err, conclusion, note
+local function record(r)
+    r.at = #results + 1
+    results[#results + 1] = r
+    return r
+end
+
+local function conclusionOf(name)
+    for i = #results, 1, -1 do
+        if results[i].capability == name then return results[i].conclusion end
+    end
+    return nil
+end
+
+--- YES/NO for the condensed matrix, from whatever the detailed result said.
+local function yesNo(name)
+    local c = conclusionOf(name)
+    if not c then return "not run" end
+    if c:match("^YES") then return "YES" end
+    if c:match("^NO") then return "NO" end
+    if c:match("^NOT AVAILABLE") then return "NOT AVAILABLE" end
+    return "INCONCLUSIVE"
+end
+
+--------------------------------------------------------------------------------
+-- Safe reads
+--
+-- 12.x hands back Secret Values from frames an addon has no business reading.
+-- The lab only reads its own frames, so this should never fire -- which is
+-- exactly why it is here: the one place it does fire is the place we would
+-- otherwise lose the whole session to.
+--------------------------------------------------------------------------------
+
+local function num(fn, frame)
+    if type(fn) ~= "function" then return nil end
+    local ok, value = pcall(fn, frame)
+    if ok and type(value) == "number" then return value end
+    return nil
+end
+
+local function width(f)  return f and num(f.GetWidth, f) end
+local function height(f) return f and num(f.GetHeight, f) end
+local function alpha(f)  return f and num(f.GetAlpha, f) end
+local function top(f)    return f and num(f.GetTop, f) end
+local function left(f)   return f and num(f.GetLeft, f) end
+
+local function shown(f)
+    if not f or type(f.IsShown) ~= "function" then return nil end
+    local ok, value = pcall(function() return f:IsShown() == true end)
+    if ok then return value end
+    return nil
+end
+
+local function visible(f)
+    if not f or type(f.IsVisible) ~= "function" then return nil end
+    local ok, value = pcall(function() return f:IsVisible() == true end)
+    if ok then return value end
+    return nil
+end
+
+local function tri(value)
+    if value == true then return "yes" end
+    if value == false then return "no" end
+    return "unreadable"
+end
+
+local function fmt(value)
+    if type(value) == "number" then return ("%.4f"):format(value) end
+    if value == nil then return "unreadable" end
+    return tostring(value)
+end
+
+--------------------------------------------------------------------------------
+-- Evidence that the synthetic secure action really executed
+--
+-- A macro containing /run executes ordinary Lua *because the macro ran*. That
+-- is an observation of execution, not an inference from a binding being
+-- registered -- the thing that must never be counted as proof. It cannot be
+-- throttled the way chat can, works in any zone, and is silent.
+--
+-- The mechanism is not trusted until it has been seen working twice: once out
+-- of combat and once in combat with the button in its ordinary visible state.
+-- Only then is a zero count from a hidden state evidence of anything.
+--------------------------------------------------------------------------------
+
+local fired = { [1] = 0, [2] = 0 }
+local sayEnabled = false
+local saySeq = 0
+
+function InomrahsMISelfTestRunLabFired(which)
+    which = tonumber(which) or 1
+    fired[which] = (fired[which] or 0) + 1
+end
+
+--- The optional human-visible confirmation. Off by default: the default test
+--- mechanism must not spam everyone standing at the dummy. Each message carries
+--- a sequence number so the server's duplicate-message throttle cannot swallow
+--- a genuine execution and make it look like a refusal.
+function InomrahsMISelfTestRunLabSay(which)
+    if not sayEnabled then return end
+    saySeq = saySeq + 1
+    local ok = pcall(SendChatMessage,
+        ("[IMI LAB] action %d #%d"):format(tonumber(which) or 1, saySeq), "SAY")
+    if not ok then sayEnabled = false end
+end
+
+local function macroFor(which)
+    return ("/run InomrahsMISelfTestRunLabFired(%d)\n/run InomrahsMISelfTestRunLabSay(%d)")
+        :format(which, which)
+end
+
+--------------------------------------------------------------------------------
+-- The frames
+--
+-- Names are all InomrahsMISelfTestRunLab-prefixed. Production uses InomrahsMI
+-- without the SelfTest, so nothing here can collide with it.
+--------------------------------------------------------------------------------
+
+local F = {}                     -- every lab frame, by short name
+local built = false
+local armed = false
+local baseline = {}              -- canonical geometry, captured at build time
+
+local ROOT_W, ROOT_H = 320, 210
+local ACTION_W, ACTION_H = 160, 34
+local PARK_X, PARK_Y = 1200, -1200   -- far off any real UI, and lab-owned
+
+--- The snippet every toggle uses.
+--
+-- Two things beyond the flip itself. It counts its own runs, so a state that
+-- did not change can be told apart from a snippet that never ran at all -- the
+-- difference between "combat refused it" and "your click missed". And it
+-- records what it believes the new state to be, so insecure code can compare
+-- the snippet's belief against what the client actually reports. Those two
+-- disagreeing is a finding in itself.
+local TOGGLE_SHOW = [==[
+    local target = self:GetFrameRef("target")
+    if not target then return end
+
+    if target:IsShown() then target:Hide() else target:Show() end
+
+    self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
+    self:SetAttribute("wanted", target:IsShown() and "shown" or "hidden")
+]==]
+
+--- Moves the action between its home anchor and a parked one far outside the
+--- visible area. A candidate for Minimal if alpha turns out to steal clicks:
+--- a frame nobody can reach cannot intercept anything.
+local TOGGLE_PARK = [==[
+    local target = self:GetFrameRef("target")
+    local home = self:GetFrameRef("home")
+    if not target or not home then return end
+
+    if self:GetAttribute("parked") then
+        target:ClearAllPoints()
+        target:SetPoint("TOPLEFT", home, "TOPLEFT", 0, 0)
+        self:SetAttribute("parked", false)
+    else
+        target:ClearAllPoints()
+        target:SetPoint("TOPLEFT", home, "TOPLEFT", PARK_X_VALUE, PARK_Y_VALUE)
+        self:SetAttribute("parked", true)
+    end
+
+    self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
+]==]
+
+--- Shrinks the action to 1x1 and back. Deliberately not zero: a zero dimension
+--- is rejected outright by the client and would measure the rejection rather
+--- than the capability.
+local TOGGLE_SIZE = [==[
+    local target = self:GetFrameRef("target")
+    if not target then return end
+
+    if self:GetAttribute("small") then
+        target:SetWidth(NORMAL_W)
+        target:SetHeight(NORMAL_H)
+        self:SetAttribute("small", false)
+    else
+        target:SetWidth(1)
+        target:SetHeight(1)
+        self:SetAttribute("small", true)
+    end
+
+    self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
+]==]
+
+--- Geometry on the protected ancestor: the shape a future Compact would need.
+--- Width and height are toggled together and the anchor separately, so a client
+--- that allows one and refuses the other is not reported as allowing both.
+local TOGGLE_GEO = [==[
+    local target = self:GetFrameRef("target")
+    if not target then return end
+
+    if self:GetAttribute("narrow") then
+        target:SetWidth(WIDE_W)
+        target:SetHeight(TALL_H)
+        self:SetAttribute("narrow", false)
+    else
+        target:SetWidth(WIDE_W / 2)
+        target:SetHeight(TALL_H / 2)
+        self:SetAttribute("narrow", true)
+    end
+
+    self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
+]==]
+
+local TOGGLE_ANCHOR = [==[
+    local target = self:GetFrameRef("target")
+    local home = self:GetFrameRef("home")
+    if not target or not home then return end
+
+    if self:GetAttribute("moved") then
+        target:ClearAllPoints()
+        target:SetPoint("TOPLEFT", home, "TOPLEFT", 0, 0)
+        self:SetAttribute("moved", false)
+    else
+        target:ClearAllPoints()
+        target:SetPoint("TOPLEFT", home, "TOPLEFT", 40, -40)
+        self:SetAttribute("moved", true)
+    end
+
+    self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
+]==]
+
+--- The rescue. Shows everything the lab can hide, unconditionally, in one
+--- click. It is the reason a destructive probe is safe to run at all, so it
+--- takes no arguments, reads no state, and cannot be told not to.
+local RESCUE = [==[
+    for _, name in ipairs(newtable("root", "ancestor", "action", "visual")) do
+        local target = self:GetFrameRef(name)
+        if target then target:Show() end
+    end
+
+    local action = self:GetFrameRef("action")
+    local home = self:GetFrameRef("home")
+    if action and home then
+        action:ClearAllPoints()
+        action:SetPoint("TOPLEFT", home, "TOPLEFT", 0, 0)
+        action:SetWidth(NORMAL_W)
+        action:SetHeight(NORMAL_H)
+    end
+
+    self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
+]==]
+
+--- Substitutes the numbers a snippet needs into it.
+---
+--- Snippets are strings and cannot see upvalues, so the alternative is writing
+--- the constants twice and letting them drift. Done here, once, where both
+--- halves are visible together.
+local function withNumbers(snippet)
+    return (snippet
+        :gsub("PARK_X_VALUE", tostring(PARK_X))
+        :gsub("PARK_Y_VALUE", tostring(PARK_Y))
+        :gsub("NORMAL_W", tostring(ACTION_W))
+        :gsub("NORMAL_H", tostring(ACTION_H))
+        :gsub("WIDE_W", tostring(ROOT_W - 20))
+        :gsub("TALL_H", tostring(ROOT_H - 90)))
+end
+
+--------------------------------------------------------------------------------
+-- Building
+--------------------------------------------------------------------------------
+
+local function plainButton(parent, text, w, h, onClick)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(w, h)
+
+    local bg = b:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.16, 0.16, 0.22, 0.95)
+
+    b.label = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    b.label:SetAllPoints()
+    b.label:SetText(text)
+
+    b:SetScript("OnEnter", function() bg:SetColorTexture(0.26, 0.26, 0.34, 0.95) end)
+    b:SetScript("OnLeave", function() bg:SetColorTexture(0.16, 0.16, 0.22, 0.95) end)
+    if onClick then b:SetScript("OnClick", onClick) end
+    return b
+end
+
+--- A secure handler button carrying one snippet.
+---
+--- Templates are never combined. Mixing a secure template with a button
+--- template has silently dropped the secure OnLoad in this project before, and
+--- the frame then looks fine and has no handler methods at all.
+local function secureButton(name, parent, text, snippet, refs)
+    local b = CreateFrame("Button", "InomrahsMISelfTestRunLab" .. name, parent,
+        "SecureHandlerClickTemplate")
+    b:SetSize(96, 20)
+    b:RegisterForClicks("AnyUp")
+
+    local bg = b:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.30, 0.20, 0.08, 0.95)
+
+    b.label = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    b.label:SetAllPoints()
+    b.label:SetText(text)
+
+    for key, frame in pairs(refs or {}) do b:SetFrameRef(key, frame) end
+    b:SetAttribute("_onclick", withNumbers(snippet))
+    return b
+end
+
+local function build()
+    if built then return true end
+    if InCombatLockdown() then return false, "combat" end
+
+    ----------------------------------------------------------------------------
+    -- The underlay, first and lowest.
+    --
+    -- Its whole job is to answer a question nothing else can: when the test
+    -- surface above it is invisible, does a click land on the game or on the
+    -- invisible frame? Without something underneath to catch the click, an
+    -- alpha-zero frame that swallows input looks identical to one that lets it
+    -- through.
+    ----------------------------------------------------------------------------
+    F.underlay = CreateFrame("Button", "InomrahsMISelfTestRunLabUnderlay", UIParent)
+    F.underlay:SetFrameStrata("LOW")
+    F.underlay:SetSize(ACTION_W, ACTION_H)
+    F.underlay:RegisterForClicks("AnyUp")
+    -- Anchored below, once the home marker exists. Its position has to be
+    -- exactly where the action normally sits, and has to stay there when the
+    -- action is parked away: the question every mouse probe asks is "what
+    -- happens to a click at the place the button used to be".
+
+    local ubg = F.underlay:CreateTexture(nil, "BACKGROUND")
+    ubg:SetAllPoints()
+    ubg:SetColorTexture(0.10, 0.35, 0.10, 0.85)
+    F.underlay.label = F.underlay:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    F.underlay.label:SetAllPoints()
+    F.underlay.label:SetText("UNDERLAY 0")
+
+    F.underlay.count = 0
+    F.underlay:SetScript("OnClick", function(self)
+        self.count = self.count + 1
+        self.label:SetText("UNDERLAY " .. self.count)
+    end)
+
+    ----------------------------------------------------------------------------
+    -- The lab root and the protected hierarchy inside it.
+    ----------------------------------------------------------------------------
+    F.root = CreateFrame("Frame", "InomrahsMISelfTestRunLabRoot", UIParent)
+    F.root:SetFrameStrata("MEDIUM")
+    F.root:SetSize(ROOT_W, ROOT_H)
+    F.root:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
+
+    local rbg = F.root:CreateTexture(nil, "BACKGROUND")
+    rbg:SetAllPoints()
+    rbg:SetColorTexture(0.06, 0.06, 0.10, 0.95)
+
+    F.rootLabel = F.root:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    F.rootLabel:SetPoint("TOP", 0, -6)
+    F.rootLabel:SetText("|cffffd200RunLab test surface|r")
+
+    -- The page-like protected ancestor: same template production gives a page,
+    -- so a result here is about the shape production would actually use.
+    F.ancestor = CreateFrame("Frame", "InomrahsMISelfTestRunLabAncestor", F.root,
+        "SecureHandlerBaseTemplate")
+    F.ancestor:SetSize(ROOT_W - 20, ROOT_H - 90)
+    F.ancestor:SetPoint("TOPLEFT", 10, -24)
+
+    local abg = F.ancestor:CreateTexture(nil, "BACKGROUND")
+    abg:SetAllPoints()
+    abg:SetColorTexture(0.12, 0.12, 0.18, 0.95)
+
+    -- Where the action lives when nothing has moved it. An empty anchor frame
+    -- rather than a remembered offset, because a snippet can hold a frame
+    -- reference and cannot hold a number it was told out of combat.
+    F.home = CreateFrame("Frame", "InomrahsMISelfTestRunLabHome", F.ancestor)
+    F.home:SetSize(ACTION_W, ACTION_H)
+    F.home:SetPoint("TOPLEFT", 8, -8)
+
+    -- Now the underlay can take its position from the one frame no probe moves.
+    F.underlay:SetPoint("TOPLEFT", F.home, "TOPLEFT", 0, 0)
+
+    F.action = CreateFrame("Button", "InomrahsMISelfTestRunLabAction", F.ancestor,
+        "SecureActionButtonTemplate")
+    F.action:SetSize(ACTION_W, ACTION_H)
+    F.action:SetPoint("TOPLEFT", F.home, "TOPLEFT", 0, 0)
+    F.action:RegisterForClicks("AnyUp", "AnyDown")
+    F.action:SetAttribute("type", "macro")
+    F.action:SetAttribute("macrotext", macroFor(1))
+
+    -- The visual child: everything you can see about the action lives in here,
+    -- so presentation can be taken away without touching the button. This is
+    -- the shape a future Minimal would use if hiding the button itself turns
+    -- out to kill its keybind.
+    F.visual = CreateFrame("Frame", "InomrahsMISelfTestRunLabVisual", F.action)
+    F.visual:SetAllPoints()
+    local vbg = F.visual:CreateTexture(nil, "BACKGROUND")
+    vbg:SetAllPoints()
+    vbg:SetColorTexture(0.85, 0.55, 0.15, 0.95)
+    F.visualLabel = F.visual:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    F.visualLabel:SetAllPoints()
+    F.visualLabel:SetText("ACTION 1")
+
+    ----------------------------------------------------------------------------
+    -- A clipping viewport with its own action, for the clipped-out-of-view
+    -- question. Separate from the main action so one probe cannot leave the
+    -- other in a state it did not ask for.
+    ----------------------------------------------------------------------------
+    F.viewport = CreateFrame("ScrollFrame", "InomrahsMISelfTestRunLabViewport", F.root)
+    F.viewport:SetSize(ROOT_W - 20, 26)
+    F.viewport:SetPoint("BOTTOMLEFT", 10, 8)
+
+    F.content = CreateFrame("Frame", "InomrahsMISelfTestRunLabContent", F.viewport)
+    F.content:SetSize(ROOT_W - 20, 120)
+    F.viewport:SetScrollChild(F.content)
+
+    F.clipped = CreateFrame("Button", "InomrahsMISelfTestRunLabClipped", F.content,
+        "SecureActionButtonTemplate")
+    F.clipped:SetSize(ACTION_W, 22)
+    F.clipped:SetPoint("TOPLEFT", 0, -60)          -- below the fold, so clipped
+    F.clipped:RegisterForClicks("AnyUp", "AnyDown")
+    F.clipped:SetAttribute("type", "macro")
+    F.clipped:SetAttribute("macrotext", macroFor(2))
+
+    local cbg = F.clipped:CreateTexture(nil, "BACKGROUND")
+    cbg:SetAllPoints()
+    cbg:SetColorTexture(0.20, 0.35, 0.60, 0.95)
+    local clabel = F.clipped:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    clabel:SetAllPoints()
+    clabel:SetText("ACTION 2 (clipped)")
+
+    ----------------------------------------------------------------------------
+    -- The binding owner. One owner for everything Stage 1 arms, so cleanup is a
+    -- single call and cannot half-happen. Stage 2 will want a second owner for
+    -- mode keys, because ClearBindings is not selective and one owner holding
+    -- both would delete page keys every time a mode key was re-applied.
+    ----------------------------------------------------------------------------
+    F.pager = CreateFrame("Frame", "InomrahsMISelfTestRunLabPager", UIParent,
+        "SecureHandlerBaseTemplate")
+    F.pager:Hide()
+
+    ----------------------------------------------------------------------------
+    -- The rescue layer. Parented to UIParent, never hidden, never moved, never
+    -- resized, never alpha'd. Nothing in this file may take it away.
+    ----------------------------------------------------------------------------
+    F.rescueBar = CreateFrame("Frame", "InomrahsMISelfTestRunLabRescueBar", UIParent)
+    F.rescueBar:SetFrameStrata("FULLSCREEN")
+    F.rescueBar:SetSize(240, 52)
+    F.rescueBar:SetPoint("TOP", UIParent, "TOP", 0, -40)
+
+    local rescueBg = F.rescueBar:CreateTexture(nil, "BACKGROUND")
+    rescueBg:SetAllPoints()
+    rescueBg:SetColorTexture(0.35, 0.05, 0.05, 0.95)
+
+    F.rescue = secureButton("Rescue", F.rescueBar, "RESTORE LAB", RESCUE, {
+        root = F.root, ancestor = F.ancestor, action = F.action,
+        visual = F.visual, home = F.home,
+    })
+    F.rescue:SetSize(112, 22)
+    F.rescue:SetPoint("TOPLEFT", 6, -6)
+
+    F.resetBtn = plainButton(F.rescueBar, "RESET LAB", 112, 22, function()
+        Lab.Command("reset")
+    end)
+    F.resetBtn:SetPoint("TOPRIGHT", -6, -6)
+
+    F.rescueNote = F.rescueBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    F.rescueNote:SetPoint("BOTTOM", 0, 5)
+    F.rescueNote:SetText("|cffffaaaaRunLab — restore is always here|r")
+
+    ----------------------------------------------------------------------------
+    -- The secure operation buttons. One per operation, each with its own fixed
+    -- snippet.
+    --
+    -- One button with a dispatch table would be tidier and wrong: choosing
+    -- which operation to run would mean writing an attribute from insecure code
+    -- during combat, which is the thing combat forbids. A button per operation
+    -- needs no such write.
+    ----------------------------------------------------------------------------
+    F.ops = {}
+    local function op(name, text, snippet, refs)
+        local b = secureButton(name, F.root, text, snippet, refs)
+        F.ops[#F.ops + 1] = { key = name:lower(), button = b, text = text }
+        return b
+    end
+
+    op("OpRoot",   "hide/show root",     TOGGLE_SHOW, { target = F.root })
+    op("OpAnc",    "hide/show ancestor", TOGGLE_SHOW, { target = F.ancestor })
+    op("OpAction", "hide/show action",   TOGGLE_SHOW, { target = F.action })
+    op("OpVisual", "hide/show visual",   TOGGLE_SHOW, { target = F.visual })
+    op("OpPark",   "park/unpark",        TOGGLE_PARK, { target = F.action, home = F.home })
+    op("OpSize",   "1x1 / normal",       TOGGLE_SIZE, { target = F.action })
+    op("OpGeo",    "ancestor w/h",       TOGGLE_GEO,  { target = F.ancestor })
+    op("OpAnchor", "ancestor anchor",    TOGGLE_ANCHOR, { target = F.ancestor, home = F.root })
+
+    for i, entry in ipairs(F.ops) do
+        local col = (i - 1) % 3
+        local row = math.floor((i - 1) / 3)
+        entry.button:SetSize(98, 18)
+        entry.button:SetPoint("TOPLEFT", F.root, "TOPLEFT",
+            6 + col * 102, -(ROOT_H - 62) + row * -20)
+    end
+
+    ----------------------------------------------------------------------------
+    -- Baseline, captured once, from the client rather than from the constants
+    -- above. Restoring to what was asked for and restoring to what the client
+    -- actually produced are different, and the second is the one that matches.
+    ----------------------------------------------------------------------------
+    baseline = {
+        rootW = width(F.root), rootH = height(F.root),
+        ancW = width(F.ancestor), ancH = height(F.ancestor),
+        actW = width(F.action), actH = height(F.action),
+    }
+
+    built = true
+    return true
+end
+
+--------------------------------------------------------------------------------
+-- Bindings
+--
+-- Override bindings owned by one lab frame. They cannot reach SavedVariables,
+-- cannot alter a Blizzard binding, and cannot survive a reload -- that is how
+-- override bindings work, not something arranged here. Cleanup is one call.
+--------------------------------------------------------------------------------
+
+local CHORDS = {
+    { key = "CTRL-SHIFT-F12", what = "synthetic action 1", target = "action" },
+    { key = "CTRL-SHIFT-F11", what = "synthetic action 2 (clipped)", target = "clipped" },
+}
+
+local function clearBindings()
+    if not F.pager then return true end
+    if InCombatLockdown() then return false end
+    if type(ClearOverrideBindings) ~= "function" then return false end
+    ClearOverrideBindings(F.pager)
+    armed = false
+    return true
+end
+
+local function armBindings()
+    if InCombatLockdown() then return false, "combat" end
+    if type(SetOverrideBindingClick) ~= "function" then return false, "no override API" end
+
+    ClearOverrideBindings(F.pager)
+    for _, chord in ipairs(CHORDS) do
+        local button = F[chord.target]
+        if button then
+            SetOverrideBindingClick(F.pager, true, chord.key, button:GetName())
+        end
+    end
+    armed = true
+    return true
+end
+
+--- What the client says already answers to a chord, so the lab reports a
+--- collision rather than quietly taking someone's key for the session.
+local function existingBinding(chord)
+    if type(GetBindingAction) ~= "function" then return nil end
+    local ok, action = pcall(GetBindingAction, chord)
+    if ok and type(action) == "string" and action ~= "" then return action end
+    return nil
+end
+
+--------------------------------------------------------------------------------
+-- Restoring
+--
+-- Ordinary code, run out of combat or when combat ends. It is deliberately not
+-- a measurement: anything it fixes is recorded as "restored after combat", never
+-- as the operation having succeeded.
+--------------------------------------------------------------------------------
+
+local function restoreBaseline()
+    if not built then return end
+
+    for _, key in ipairs({ "root", "ancestor", "action", "visual", "viewport",
+                           "underlay", "rescueBar" }) do
+        local frame = F[key]
+        if frame then
+            pcall(function()
+                frame:Show()
+                frame:SetAlpha(1)
+                frame:EnableMouse(true)
+            end)
+        end
+    end
+
+    pcall(function()
+        F.action:ClearAllPoints()
+        F.action:SetPoint("TOPLEFT", F.home, "TOPLEFT", 0, 0)
+        F.action:SetWidth(baseline.actW or ACTION_W)
+        F.action:SetHeight(baseline.actH or ACTION_H)
+
+        F.ancestor:ClearAllPoints()
+        F.ancestor:SetPoint("TOPLEFT", F.root, "TOPLEFT", 10, -24)
+        F.ancestor:SetWidth(baseline.ancW or (ROOT_W - 20))
+        F.ancestor:SetHeight(baseline.ancH or (ROOT_H - 90))
+
+        F.viewport:SetVerticalScroll(0)
+    end)
+
+    -- The snippets keep their own idea of which way each toggle is pointing.
+    -- Left alone it would disagree with the frames after a reset, and the next
+    -- click would appear to do nothing.
+    for _, entry in ipairs(F.ops or {}) do
+        pcall(function()
+            entry.button:SetAttribute("parked", false)
+            entry.button:SetAttribute("small", false)
+            entry.button:SetAttribute("narrow", false)
+            entry.button:SetAttribute("moved", false)
+        end)
+    end
+end
+
+--------------------------------------------------------------------------------
+-- The step panel
+--
+-- One instruction at a time. Seven phases of combat testing held in the
+-- player's head is how results come back with gaps in them.
+--
+-- A step advances either because the lab observed the thing it was waiting for
+-- or because the player said they did it. Those are different: the observation
+-- is evidence, the acknowledgement is not, and only the observation is ever
+-- written into a result.
+--------------------------------------------------------------------------------
+
+local steps, stepIndex = {}, 0
+local watching = false
+
+local function currentStep() return steps[stepIndex] end
+
+local function stopWatching()
+    watching = false
+    if F.step then F.step:SetScript("OnUpdate", nil) end
+end
+
+local function paintStep()
+    if not F.step then return end
+    local step = currentStep()
+
+    if not step then
+        F.step.title:SetText("|cff44ff44RunLab — sequence complete|r")
+        F.step.body:SetText("Leave combat, then run |cffffd200/imitest runlab copy|r "
+            .. "and send the report back.")
+        F.step.next:Hide()
+        return
+    end
+
+    F.step.title:SetText(("|cffffd200STEP %d / %d|r   %s")
+        :format(stepIndex, #steps, step.phase or ""))
+    F.step.body:SetText(step.text or "")
+    F.step.next:SetShown(step.manual == true)
+    F.step.next.label:SetText(step.buttonText or "I did this")
+end
+
+local function advance()
+    stopWatching()
+    stepIndex = stepIndex + 1
+
+    local step = currentStep()
+    if step and step.enter then pcall(step.enter) end
+    paintStep()
+
+    -- Only a step that can be observed gets a watcher, and only while it is the
+    -- current step. Nothing here polls when the lab is idle.
+    if step and step.observe then
+        watching = true
+        local elapsed, waited = 0, 0
+        F.step:SetScript("OnUpdate", function(_, delta)
+            if not watching then return end
+            elapsed = elapsed + (delta or 0)
+            waited = waited + (delta or 0)
+            if elapsed < 0.2 then return end
+            elapsed = 0
+
+            local done, why = step.observe()
+            if done then
+                if step.done then pcall(step.done) end
+                advance()
+            elseif waited > (step.timeout or 120) then
+                record({
+                    capability = step.capability or ("step " .. stepIndex),
+                    context = "combat", trigger = "waiting for the player",
+                    conclusion = "INCONCLUSIVE — nothing observed within "
+                        .. tostring(step.timeout or 120) .. " seconds",
+                    note = why or "",
+                })
+                stopWatching()
+                F.step.body:SetText((step.text or "")
+                    .. "\n\n|cffff6666Timed out. Press Retry, or /imitest runlab report.|r")
+                F.step.next:Show()
+                F.step.next.label:SetText("Retry step")
+                step.manual = true
+                step.retry = true
+            end
+        end)
+    end
+end
+
+local function buildStepPanel()
+    if F.step then return F.step end
+
+    -- On UIParent, not on the lab root: the root is one of the things the
+    -- sequence hides, and instructions that vanish at the moment the test gets
+    -- interesting are worse than none.
+    local f = CreateFrame("Frame", "InomrahsMISelfTestRunLabStep", UIParent)
+    f:SetFrameStrata("FULLSCREEN")
+    f:SetSize(430, 96)
+    f:SetPoint("TOP", UIParent, "TOP", 0, -100)
+    f:SetMovable(true)
+    f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function(self)
+        if not InCombatLockdown() then self:StartMoving() end
+    end)
+    f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+
+    local bg = f:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.04, 0.04, 0.07, 1)
+
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.title:SetPoint("TOPLEFT", 10, -8)
+
+    f.body = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.body:SetPoint("TOPLEFT", 10, -28)
+    f.body:SetPoint("TOPRIGHT", -10, -28)
+    f.body:SetJustifyH("LEFT")
+    f.body:SetJustifyV("TOP")
+    f.body:SetWordWrap(true)
+
+    f.next = plainButton(f, "I did this", 110, 20, function()
+        local step = currentStep()
+        if step and step.retry then
+            step.retry, step.manual = nil, nil
+            stepIndex = stepIndex - 1
+            advance()
+            return
+        end
+        if step and step.done then pcall(step.done) end
+        advance()
+    end)
+    f.next:SetPoint("BOTTOMRIGHT", -10, 8)
+
+    F.step = f
+    return f
+end
+
+--------------------------------------------------------------------------------
+-- Probes
+--
+-- Insecure ones run from an ordinary button and are honest about it: they are
+-- measuring whether ordinary code is allowed to do a thing during combat, which
+-- is exactly the question for alpha.
+--------------------------------------------------------------------------------
+
+local function inCombat() return InCombatLockdown() == true end
+
+--- Runs an insecure operation and records what actually happened to the frame,
+--- never whether the call returned.
+local function insecureProbe(name, frame, operation, read, requested, apply)
+    local before = read(frame)
+    local ok, err = pcall(apply)
+    local after = read(frame)
+
+    local moved = (type(before) == "number" and type(after) == "number")
+        and not approximately(before, after, 0.001)
+        or (before ~= after)
+
+    return record({
+        capability = name,
+        context = inCombat() and "combat" or "out of combat",
+        trigger = "insecure Lua from an ordinary button",
+        target = frame and frame:GetName() or "?",
+        operation = operation,
+        before = fmt(before), requested = fmt(requested), after = fmt(after),
+        err = (not ok) and tostring(err) or nil,
+        conclusion = moved and "YES — observed" or "NO — observed refusal",
+    })
+end
+
+--- What a restricted handle actually offers, per handle type. Kept apart on
+--- purpose: assuming a scroll frame's handle looks like a plain frame's is the
+--- shape of mistake this whole exercise exists to stop.
+local INVENTORY = [==[
+    local target = self:GetFrameRef("target")
+    local found = ""
+    if target then
+        for _, name in ipairs(newtable(NAMES)) do
+            if target[name] then found = found .. name .. " " end
+        end
+    end
+    self:SetAttribute("inventory", found)
+]==]
+
+local GENERIC_METHODS = {
+    "Show", "Hide", "IsShown", "SetWidth", "SetHeight", "GetWidth", "GetHeight",
+    "SetPoint", "GetPoint", "ClearAllPoints", "SetAllPoints", "SetAlpha",
+    "GetAlpha", "SetScale", "GetScale", "SetShown", "SetParent", "GetParent",
+    "EnableMouse", "IsMouseEnabled", "SetMouseClickEnabled", "IsMouseClickEnabled",
+    "SetMouseMotionEnabled", "IsMouseMotionEnabled", "SetClipsChildren",
+    "SetClampedToScreen", "IsClampedToScreen", "SetAttribute", "GetAttribute",
+    "GetFrameRef",
+}
+
+local SCROLL_METHODS = {
+    "SetVerticalScroll", "GetVerticalScroll", "GetVerticalScrollRange",
+    "GetScrollChild", "SetScrollChild", "UpdateScrollChildRect",
+    "SetHorizontalScroll", "SetPoint", "ClearAllPoints", "SetHeight",
+}
+
+local HEADER_METHODS = {
+    "Show", "Hide", "IsShown", "SetWidth", "SetHeight", "SetPoint",
+    "ClearAllPoints", "SetAttribute", "GetAttribute", "SetFrameRef",
+    "GetFrameRef", "ClearBindings", "SetBindingClick", "SetBinding",
+}
+
+local function inventory(label, target, names)
+    if InCombatLockdown() then
+        record({ capability = "restricted methods: " .. label,
+                 conclusion = "INCONCLUSIVE — must be probed out of combat" })
+        return
+    end
+    if type(SecureHandlerExecute) ~= "function" then
+        record({ capability = "restricted methods: " .. label,
+                 conclusion = "NOT AVAILABLE — SecureHandlerExecute is absent" })
+        return
+    end
+
+    local header = F.inventoryHeader
+    if not header then
+        header = CreateFrame("Frame", "InomrahsMISelfTestRunLabInv", UIParent,
+            "SecureHandlerBaseTemplate")
+        header:Hide()
+        F.inventoryHeader = header
+    end
+    if type(header.SetFrameRef) ~= "function" then
+        record({ capability = "restricted methods: " .. label,
+                 conclusion = "NOT AVAILABLE — SecureHandlerBaseTemplate did not apply" })
+        return
+    end
+
+    local quoted = {}
+    for _, name in ipairs(names) do quoted[#quoted + 1] = ("%q"):format(name) end
+
+    header:SetFrameRef("target", target)
+    local ok, err = pcall(SecureHandlerExecute, header,
+        (INVENTORY:gsub("NAMES", table.concat(quoted, ", "))))
+
+    local found = ok and (header:GetAttribute("inventory") or "") or ""
+    local missing = {}
+    for _, name in ipairs(names) do
+        if not found:find(name .. " ", 1, true) then missing[#missing + 1] = name end
+    end
+
+    record({
+        capability = "restricted methods: " .. label,
+        context = "out of combat", trigger = "SecureHandlerExecute",
+        target = target and target:GetName() or "?",
+        after = found ~= "" and found or "nothing",
+        note = #missing > 0 and ("absent: " .. table.concat(missing, " ")) or "all present",
+        err = (not ok) and tostring(err) or nil,
+        conclusion = ok and "YES — observed" or "INCONCLUSIVE — the probe did not run",
+    })
+end
+
+--------------------------------------------------------------------------------
+-- The guided sequence
+--------------------------------------------------------------------------------
+
+local function firedSince(which, mark) return (fired[which] or 0) > mark end
+
+--- Builds one "press the key, did the action fire" step.
+local function actionStep(phase, capability, text, prepare, restore)
+    local mark, before
+    return {
+        phase = phase,
+        capability = capability,
+        text = text,
+        timeout = 90,
+        enter = function()
+            if prepare then pcall(prepare) end
+            mark = fired[1] or 0
+            before = {
+                shown = shown(F.action), visible = visible(F.action),
+                alpha = alpha(F.action), w = width(F.action), h = height(F.action),
+                left = left(F.action), top = top(F.action),
+            }
+        end,
+        observe = function()
+            if not inCombat() then
+                return false, "combat ended"
+            end
+            return firedSince(1, mark)
+        end,
+        done = function()
+            record({
+                capability = capability,
+                context = inCombat() and "combat" or "combat ended before measuring",
+                trigger = "override key " .. CHORDS[1].key,
+                target = "SecureActionButtonTemplate",
+                operation = "press the bound key",
+                before = ("shown %s, visible %s, alpha %s, %sx%s")
+                    :format(tri(before.shown), tri(before.visible),
+                            fmt(before.alpha), fmt(before.w), fmt(before.h)),
+                execBefore = mark, execAfter = fired[1],
+                conclusion = firedSince(1, mark)
+                    and "YES — observed" or "NO — observed refusal",
+            })
+            if restore then pcall(restore) end
+        end,
+    }
+end
+
+local function buildSteps()
+    steps = {}
+    local function add(step) steps[#steps + 1] = step end
+
+    ----------------------------------------------------------------------------
+    -- Phase 0 — prove the evidence mechanism before trusting it.
+    ----------------------------------------------------------------------------
+    add({
+        phase = "evidence, out of combat",
+        capability = "/run counter, out of combat",
+        text = "Press |cffffd200" .. CHORDS[1].key .. "|r once, out of combat.\n"
+            .. "This proves the counter works before anything relies on it.",
+        timeout = 120,
+        enter = function() Lab.mark = fired[1] or 0 end,
+        observe = function() return firedSince(1, Lab.mark) end,
+        done = function()
+            record({
+                capability = "/run counter, out of combat",
+                context = "out of combat", trigger = "override key " .. CHORDS[1].key,
+                target = "SecureActionButtonTemplate", operation = "press the bound key",
+                execBefore = Lab.mark, execAfter = fired[1],
+                conclusion = "YES — observed",
+            })
+        end,
+    })
+
+    add({
+        phase = "combat",
+        manual = true,
+        buttonText = "I am in combat",
+        text = "|cffff8800Attack a training dummy.|r Do not run this during a real key.\n"
+            .. "A dummy keeps you in combat and cannot die or kill you.\n"
+            .. "Press the button below once you are in combat.",
+    })
+
+    add(actionStep("evidence, in combat", "/run counter, in combat",
+        "Still in combat, press |cffffd200" .. CHORDS[1].key .. "|r again.\n"
+        .. "Nothing is hidden yet. This is the baseline every later result is "
+        .. "measured against."))
+
+    ----------------------------------------------------------------------------
+    -- Phase 1 — alpha, and the invisible hitbox.
+    ----------------------------------------------------------------------------
+    add(actionStep("alpha", "action key at root alpha 0",
+        "The test surface is now |cffffd200invisible|r (alpha 0), but nothing was "
+        .. "hidden or moved.\nPress " .. CHORDS[1].key .. ".",
+        function()
+            insecureProbe("insecure SetAlpha(0) on lab root", F.root,
+                "SetAlpha(0)", alpha, 0, function() F.root:SetAlpha(0) end)
+        end))
+
+    add({
+        phase = "alpha",
+        capability = "alpha-0 root intercepts the mouse",
+        manual = true,
+        buttonText = "I clicked there",
+        text = "The surface is still invisible. |cffffd200Click where the orange "
+            .. "ACTION button was|r — just above the middle of the screen.\n"
+            .. "We are finding out whether an invisible frame steals the click.",
+        enter = function()
+            Lab.mark = fired[1] or 0
+            Lab.underMark = F.underlay.count
+        end,
+        done = function()
+            local actionFired = firedSince(1, Lab.mark)
+            local underFired = F.underlay.count > Lab.underMark
+
+            local conclusion
+            if actionFired then
+                conclusion = "YES — observed: the invisible frame took the click"
+            elseif underFired then
+                conclusion = "NO — observed: the click passed through to what was beneath"
+            else
+                conclusion = "INCONCLUSIVE — neither the action nor the underlay saw it"
+            end
+
+            record({
+                capability = "alpha-0 root intercepts the mouse",
+                context = inCombat() and "combat" or "out of combat",
+                trigger = "physical mouse click",
+                target = "SecureActionButtonTemplate under an alpha-0 ancestor",
+                operation = "click where the button was",
+                execBefore = Lab.mark, execAfter = fired[1],
+                underlayBefore = Lab.underMark, underlayAfter = F.underlay.count,
+                intercept = actionFired and "intercepted" or (underFired and "click-through"
+                    or "neither"),
+                conclusion = conclusion,
+            })
+        end,
+    })
+
+    add({
+        phase = "alpha",
+        capability = "mouse can be disabled during combat",
+        manual = true,
+        buttonText = "I clicked there again",
+        text = "Now the lab has tried to |cffffd200turn the mouse off|r on the "
+            .. "invisible surface.\nClick the same spot once more.\n"
+            .. "If the green UNDERLAY counter goes up, clicks are getting through.",
+        enter = function()
+            insecureProbe("insecure EnableMouse(false) on lab root", F.root,
+                "EnableMouse(false)",
+                function(f) return tri(f.IsMouseEnabled and f:IsMouseEnabled()) end,
+                "no", function() F.root:EnableMouse(false) end)
+            Lab.mark = fired[1] or 0
+            Lab.underMark = F.underlay.count
+        end,
+        done = function()
+            local actionFired = firedSince(1, Lab.mark)
+            local underFired = F.underlay.count > Lab.underMark
+            record({
+                capability = "alpha 0 plus mouse disabled: click-through",
+                context = inCombat() and "combat" or "out of combat",
+                trigger = "physical mouse click",
+                target = "lab root with mouse disabled",
+                operation = "click where the button was",
+                execBefore = Lab.mark, execAfter = fired[1],
+                underlayBefore = Lab.underMark, underlayAfter = F.underlay.count,
+                intercept = actionFired and "intercepted" or (underFired and "click-through"
+                    or "neither"),
+                conclusion = underFired and "YES — observed"
+                    or (actionFired and "NO — observed refusal"
+                        or "INCONCLUSIVE — neither observer fired"),
+            })
+        end,
+    })
+
+    add(actionStep("alpha", "action key with alpha 0 and mouse disabled",
+        "Press |cffffd200" .. CHORDS[1].key .. "|r once more.\n"
+        .. "The key must still work even with the mouse turned off — that is the "
+        .. "combination a keybind-first mode would use."))
+
+    add(actionStep("alpha", "action key after alpha restore",
+        "Everything is |cffffd200visible again|r. Press " .. CHORDS[1].key .. ".\n"
+        .. "This checks the invisible state was not one-way.",
+        function()
+            pcall(function() F.root:EnableMouse(true) end)
+            insecureProbe("insecure SetAlpha(1) restore on lab root", F.root,
+                "SetAlpha(1)", alpha, 1, function() F.root:SetAlpha(1) end)
+
+            -- Several transitions, because a mode you can toggle once is not a
+            -- mode. A future Minimal would be switched repeatedly, mid-fight.
+            local stuck = false
+            for _, value in ipairs({ 0, 1, 0.35, 1 }) do
+                pcall(function() F.root:SetAlpha(value) end)
+                if not approximately(alpha(F.root), value, 0.02) then stuck = true end
+            end
+            record({
+                capability = "repeated alpha transitions restore cleanly",
+                context = inCombat() and "combat" or "out of combat",
+                trigger = "insecure Lua", target = "lab root",
+                operation = "alpha 0 -> 1 -> 0.35 -> 1",
+                after = fmt(alpha(F.root)),
+                conclusion = stuck and "NO — observed refusal" or "YES — observed",
+            })
+        end))
+
+    add(actionStep("alpha", "action key with the visual child alpha 0",
+        "Only the |cffffd200decoration|r of the button is invisible now; the button "
+        .. "itself is untouched.\nPress " .. CHORDS[1].key .. ".",
+        function()
+            insecureProbe("insecure SetAlpha(0) on the visual-only child", F.visual,
+                "SetAlpha(0)", alpha, 0, function() F.visual:SetAlpha(0) end)
+        end,
+        function() pcall(function() F.visual:SetAlpha(1) end) end))
+
+    add({
+        phase = "alpha",
+        capability = "insecure SetScale on a protected ancestor",
+        manual = true,
+        buttonText = "Next",
+        text = "Checking whether |cffffd200scale|r can be changed in combat.\n"
+            .. "Nothing for you to do — press Next.",
+        enter = function()
+            insecureProbe("insecure SetScale on a protected ancestor", F.ancestor,
+                "SetScale(0.6)",
+                function(f) return num(f.GetScale, f) end, 0.6,
+                function() F.ancestor:SetScale(0.6) end)
+            pcall(function() F.ancestor:SetScale(1) end)
+        end,
+    })
+
+    ----------------------------------------------------------------------------
+    -- Phase 2 — hidden-state strategies, each through a secure hardware click.
+    ----------------------------------------------------------------------------
+    local function secureOpStep(phase, capability, buttonText, instruction, opKey)
+        return {
+            phase = phase,
+            manual = true,
+            buttonText = "I clicked it",
+            capability = capability,
+            text = instruction,
+            enter = function()
+                local button = nil
+                for _, entry in ipairs(F.ops) do
+                    if entry.key == opKey then button = entry.button end
+                end
+                Lab.opButton = button
+                Lab.opRan = button and (button:GetAttribute("ran") or 0) or 0
+            end,
+            done = function()
+                local button = Lab.opButton
+                local ran = button and (button:GetAttribute("ran") or 0) or 0
+                record({
+                    capability = capability .. " (the snippet ran)",
+                    context = inCombat() and "combat" or "out of combat",
+                    trigger = "hardware click on SecureHandlerClickTemplate",
+                    target = buttonText,
+                    before = Lab.opRan, after = ran,
+                    conclusion = ran > Lab.opRan and "YES — observed"
+                        or "NO — observed refusal: the snippet never ran",
+                })
+            end,
+        }
+    end
+
+    add(secureOpStep("hidden states", "secure Hide on the lab root", "hide/show root",
+        "In the lab window, click |cffffd200hide/show root|r.\n"
+        .. "The whole surface should vanish. RESTORE LAB at the top always brings "
+        .. "it back.", "oproot"))
+
+    add(actionStep("hidden states", "action key with the root hidden",
+        "The root is hidden. Press |cffffd200" .. CHORDS[1].key .. "|r.\n"
+        .. "This is the question that decides whether a keybind-first mode can "
+        .. "exist with nothing on screen."))
+
+    add({
+        phase = "hidden states",
+        manual = true,
+        buttonText = "I clicked RESTORE LAB",
+        capability = "secure restore of a hidden root during combat",
+        text = "Click the red |cffffd200RESTORE LAB|r button at the top of the screen.\n"
+            .. "The lab should come back while you are still in combat.",
+        enter = function() Lab.rescueRan = F.rescue:GetAttribute("ran") or 0 end,
+        done = function()
+            record({
+                capability = "secure restore of a hidden root during combat",
+                context = inCombat() and "combat" or "out of combat",
+                trigger = "hardware click on the external rescue button",
+                target = "lab root", operation = "Show from a snippet",
+                before = "hidden", after = tri(shown(F.root)),
+                conclusion = shown(F.root) == true and "YES — observed"
+                    or "NO — observed refusal",
+            })
+        end,
+    })
+
+    add(secureOpStep("hidden states", "secure Hide on the protected ancestor",
+        "hide/show ancestor",
+        "Click |cffffd200hide/show ancestor|r. Only the inner panel should go.",
+        "opanc"))
+    add(actionStep("hidden states", "action key with the ancestor hidden",
+        "Press |cffffd200" .. CHORDS[1].key .. "|r with the ancestor hidden.",
+        nil,
+        function() end))
+
+    add(secureOpStep("hidden states", "secure Hide on the action button",
+        "hide/show action",
+        "Click |cffffd200hide/show ancestor|r again to bring it back, then "
+        .. "|cffffd200hide/show action|r.", "opaction"))
+    add(actionStep("hidden states", "action key with the action button hidden",
+        "Press |cffffd200" .. CHORDS[1].key .. "|r with the button itself hidden.\n"
+        .. "Production's toggle key proves a secure *handler* still answers when "
+        .. "hidden. Whether an action button does is a different question."))
+
+    add(secureOpStep("hidden states", "secure Hide on the visual-only child",
+        "hide/show visual",
+        "Click |cffffd200hide/show action|r to bring it back, then "
+        .. "|cffffd200hide/show visual|r.", "opvisual"))
+    add(actionStep("hidden states", "action key with only the visual child hidden",
+        "Press |cffffd200" .. CHORDS[1].key .. "|r. The button is shown; only its "
+        .. "decoration is gone."))
+
+    add(secureOpStep("hidden states", "secure re-anchor of the action button",
+        "park/unpark",
+        "Click |cffffd200hide/show visual|r to bring it back, then "
+        .. "|cffffd200park/unpark|r to move the button far off screen.", "oppark"))
+    add(actionStep("hidden states", "action key while the button is parked off screen",
+        "Press |cffffd200" .. CHORDS[1].key .. "|r while the button is parked."))
+
+    add(secureOpStep("hidden states", "secure resize of the action button to 1x1",
+        "1x1 / normal",
+        "Click |cffffd200park/unpark|r to bring it back, then "
+        .. "|cffffd2001x1 / normal|r.", "opsize"))
+    add(actionStep("hidden states", "action key while the button is 1x1",
+        "Press |cffffd200" .. CHORDS[1].key .. "|r while the button is one pixel."))
+
+    add(actionStep("hidden states", "action key on a clipped button",
+        "Press |cffffd200" .. CHORDS[2].key .. "|r — the second action, which is "
+        .. "inside a viewport and scrolled out of sight.\n"
+        .. "It is shown, but clipped away.",
+        function()
+            pcall(function() F.action:SetWidth(baseline.actW or ACTION_W) end)
+            pcall(function() F.action:SetHeight(baseline.actH or ACTION_H) end)
+            Lab.clipMark = fired[2] or 0
+        end))
+
+    ----------------------------------------------------------------------------
+    -- Phase 3 — geometry on the protected ancestor: the Compact question.
+    ----------------------------------------------------------------------------
+    add({
+        phase = "geometry",
+        manual = true,
+        buttonText = "I clicked it",
+        capability = "secure width and height on a protected ancestor",
+        text = "Click |cffffd200ancestor w/h|r in the lab window.\n"
+            .. "This is the shape a denser Run layout would need in combat.",
+        enter = function()
+            Lab.geoW, Lab.geoH = width(F.ancestor), height(F.ancestor)
+            for _, entry in ipairs(F.ops) do
+                if entry.key == "opgeo" then Lab.geoBtn = entry.button end
+            end
+            Lab.geoRan = Lab.geoBtn and (Lab.geoBtn:GetAttribute("ran") or 0) or 0
+        end,
+        done = function()
+            local ran = Lab.geoBtn and (Lab.geoBtn:GetAttribute("ran") or 0) or 0
+            local nowW, nowH = width(F.ancestor), height(F.ancestor)
+            local changed = not approximately(Lab.geoW, nowW)
+                or not approximately(Lab.geoH, nowH)
+
+            record({
+                capability = "secure width and height on a protected ancestor",
+                context = inCombat() and "combat" or "out of combat",
+                trigger = "hardware click on SecureHandlerClickTemplate",
+                target = "SecureHandlerBaseTemplate containing a SecureActionButton",
+                operation = "SetWidth and SetHeight from a snippet",
+                before = ("%s x %s"):format(fmt(Lab.geoW), fmt(Lab.geoH)),
+                requested = ("%s x %s"):format(fmt((ROOT_W - 20) / 2), fmt((ROOT_H - 90) / 2)),
+                after = ("%s x %s"):format(fmt(nowW), fmt(nowH)),
+                note = ("snippet ran %d -> %d"):format(Lab.geoRan, ran),
+                conclusion = (ran > Lab.geoRan and changed) and "YES — observed"
+                    or (ran <= Lab.geoRan
+                        and "INCONCLUSIVE — the snippet did not run, so nothing was measured"
+                        or "NO — observed refusal"),
+            })
+        end,
+    })
+
+    add({
+        phase = "geometry",
+        manual = true,
+        buttonText = "I clicked it",
+        capability = "secure re-anchor of a protected ancestor",
+        text = "Click |cffffd200ancestor anchor|r.\n"
+            .. "The inner panel should shift down and right.",
+        enter = function()
+            Lab.ancLeft, Lab.ancTop = left(F.ancestor), top(F.ancestor)
+            for _, entry in ipairs(F.ops) do
+                if entry.key == "opanchor" then Lab.ancBtn = entry.button end
+            end
+            Lab.ancRan = Lab.ancBtn and (Lab.ancBtn:GetAttribute("ran") or 0) or 0
+        end,
+        done = function()
+            local ran = Lab.ancBtn and (Lab.ancBtn:GetAttribute("ran") or 0) or 0
+            local nowLeft, nowTop = left(F.ancestor), top(F.ancestor)
+            local moved = not approximately(Lab.ancLeft, nowLeft)
+                or not approximately(Lab.ancTop, nowTop)
+
+            record({
+                capability = "secure re-anchor of a protected ancestor",
+                context = inCombat() and "combat" or "out of combat",
+                trigger = "hardware click on SecureHandlerClickTemplate",
+                target = "SecureHandlerBaseTemplate containing a SecureActionButton",
+                operation = "ClearAllPoints and SetPoint from a snippet",
+                before = ("left %s top %s"):format(fmt(Lab.ancLeft), fmt(Lab.ancTop)),
+                after = ("left %s top %s"):format(fmt(nowLeft), fmt(nowTop)),
+                note = ("snippet ran %d -> %d"):format(Lab.ancRan, ran),
+                conclusion = (ran > Lab.ancRan and moved) and "YES — observed"
+                    or (ran <= Lab.ancRan
+                        and "INCONCLUSIVE — the snippet did not run"
+                        or "NO — observed refusal"),
+            })
+        end,
+    })
+
+    ----------------------------------------------------------------------------
+    -- Phase 4 — the scroll probes that already exist, run at last.
+    ----------------------------------------------------------------------------
+    add({
+        phase = "scrolling",
+        manual = true,
+        buttonText = "I ran it",
+        text = "Type |cffffd200/imitest combat|r now, while still in combat.\n"
+            .. "That runs the scroll probes that have been in the self-test since "
+            .. "0.8 and have never been run in a fight.\n"
+            .. "Then press the button below.",
+    })
+
+    add({
+        phase = "done",
+        manual = true,
+        buttonText = "Finish",
+        text = "|cff44ff44That is everything in combat.|r\n"
+            .. "Leave combat, then run |cffffd200/imitest runlab copy|r and send "
+            .. "the whole report back.",
+        done = function()
+            restoreBaseline()
+        end,
+    })
+end
+
+--------------------------------------------------------------------------------
+-- Combat watching
+--
+-- A step measured while combat has quietly ended is not a combat measurement.
+-- Rather than let that pass unnoticed, the sequence pauses and says so.
+--------------------------------------------------------------------------------
+
+local watcher = CreateFrame("Frame")
+watcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+watcher:RegisterEvent("PLAYER_REGEN_DISABLED")
+watcher:RegisterEvent("PLAYER_LOGOUT")
+watcher:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGOUT" then
+        pcall(clearBindings)
+        return
+    end
+
+    if event ~= "PLAYER_REGEN_ENABLED" then return end
+    if not built then return end
+
+    local step = currentStep()
+    if step and watching and step.capability then
+        record({
+            capability = step.capability,
+            context = "combat ended mid-step",
+            conclusion = "INCONCLUSIVE — combat ended before the hardware action "
+                .. "was measured; re-enter combat and retry this step",
+        })
+        stopWatching()
+        if F.step then
+            F.step.body:SetText((step.text or "")
+                .. "\n\n|cffff6666Combat ended. Get back on the dummy and press "
+                .. "Retry.|r")
+            F.step.next:Show()
+            F.step.next.label:SetText("Retry step")
+            step.manual, step.retry = true, true
+        end
+    end
+
+    -- Anything a probe left behind goes back to baseline the moment it is safe,
+    -- after the result has been recorded rather than before it.
+    restoreBaseline()
+end)
+
+--------------------------------------------------------------------------------
+-- The report
+--------------------------------------------------------------------------------
+
+local function detailLines()
+    local out = {}
+    local function line(...) out[#out + 1] = string.format(...) end
+
+    line("== Run Capability Lab — Stage 1 ==")
+
+    -- Guarded like every other client read here. A report that throws while
+    -- being written is a report nobody gets, and the report is the deliverable.
+    local okBuild, build = pcall(function() return select(4, GetBuildInfo()) end)
+    line("client build %s", okBuild and tostring(build) or "unreadable")
+
+    local reader = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+    line("addon %s, self-test %s",
+        tostring(reader and reader("InomrahsMythicInstructions", "Version") or "?"),
+        tostring(reader and reader("InomrahsMISelfTest", "Version") or "?"))
+    line("armed chords: %s", armed and (CHORDS[1].key .. ", " .. CHORDS[2].key) or "none")
+    line("")
+
+    for _, r in ipairs(results) do
+        line("[%s] %s", (r.conclusion or "INCONCLUSIVE"):match("^%a[%a%s]*") or "?",
+            r.capability or "?")
+        if r.context then line("  context: %s", r.context) end
+        if r.trigger then line("  trigger: %s", r.trigger) end
+        if r.target then line("  target: %s", r.target) end
+        if r.operation then line("  operation: %s", r.operation) end
+        if r.before ~= nil then line("  before: %s", tostring(r.before)) end
+        if r.requested ~= nil then line("  requested: %s", tostring(r.requested)) end
+        if r.after ~= nil then line("  after: %s", tostring(r.after)) end
+        if r.execBefore ~= nil then
+            line("  action executions: %s -> %s", tostring(r.execBefore),
+                tostring(r.execAfter))
+        end
+        if r.underlayBefore ~= nil then
+            line("  underlay clicks: %s -> %s", tostring(r.underlayBefore),
+                tostring(r.underlayAfter))
+        end
+        if r.intercept then line("  mouse: %s", r.intercept) end
+        if r.note then line("  note: %s", r.note) end
+        if r.err then line("  error: %s", r.err) end
+        line("  conclusion: %s", r.conclusion or "INCONCLUSIVE")
+        line("")
+    end
+
+    return out
+end
+
+local MATRIX = {
+    { "Evidence", nil },
+    { "Visible SecureActionButton /run counter OOC", "/run counter, out of combat" },
+    { "Visible SecureActionButton /run counter combat", "/run counter, in combat" },
+    { "Alpha / input", nil },
+    { "Insecure root SetAlpha(0) effect in combat", "insecure SetAlpha(0) on lab root" },
+    { "Action key works at root alpha 0", "action key at root alpha 0" },
+    { "Root alpha 0 intercepts mouse", "alpha-0 root intercepts the mouse" },
+    { "Mouse can be disabled in combat", "insecure EnableMouse(false) on lab root" },
+    { "Alpha 0 + mouse-disabled click-through", "alpha 0 plus mouse disabled: click-through" },
+    { "Alpha 0 + mouse-disabled action key", "action key with alpha 0 and mouse disabled" },
+    { "Visual-child alpha can change in combat", "insecure SetAlpha(0) on the visual-only child" },
+    { "Action usable when visual child alpha 0", "action key with the visual child alpha 0" },
+    { "Repeated alpha transitions restore cleanly", "repeated alpha transitions restore cleanly" },
+    { "Insecure SetScale on protected ancestor", "insecure SetScale on a protected ancestor" },
+    { "Visibility strategies", nil },
+    { "Action key with root inherited-hidden", "action key with the root hidden" },
+    { "Action key with page ancestor hidden", "action key with the ancestor hidden" },
+    { "Action key with action button hidden", "action key with the action button hidden" },
+    { "Action key with visual child hidden only", "action key with only the visual child hidden" },
+    { "Action key while parked off screen", "action key while the button is parked off screen" },
+    { "Action key while resized to 1x1", "action key while the button is 1x1" },
+    { "Action key while clipped out of view", "action key on a clipped button" },
+    { "Geometry", nil },
+    { "Secure width/height on protected ancestor", "secure width and height on a protected ancestor" },
+    { "Secure re-anchor protected ancestor", "secure re-anchor of a protected ancestor" },
+    { "Secure Hide on protected ancestor", "secure Hide on the protected ancestor (the snippet ran)" },
+    { "Hidden root restored in combat", "secure restore of a hidden root during combat" },
+}
+
+local function matrixLines()
+    local out = {}
+    out[#out + 1] = "== Stage 1 Architecture Summary =="
+    out[#out + 1] = ""
+    for _, entry in ipairs(MATRIX) do
+        if not entry[2] then
+            out[#out + 1] = ""
+            out[#out + 1] = entry[1]
+            out[#out + 1] = ("-"):rep(#entry[1])
+        else
+            out[#out + 1] = ("%-52s %s"):format(entry[1], yesNo(entry[2]))
+        end
+    end
+
+    out[#out + 1] = ""
+    out[#out + 1] = "Safety"
+    out[#out + 1] = "------"
+    out[#out + 1] = ("%-52s %s"):format("Production frames mutated by lab", "NO")
+    out[#out + 1] = ("%-52s %s"):format("Production SavedVariables modified", "NO")
+    out[#out + 1] = ("%-52s %s"):format("Lab rescue remained available",
+        shown(F.rescueBar) == true and "YES" or "CHECK")
+    out[#out + 1] = ("%-52s %s"):format("Lab override bindings still armed",
+        armed and "YES — run /imitest runlab release" or "NO")
+    out[#out + 1] = ("%-52s %s"):format("Lab holds keyboard focus", "NO")
+    out[#out + 1] = ""
+    out[#out + 1] = "== Still to run =="
+    out[#out + 1] = "The v0.8 combat scroll probes are reported by /imitest combat,"
+    out[#out + 1] = "under the Combat section. Paste that report alongside this one."
+    return out
+end
+
+local function report(full)
+    local out = {}
+    for _, l in ipairs(matrixLines()) do out[#out + 1] = l end
+    out[#out + 1] = ""
+
+    if full then
+        for _, l in ipairs(detailLines()) do out[#out + 1] = l end
+    else
+        out[#out + 1] = "== Anything not a plain YES =="
+        out[#out + 1] = ""
+        for _, r in ipairs(results) do
+            if not (r.conclusion or ""):match("^YES") then
+                out[#out + 1] = ("[%s] %s"):format(r.conclusion or "?", r.capability or "?")
+            end
+        end
+        out[#out + 1] = ""
+        out[#out + 1] = "Run /imitest runlab copy for the full detail."
+    end
+
+    return table.concat(out, "\n")
+end
+
+--------------------------------------------------------------------------------
+-- Commands
+--------------------------------------------------------------------------------
+
+local HELP = {
+    "RunLab — Stage 1. Measures what combat allows, on synthetic frames only.",
+    "",
+    "  /imitest runlab setup      build it (out of combat)",
+    "  /imitest runlab preflight  check it before you start",
+    "  /imitest runlab arm        turn the test keys on",
+    "  /imitest runlab status     where things stand",
+    "  /imitest runlab report     the summary",
+    "  /imitest runlab copy       everything, to paste back",
+    "  /imitest runlab reset      back to baseline",
+    "  /imitest runlab release    emergency: unbind, restore, let go",
+    "",
+    "The lab guides you a step at a time once it is set up.",
+    "Use a training dummy. Never during a real key.",
+}
+
+function Lab.Command(arg)
+    arg = (arg or ""):lower():match("^%s*(.-)%s*$")
+
+    if arg == "" or arg == "help" then
+        for _, line in ipairs(HELP) do print(PREFIX .. line) end
+        return
+    end
+
+    if arg == "setup" then
+        if InCombatLockdown() then
+            say("|cffff4444out of combat only.|r nothing was built.")
+            return
+        end
+        local ok = build()
+        if not ok then say("could not build the lab.") return end
+
+        restoreBaseline()
+        buildStepPanel()
+        results = {}
+        fired[1], fired[2] = 0, 0
+        F.underlay.count = 0
+        F.underlay.label:SetText("UNDERLAY 0")
+        buildSteps()
+        stepIndex = 0
+        advance()
+
+        F.step:Show()
+        F.rescueBar:Show()
+        F.root:Show()
+        say("built. run |cffffd200/imitest runlab preflight|r next.")
+        return
+    end
+
+    if not built then
+        say("run |cffffd200/imitest runlab setup|r first.")
+        return
+    end
+
+    if arg == "preflight" then
+        if InCombatLockdown() then say("|cffff4444out of combat only.|r") return end
+
+        local missing = {}
+        for _, key in ipairs({ "root", "ancestor", "action", "visual", "viewport",
+                               "clipped", "underlay", "rescue", "rescueBar",
+                               "pager", "step" }) do
+            if not F[key] then missing[#missing + 1] = key end
+        end
+        say("frames: %s", #missing == 0 and "all built"
+            or ("MISSING " .. table.concat(missing, ", ")))
+
+        say("action macro: %s",
+            (F.action:GetAttribute("macrotext") or ""):find("RunLabFired", 1, true)
+                and "prepared" or "MISSING")
+        say("rescue is outside the lab root: %s",
+            F.rescue:GetParent() == F.rescueBar and "yes" or "NO")
+
+        for _, chord in ipairs(CHORDS) do
+            local existing = existingBinding(chord.key)
+            say("%s -> %s%s", chord.key, chord.what,
+                existing and ("  |cffff8800(currently bound to " .. existing .. ")|r") or "")
+        end
+
+        -- The inventories, per handle type. Absence here is information, not a
+        -- failure: it tells Stage 2 which architectures are not worth writing.
+        inventory("generic frame", F.root, GENERIC_METHODS)
+        inventory("SecureActionButtonTemplate", F.action, GENERIC_METHODS)
+        inventory("secure header", F.ancestor, HEADER_METHODS)
+        inventory("ScrollFrame", F.viewport, SCROLL_METHODS)
+        say("restricted method inventories recorded — see the report.")
+        return
+    end
+
+    if arg == "arm" then
+        if InCombatLockdown() then say("|cffff4444out of combat only.|r") return end
+        local ok, why = armBindings()
+        if not ok then say("could not arm: %s", tostring(why)) return end
+
+        say("|cffff8800TEST KEYS ARMED — these are temporary.|r")
+        for _, chord in ipairs(CHORDS) do
+            say("  |cffffd200%s|r  %s", chord.key, chord.what)
+        end
+        say("they vanish on /reload, and on |cffffd200/imitest runlab release|r.")
+        say("now get on a |cffffd200training dummy|r and follow the panel.")
+        return
+    end
+
+    if arg == "status" then
+        say("combat: %s | step %d/%d", inCombat() and "yes" or "no", stepIndex, #steps)
+        say("root shown %s, visible %s, alpha %s",
+            tri(shown(F.root)), tri(visible(F.root)), fmt(alpha(F.root)))
+        say("action shown %s, %s x %s at %s,%s",
+            tri(shown(F.action)), fmt(width(F.action)), fmt(height(F.action)),
+            fmt(left(F.action)), fmt(top(F.action)))
+        say("action fired %d and %d | underlay clicks %d",
+            fired[1] or 0, fired[2] or 0, F.underlay.count or 0)
+        say("bindings armed: %s | rescue present: %s",
+            armed and "yes" or "no", F.rescue and "yes" or "no")
+        return
+    end
+
+    if arg == "report" then
+        if API.Report then API.Report(report(false)) else print(report(false)) end
+        return
+    end
+
+    if arg == "copy" then
+        if API.Report then API.Report(report(true)) else print(report(true)) end
+        return
+    end
+
+    if arg == "reset" then
+        if InCombatLockdown() then
+            say("|cffff4444out of combat only|r — but RESTORE LAB works mid-fight.")
+            return
+        end
+        restoreBaseline()
+        stepIndex = 0
+        buildSteps()
+        advance()
+        say("back to baseline. results kept — /imitest runlab copy still works.")
+        return
+    end
+
+    if arg == "release" then
+        stopWatching()
+        local cleared = clearBindings()
+        restoreBaseline()
+        if F.step then F.step:Hide() end
+
+        if API.ReleaseKeyboard then pcall(API.ReleaseKeyboard) end
+        say("bindings cleared: %s | frames restored | keyboard: %s",
+            cleared and "yes" or "IN COMBAT — try again after",
+            API.KeyboardReport and API.KeyboardReport() or "not checked")
+        return
+    end
+
+    say("unknown: %s. try |cffffd200/imitest runlab help|r.", arg)
+end
+
+--- For the acceptance checks and for anything that needs to know the lab is
+--- here without reaching into it.
+function Lab.Built() return built end
+function Lab.Armed() return armed end
+function Lab.Results() return results end

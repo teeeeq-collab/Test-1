@@ -17,6 +17,7 @@ lua5.1 tests/binds_test.lua
 lua5.1 tests/ui_test.lua
 lua5.1 tests/layout_test.lua
 lua5.1 tests/sweep_test.lua
+lua5.1 tests/runlab_test.lua
 
 # The self-test's manifest is generated from the addon. Out of date, the in-game
 # checks run against a list that no longer describes the addon — the one failure

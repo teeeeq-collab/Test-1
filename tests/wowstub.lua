@@ -241,6 +241,12 @@ local function newFrame(frameType, name, parent, template)
     end
     f.GetScrollChild = function(self) return self.scrollChild end
 
+    -- A named frame is a global in the client, which is how one addon reaches
+    -- another's frame and how a test reaches either. Without this, everything
+    -- that looks itself up by name came back nil and the check quietly passed
+    -- on nothing.
+    if type(name) == "string" and name ~= "" then _G[name] = f end
+
     -- Parents keep their children, so a test can walk the tree and find frames
     -- a pool left behind.
     M.allFrames = M.allFrames or {}
@@ -277,6 +283,10 @@ function M.install()
     _G.UnitExists = function() return false end
     _G.UnitName   = function() return nil end
     _G.GetTime    = function() return 0 end
+    -- Version, build, date, interface. Only the fourth is read anywhere.
+    _G.GetBuildInfo = function() return "12.1.0", "60000", "Jan 1 2026", 120100 end
+    _G.GetBindingAction = function() return "" end
+    _G.SendChatMessage = function() end
     _G.GetCursorPosition = function() return 0, 0 end
     -- Whichever edit box holds the keyboard, which is how the client answers it.
     _G.GetCurrentKeyBoardFocus = function() return M.focused end
