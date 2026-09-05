@@ -700,6 +700,31 @@ check("the geometry snippets stamp between each call", function()
     end
 end)
 
+-- The insecure click counter is not evidence on its own: a hooked OnClick does
+-- not fire when the script it hooks errors first, so a snippet that threw
+-- looked exactly like a button nobody pressed. This lab reported "the button
+-- was never clicked" about three buttons that were, in fact, clicked. Every
+-- conclusion is drawn from "entered", stamped inside the snippet.
+check("conclusions are drawn from entered, not from the click hook", function()
+    local source = io.open("InomrahsMISelfTest/RunLab.lua"):read("*a")
+
+    if source:find("the button was never clicked", 1, true) then
+        error("a conclusion still claims a click never happened")
+    end
+    if not source:find("the snippet was never entered", 1, true) then
+        error("no conclusion is phrased in terms of entry")
+    end
+
+    -- Every step that waits for a press must consult entered.
+    local waits = 0
+    for _ in source:gmatch('ranCount%(%s*"?%w*"?,?%s*"entered"%s*%)') do
+        waits = waits + 1
+    end
+    if waits < 5 then
+        error(("only %d places read entered; the click hook is still the gate"):format(waits))
+    end
+end)
+
 check("the report survives having nothing to report", function()
     Lab.Command("setup")
     Lab.Command("report")

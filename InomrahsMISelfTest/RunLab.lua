@@ -434,6 +434,29 @@ local TOGGLE_SELF_ANCHOR = [==[
     self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
 ]==]
 
+--- Is any anchoring permitted, or none?
+---
+--- SetPoint is refused in both forms tested -- with a frame handle and against
+--- the parent -- while ClearAllPoints succeeds, out of combat, on three
+--- different buttons. This tries the two remaining shapes an anchor can take,
+--- each stamped separately so the first refusal is named rather than hiding
+--- the ones behind it. If SetAllPoints works, a protected frame can still be
+--- made to fill its parent in combat, which is not nothing: it is the one
+--- repositioning a Compact mode could still rely on.
+local TOGGLE_ANCHOR_FORMS = [==[
+    self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
+    local target = self:GetFrameRef("target")
+    if not target then return end
+
+    target:SetAllPoints()
+    self:SetAttribute("allpoints", (self:GetAttribute("allpoints") or 0) + 1)
+
+    target:SetPoint("CENTER")
+    self:SetAttribute("centered", (self:GetAttribute("centered") or 0) + 1)
+
+    self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
+]==]
+
 --- The rescue. Shows everything the lab can hide, unconditionally, in one
 --- click. It is the reason a destructive probe is safe to run at all, so it
 --- takes no arguments, reads no state, and cannot be told not to.
@@ -740,6 +763,7 @@ local function build()
     op("OpMouse",  "root mouse off",     SNIPPET_MOUSE, { target = F.root })
     op("OpFade",   "root fade",          SNIPPET_ALPHA, { target = F.root })
     op("OpSelfAnc", "anchor, no ref",    TOGGLE_SELF_ANCHOR, { target = F.ancestor })
+    op("OpForms",  "anchor forms",       TOGGLE_ANCHOR_FORMS, { target = F.ancestor })
 
     for i, entry in ipairs(F.ops) do
         local col = (i - 1) % 3
@@ -1494,20 +1518,31 @@ local function buildSteps(mode)
                 Lab.opButton = button
                 Lab.opRan = button and (tonumber(button:GetAttribute("ran")) or 0) or 0
                 Lab.opClicks = button and (button.clicks or 0) or 0
+                Lab.opEntered = ranCount(opKey, "entered")
             end,
             done = function()
                 local button = Lab.opButton
                 local ran = button and (tonumber(button:GetAttribute("ran")) or 0) or 0
                 local clicks = button and (button.clicks or 0) or 0
+                local entered = ranCount(opKey, "entered")
+
+                -- The insecure click counter is not proof of anything on its
+                -- own: a hooked OnClick does not fire when the script it hooks
+                -- errors first, so a snippet that threw looked exactly like a
+                -- button nobody pressed. This lab reported "the button was
+                -- never clicked" three times about buttons that were clicked.
+                -- "entered" is stamped inside the snippet, before anything can
+                -- fail, and it is what says the click arrived.
+                local arrived = entered > Lab.opEntered or clicks > Lab.opClicks
 
                 local conclusion
                 if ran > Lab.opRan then
                     conclusion = "YES — observed"
-                elseif clicks > Lab.opClicks then
-                    conclusion = "NO — observed refusal: the button was clicked "
-                        .. "and the snippet did not run"
+                elseif arrived then
+                    conclusion = "NO — observed refusal: the snippet was entered "
+                        .. "and did not reach the end"
                 else
-                    conclusion = "INCONCLUSIVE — the button was never clicked"
+                    conclusion = "INCONCLUSIVE — the snippet was never entered"
                 end
 
                 record({
@@ -1516,7 +1551,8 @@ local function buildSteps(mode)
                     trigger = "hardware click on SecureHandlerClickTemplate",
                     target = buttonText,
                     before = Lab.opRan, after = ran,
-                    note = ("clicks %d -> %d"):format(Lab.opClicks, clicks),
+                    note = ("entered %d -> %d, clicks %d -> %d")
+                        :format(Lab.opEntered, entered, Lab.opClicks, clicks),
                     conclusion = conclusion,
                 })
             end,
@@ -1583,10 +1619,10 @@ local function buildSteps(mode)
         return nil
     end
 
-    local function ranCount(opKey)
+    local function ranCount(opKey, attribute)
         local button = opButton(opKey)
         if not button then return 0 end
-        local ok, value = pcall(button.GetAttribute, button, "ran")
+        local ok, value = pcall(button.GetAttribute, button, attribute or "ran")
         return (ok and tonumber(value)) or 0
     end
 
@@ -1716,17 +1752,20 @@ local function buildSteps(mode)
             Lab.geoBtn = opButton("opgeo")
             Lab.geoRan = ranCount("opgeo")
             Lab.geoClicks = Lab.geoBtn and (Lab.geoBtn.clicks or 0) or 0
+            Lab.geoEntered = ranCount("opgeo", "entered")
         end,
         -- Waits for the click, not for you to say you clicked. A step that
         -- advanced on trust could not report whether the operation was refused
         -- or the button was never pressed, and it reported both as the same.
         observe = function()
+            if ranCount("opgeo", "entered") > (Lab.geoEntered or 0) then return true end
             local clicks = Lab.geoBtn and (Lab.geoBtn.clicks or 0) or 0
             if clicks > Lab.geoClicks then return true end
-            return false, "the ancestor w/h button was never clicked"
+            return false, "the ancestor w/h snippet was never entered"
         end,
         done = function()
             local ran = ranCount("opgeo")
+            local entered = ranCount("opgeo", "entered")
             local clicks = Lab.geoBtn and (Lab.geoBtn.clicks or 0) or 0
             local nowW, nowH = width(F.ancestor), height(F.ancestor)
             local changed = not approximately(Lab.geoW, nowW)
@@ -1746,13 +1785,15 @@ local function buildSteps(mode)
                 -- to an "after" of 71 that had in fact been honoured exactly.
                 requested = ("%s x %s"):format(fmt(ANC_W / 2), fmt(ANC_H / 2)),
                 after = ("%s x %s"):format(fmt(nowW), fmt(nowH)),
-                note = ("snippet ran %d -> %d, clicks %d -> %d")
-                    :format(Lab.geoRan, ran, Lab.geoClicks, clicks),
+                note = ("snippet ran %d -> %d, entered %d -> %d, clicks %d -> %d")
+                    :format(Lab.geoRan, ran, Lab.geoEntered or 0, entered,
+                            Lab.geoClicks, clicks),
                 conclusion = (ran > Lab.geoRan and changed) and "YES — observed"
                     or (ran > Lab.geoRan and "NO — the snippet ran and nothing moved")
-                    or (clicks > Lab.geoClicks
-                        and "NO — observed refusal: clicked, and the snippet did not run")
-                    or "INCONCLUSIVE — the button was never clicked",
+                    or ((entered > (Lab.geoEntered or 0) or clicks > Lab.geoClicks)
+                        and "NO — observed refusal: the snippet was entered and "
+                            .. "did not reach the end")
+                    or "INCONCLUSIVE — the snippet was never entered",
             })
         end,
     })
@@ -1770,14 +1811,17 @@ local function buildSteps(mode)
             Lab.ancBtn = opButton("opanchor")
             Lab.ancRan = ranCount("opanchor")
             Lab.ancClicks = Lab.ancBtn and (Lab.ancBtn.clicks or 0) or 0
+            Lab.ancEntered = ranCount("opanchor", "entered")
         end,
         observe = function()
+            if ranCount("opanchor", "entered") > (Lab.ancEntered or 0) then return true end
             local clicks = Lab.ancBtn and (Lab.ancBtn.clicks or 0) or 0
             if clicks > Lab.ancClicks then return true end
-            return false, "the ancestor anchor button was never clicked"
+            return false, "the ancestor anchor snippet was never entered"
         end,
         done = function()
             local ran = ranCount("opanchor")
+            local entered = ranCount("opanchor", "entered")
             local clicks = Lab.ancBtn and (Lab.ancBtn.clicks or 0) or 0
             local nowLeft, nowTop = left(F.ancestor), top(F.ancestor)
             local moved = not approximately(Lab.ancLeft, nowLeft)
@@ -1791,13 +1835,15 @@ local function buildSteps(mode)
                 operation = "ClearAllPoints and SetPoint from a snippet",
                 before = ("left %s top %s"):format(fmt(Lab.ancLeft), fmt(Lab.ancTop)),
                 after = ("left %s top %s"):format(fmt(nowLeft), fmt(nowTop)),
-                note = ("snippet ran %d -> %d, clicks %d -> %d")
-                    :format(Lab.ancRan, ran, Lab.ancClicks, clicks),
+                note = ("snippet ran %d -> %d, entered %d -> %d, clicks %d -> %d")
+                    :format(Lab.ancRan, ran, Lab.ancEntered or 0, entered,
+                            Lab.ancClicks, clicks),
                 conclusion = (ran > Lab.ancRan and moved) and "YES — observed"
                     or (ran > Lab.ancRan and "NO — the snippet ran and nothing moved")
-                    or (clicks > Lab.ancClicks
-                        and "NO — observed refusal: clicked, and the snippet did not run")
-                    or "INCONCLUSIVE — the button was never clicked",
+                    or ((entered > (Lab.ancEntered or 0) or clicks > Lab.ancClicks)
+                        and "NO — observed refusal: the snippet was entered and "
+                            .. "did not reach the end")
+                    or "INCONCLUSIVE — the snippet was never entered",
             })
         end,
     })
@@ -1811,7 +1857,7 @@ local function buildSteps(mode)
     -- on an assumption that only breaks mid-fight.
     ----------------------------------------------------------------------------
     local function snippetOpStep(capability, opLabel, opKey, targetName, operation, read)
-        local button, ran0, clicks0, before
+        local button, ran0, clicks0, entered0, before
         return {
             phase = "snippet route",
             capability = capability,
@@ -1824,12 +1870,14 @@ local function buildSteps(mode)
                 button = opButton(opKey)
                 ran0 = ranCount(opKey)
                 clicks0 = button and (button.clicks or 0) or 0
+                entered0 = ranCount(opKey, "entered")
                 before = read()
             end,
             observe = function()
+                if ranCount(opKey, "entered") > entered0 then return true end
                 local clicks = button and (button.clicks or 0) or 0
                 if clicks > clicks0 then return true end
-                return false, "the " .. opLabel .. " button was never clicked"
+                return false, "the " .. opLabel .. " snippet was never entered"
             end,
             done = function()
                 local ran = ranCount(opKey)
@@ -1843,13 +1891,15 @@ local function buildSteps(mode)
                     target = targetName,
                     operation = operation,
                     before = before, after = after,
-                    note = ("snippet ran %d -> %d, clicks %d -> %d")
-                        :format(ran0, ran, clicks0, clicks),
+                    note = ("snippet ran %d -> %d, entered %d -> %d, clicks %d -> %d")
+                        :format(ran0, ran, entered0, ranCount(opKey, "entered"),
+                                clicks0, clicks),
                     conclusion = (ran > ran0 and before ~= after) and "YES — observed"
                         or (ran > ran0 and "NO — the snippet ran and nothing changed")
-                        or (clicks > clicks0
-                            and "NO — observed refusal: clicked, and the snippet did not run")
-                        or "INCONCLUSIVE — the button was never clicked",
+                        or ((ranCount(opKey, "entered") > entered0 or clicks > clicks0)
+                            and "NO — observed refusal: the snippet was entered and "
+                                .. "did not reach the end")
+                        or "INCONCLUSIVE — the snippet was never entered",
                 })
             end,
         }
@@ -2279,12 +2329,13 @@ function Lab.Command(arg)
             -- entered 1 with ran 0 is a snippet that threw partway, which is a
             -- different fact from a click that never arrived, and the two were
             -- indistinguishable before.
-            say("%-18s clicks %s  entered %s cleared %s pointed %s ran %s  "
-                .. "at %s,%s  %sx%s",
-                entry.text, tostring(button.clicks or 0),
+            say("%-18s entered %s cleared %s pointed %s allpoints %s centered %s "
+                .. "ran %s  clicks %s  at %s,%s",
+                entry.text,
                 tostring(attr("entered")), tostring(attr("cleared")),
-                tostring(attr("pointed")), tostring(attr("ran")),
-                fmt(l), fmt(t), fmt(w), fmt(h))
+                tostring(attr("pointed")), tostring(attr("allpoints")),
+                tostring(attr("centered")), tostring(attr("ran")),
+                tostring(button.clicks or 0), fmt(l), fmt(t))
         end
         endCapture("which buttons receive clicks")
         return
