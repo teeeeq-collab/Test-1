@@ -1,0 +1,20 @@
+# Inomrah's Mythic Instructions — profile template
+"# Fill this in, select the cells, copy, then paste into Settings > Profile > Import."
+"# A row starting Dungeon, Channel or Enemy is an instruction. Everything else is a callout."
+# Channel is optional: leave the row out and the dungeon follows the setting in Settings.
+
+Dungeon:,Altar of Fangs
+Channel:,/i
+Enemy:,Ravenous Descendant,Venom Leech,Bribed Captain,Street Sneak
+,Kick the Enrage,Dispel the leech on the tank,Interrupt the shout,Stun on pull
+,Spread 5 yards for the cone,Stack for the pull,Save a stop for the second cast,
+
+Enemy:,Ra'Vi
+,P1 — spread for the volley
+,P2 — stack behind the pillar
+,Bloodlust now
+
+Dungeon:,Murder Row
+Enemy:,Gutter Thug,Alley Cutpurse
+,Kick the heal,Dispel the poison
+

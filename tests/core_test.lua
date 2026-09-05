@@ -358,3 +358,72 @@ ck5("renaming onto an existing name is refused",
 
 print(("\nprofiles: %d passed, %d failed"):format(p5, f5))
 if f5 > 0 then os.exit(1) end
+
+--------------------------------------------------------------------------------
+-- Where plain text goes
+--
+-- Three levels, nearest wins. The thing that makes it a toggle rather than a
+-- chooser is that "not set" has to be expressible: picking /p is not the same
+-- as saying nothing, because the level above may change later.
+--------------------------------------------------------------------------------
+
+local p6, f6 = 0, 0
+local function ck6(label, cond, got)
+    if cond then p6 = p6 + 1
+    else f6 = f6 + 1; print("  FAIL: " .. label .. (got and ("  " .. tostring(got)) or "")) end
+end
+
+Core.Init({})
+local dung = Core.AddCategory("Channels")
+local pg1 = Core.AddPage(dung.id, "Gathering")
+local pg2 = Core.AddPage(dung.id, "Pull")
+
+Core.Settings().channel = "/p"
+local channel, from = Core.ChannelFor(dung.id, pg1.id)
+ck6("with nothing overridden the master setting decides", channel == "/p", channel)
+ck6("and says so", from == "master", from)
+
+Core.SetCategoryChannel(dung.id, "/raid")
+channel, from = Core.ChannelFor(dung.id, pg1.id)
+ck6("a dungeon override beats the master setting", channel == "/raid", channel)
+ck6("and says where it came from", from == "dungeon", from)
+
+Core.SetPageChannel(dung.id, pg1.id, "/i")
+ck6("a page override beats the dungeon", Core.ChannelFor(dung.id, pg1.id) == "/i")
+ck6("and only on that page", Core.ChannelFor(dung.id, pg2.id) == "/raid",
+    Core.ChannelFor(dung.id, pg2.id))
+ck6("and the level it came from is named",
+    select(2, Core.ChannelFor(dung.id, pg1.id)) == "page")
+
+-- Turning an override off is not the same as setting it to what the level
+-- above happens to use today: the level above can change later.
+Core.SetPageChannel(dung.id, pg1.id, nil)
+ck6("clearing a page override falls back to the dungeon",
+    Core.ChannelFor(dung.id, pg1.id) == "/raid")
+Core.SetCategoryChannel(dung.id, nil)
+ck6("clearing a dungeon override falls back to the master setting",
+    Core.ChannelFor(dung.id, pg1.id) == "/p")
+
+-- A new page never inherits an override. Copying the open page's channel would
+-- put callouts in instance chat for a page nobody chose that for.
+Core.SetCategoryChannel(dung.id, "/raid")
+Core.SetPageChannel(dung.id, pg1.id, "/i")
+local fresh = Core.AddPage(dung.id, "New")
+ck6("a new page starts with no override of its own", fresh.channel == nil)
+ck6("so it follows the dungeon", Core.ChannelFor(dung.id, fresh.id) == "/raid")
+
+-- A channel arrives from a string somebody else made, or a hand-edited file.
+Core.SetCategoryChannel(dung.id, "/dance")
+ck6("a channel the addon does not offer is refused",
+    Core.ChannelFor(dung.id, fresh.id) == "/p"
+    or Core.GetCategory(dung.id).channel == nil,
+    Core.GetCategory(dung.id).channel)
+
+ck6("asking with no page answers for the dungeon",
+    (Core.SetCategoryChannel(dung.id, "/raid")
+     and Core.ChannelFor(dung.id)) == "/raid")
+ck6("asking with neither answers the master setting",
+    Core.ChannelFor() == "/p")
+
+print(("\nchannels: %d passed, %d failed"):format(p6, f6))
+if f6 > 0 then os.exit(1) end

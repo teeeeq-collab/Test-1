@@ -130,6 +130,8 @@ local KEYWORDS = {
     dungeon = "dungeon", dungeons = "dungeon",
     page = "page", pages = "page", route = "page",
     enemy = "enemy", enemies = "enemy",
+    channel = "channel", chat = "channel",
+    color = "color", colour = "color",
 }
 
 --- Which keyword a row starts with, if any.
@@ -147,6 +149,21 @@ local function firstFilled(cells, from)
         if cells[i] ~= "" then return cells[i] end
     end
     return nil
+end
+
+--- A colour written the way a person writes one: #33cc66, or 33cc66.
+---
+--- Returned as the three numbers the addon stores, or nil, which leaves the
+--- dungeon its default rather than making one up from a typo.
+function Sheet.Color(text)
+    local hex = tostring(text or ""):match("^#?(%x%x%x%x%x%x)$")
+    if not hex then return nil end
+
+    return {
+        tonumber(hex:sub(1, 2), 16) / 255,
+        tonumber(hex:sub(3, 4), 16) / 255,
+        tonumber(hex:sub(5, 6), 16) / 255,
+    }
 end
 
 --------------------------------------------------------------------------------
@@ -190,7 +207,13 @@ function Sheet.Parse(text)
     end
 
     for _, cells in ipairs(rows) do
-        if blank(cells) then
+        -- A row starting with # is a note to whoever is filling the sheet in.
+        -- Templates are worth nothing without instructions on them, and a
+        -- template whose instructions import as an enemy is worse than none.
+        if (cells[1] or ""):sub(1, 1) == "#" then
+            columns = nil
+
+        elseif blank(cells) then
             -- A blank row ends the current block of enemies, so the next set of
             -- callouts cannot land in the previous block's columns.
             columns = nil
@@ -211,6 +234,20 @@ function Sheet.Parse(text)
                          enemyIds = {} }
                 category._variant.pages[#category._variant.pages + 1] = page
                 columns = nil
+
+            elseif word == "channel" then
+                -- Applies to whatever is open: a channel row after a Page row
+                -- overrides that page, otherwise the dungeon. The same nesting
+                -- the panel uses, so a sheet cannot express something the
+                -- interface cannot show.
+                ensureCategory()
+                local wanted = firstFilled(cells, 2)
+                if wanted and not wanted:match("^/") then wanted = "/" .. wanted end
+                if page then page.channel = wanted else category.channel = wanted end
+
+            elseif word == "color" then
+                ensureCategory()
+                category.color = Sheet.Color(firstFilled(cells, 2))
 
             elseif word == "enemy" then
                 ensureCategory()
@@ -294,4 +331,72 @@ function Sheet.Parse(text)
     end
 
     return { categories = kept }, nil, #kept
+end
+
+--------------------------------------------------------------------------------
+-- Writing one back out
+--
+-- The other direction, and the one that makes the sheet a place you can work
+-- rather than only a place you start. Pasting this into a spreadsheet lands one
+-- cell per cell, because that is what a tab-separated paste does everywhere.
+--
+-- What comes out imports back in unchanged, which is the only property worth
+-- guaranteeing here: anything else is a matter of taste about column widths.
+--------------------------------------------------------------------------------
+
+local function variantOf(cat)
+    if cat.variants then
+        for _, variant in ipairs(cat.variants) do
+            if variant.id == cat.activeVariant then return variant end
+        end
+        return cat.variants[1]
+    end
+    return cat
+end
+
+--- Every dungeon in a profile as tab-separated rows.
+---
+--- Enemies go across in blocks, because a spreadsheet with forty enemies in one
+--- row is unreadable and unusable. The block width is the only thing here that
+--- is a judgement rather than a rule.
+function Sheet.Format(profile, perBlock)
+    perBlock = perBlock or 4
+    local out = {}
+
+    local function row(...) out[#out + 1] = table.concat({ ... }, "\t") end
+
+    for _, cat in ipairs((profile or {}).categories or {}) do
+        local variant = variantOf(cat) or {}
+
+        row("Dungeon:", cat.name or "")
+        if cat.channel then row("Channel:", cat.channel) end
+
+        local enemies = variant.enemies or {}
+        for from = 1, math.max(1, #enemies), perBlock do
+            local block = {}
+            for i = from, math.min(from + perBlock - 1, #enemies) do
+                block[#block + 1] = enemies[i]
+            end
+            if #block > 0 then
+                local names, deepest = { "Enemy:" }, 0
+                for _, enemy in ipairs(block) do
+                    names[#names + 1] = enemy.name or ""
+                    deepest = math.max(deepest, #(enemy.lines or {}))
+                end
+                row(unpack(names))
+
+                for line = 1, deepest do
+                    local cells = { "" }
+                    for _, enemy in ipairs(block) do
+                        local body = (enemy.lines or {})[line]
+                        cells[#cells + 1] = body and body.body or ""
+                    end
+                    row(unpack(cells))
+                end
+                row("")
+            end
+        end
+    end
+
+    return table.concat(out, "\n")
 end

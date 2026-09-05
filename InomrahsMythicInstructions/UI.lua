@@ -555,6 +555,8 @@ function UI.AttachChooser(box, width)
     local chooser = attachList({}, box, width or (box:GetWidth() or 150))
 
     chooser.overlay = CreateFrame("Button", nil, box:GetParent())
+    -- Covers the box exactly, which is the whole mechanism.
+    chooser.overlay.overlapsOnPurpose = true
     chooser.overlay:SetAllPoints(box)
     chooser.overlay:SetFrameLevel((box:GetFrameLevel() or 1) + 2)
     chooser.overlay:RegisterForClicks("LeftButtonUp")
@@ -1286,6 +1288,12 @@ function layoutBody()
     local wanted = (currentView ~= "settings") and not sidebarCollapsed
     sidebar:SetShown(wanted)
 
+    -- Settings takes the whole body, so the content panel is not merely
+    -- covered but put away. Left showing it sat behind the settings page with
+    -- its own edge a few pixels out from it, which is how a border came to be
+    -- drawn across the panel once already.
+    content:SetShown(currentView ~= "settings")
+
     content:ClearAllPoints()
     if wanted then
         content:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", 6, 0)
@@ -1596,6 +1604,10 @@ function UI.Init()
     --- drawing it would mean three more lines competing with the gold rule.
     local function resizeGrip(direction, setPoints, tip)
         local g = CreateFrame("Frame", nil, root, "SecureHandlerMouseUpDownTemplate")
+        -- Sits on the window's own edge on purpose: it is the edge you drag.
+        -- Tagged so the sweep that looks for widgets drawn on top of each
+        -- other does not have to be told about it again in a rectangle.
+        g.overlapsOnPurpose = true
         setPoints(g)
         g:EnableMouse(true)
         IMI.Style.Tooltip(g, tip)
@@ -1682,7 +1694,10 @@ function UI.Init()
     sidebar.header:SetPoint("TOP", 0, -6)
     -- Says the same as the hint below the list, which is dropped when the
     -- window is too short to hold both it and the list.
+    -- An invisible hover target over the heading, so the tooltip has something
+    -- the width of the column to catch the cursor with.
     sidebar.headerHit = CreateFrame("Frame", nil, sidebar)
+    sidebar.headerHit.overlapsOnPurpose = true
     sidebar.headerHit:SetPoint("TOPLEFT", 0, -2)
     sidebar.headerHit:SetPoint("TOPRIGHT", 0, -2)
     sidebar.headerHit:SetHeight(20)
@@ -1763,10 +1778,12 @@ function UI.Init()
     content:SetPoint("BOTTOMRIGHT", -6, 6)
 
     -- On the divider between the two, which is where what it does is.
+    -- The handle lives on the divider, which means on top of the panel edge.
     body.sidebarToggle = panelButton(body, "<", GRIP, 44, function()
         UI.ToggleSidebar()
     end)
     body.sidebarToggle:SetPoint("RIGHT", content, "LEFT", -1, 0)
+    body.sidebarToggle.overlapsOnPurpose = true
 
     IMI.Style.Panel(content)
 
@@ -2240,6 +2257,15 @@ function UI.BuildSettings(parent)
            tipDetail = "Paste a string, or paste rows copied straight out of a "
                     .. "spreadsheet. It replaces what is loaded, and asks first." })
     profileImport:SetPoint("TOPLEFT", 336, y)
+
+    local profileSheet = panelButton(parent, "As sheet", 76, 20, function()
+        UI.ShowExport("Profile as spreadsheet rows",
+            IMI.Sheet.Format(Core.SnapshotProfile()))
+    end, { tip = "Copy out as a spreadsheet",
+           tipDetail = "Tab-separated rows. Paste them into Google Sheets or "
+                    .. "Excel and they land one cell per cell; paste them back "
+                    .. "into Import to bring the changes home." })
+    profileSheet:SetPoint("TOPLEFT", 418, y)
     y = y - 30
 
     rows[#rows + 1] = function()
@@ -2294,6 +2320,7 @@ function UI.BuildSettings(parent)
             label = profileLabel, pick = profilePick, saveAs = profileSaveAs,
             rename = profileRename, delete = profileDelete,
             export = profileExport, import = profileImport,
+            sheet = profileSheet,
         }
     end
 
@@ -2506,11 +2533,22 @@ function UI.ShowHelp()
         "  keeps a copy under a name; the list loads one back.",
         "  Import replaces the loaded profile rather than adding to it, and asks",
         "  first, so you can keep the old one under a name before it goes.",
-        "  Import also takes rows pasted straight out of a spreadsheet:",
-        "     Enemy:   Ravenous Descendant     Venom Leech",
-        "              Kick the Enrage         Dispel the leech",
-        "  A row starting Dungeon, Page or Enemy tells it what follows; every",
-        "  other row is callouts, read down each enemy\'s own column.",
+        "  Import also takes rows pasted straight out of a spreadsheet. One",
+        "  paste can build the whole profile, every dungeon in it:",
+        "     Dungeon:  Altar of Fangs",
+        "     Channel:  /i",
+        "     Enemy:    Ravenous Descendant     Venom Leech",
+        "               Kick the Enrage         Dispel the leech",
+        "  A row starting Dungeon, Channel, Color, Page or Enemy tells it what",
+        "  follows; every other row is callouts, read down each enemy\'s own",
+        "  column. Rows starting # are notes. As sheet writes yours back out.",
+        "",
+        "WHERE PLAIN TEXT GOES",
+        "  Settings sets it for everything. A dungeon can override that, and a",
+        "  page can override the dungeon - so a raid can sit in /raid and a key",
+        "  in /i without you remembering to change anything on the way in.",
+        "  Both are the Override chat channel toggle, top left. New pages start",
+        "  with it off. The hint above the enemies says which one is in force.",
         "",
         "WHAT COMBAT BLOCKS",
         "  Loading a dungeon, editing, and changing scale all need to be out of",

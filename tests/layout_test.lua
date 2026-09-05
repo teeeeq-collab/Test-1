@@ -166,6 +166,35 @@ noOverlaps("Keybind dialog",
 IMI.Binds.Frame():Hide()
 
 --------------------------------------------------------------------------------
+-- The chat-channel overrides.
+--
+-- Both dropdowns are hidden until their toggle is on, so a sweep taken with
+-- them off checks the half of the row that cannot collide with anything. These
+-- turn them on first.
+--------------------------------------------------------------------------------
+
+local function withOverridesOn()
+    IMI.Core.SetCategoryChannel(cat.id, "/raid")
+    IMI.Core.SetPageChannel(cat.id, page.id, "/i")
+    IMI.Edit.SetCategory(cat.id)
+    IMI.Edit.ShowTab("pages")
+    IMI.Edit.RefreshPages()
+end
+
+withOverridesOn()
+noOverlaps("Edit header with the dungeon override showing", IMI.Edit.HeaderWidgets())
+noOverlaps("Pages panel with the page override showing", IMI.Edit.PagesPanelWidgets())
+noOverlaps("Both channel overrides", IMI.Edit.ChannelWidgets())
+
+IMI.Edit.ShowTab("enemies")
+noOverlaps("Enemies panel with the dungeon override showing",
+    IMI.Edit.EnemiesPanelWidgets())
+
+IMI.Core.SetCategoryChannel(cat.id, nil)
+IMI.Core.SetPageChannel(cat.id, page.id, nil)
+IMI.Edit.SetCategory(cat.id)
+
+--------------------------------------------------------------------------------
 -- Settings: the Profile row, which is the busiest row in the addon.
 --------------------------------------------------------------------------------
 IMI.UI.Show("settings")
@@ -192,6 +221,15 @@ IMI.Edit.SetCategory(cat.id)
 
 IMI.Edit.ShowTab("pages")
 noOverlaps("Pages panel at the minimum width", IMI.Edit.PagesPanelWidgets())
+
+withOverridesOn()
+noOverlaps("Edit header at the minimum width with the override showing",
+    IMI.Edit.HeaderWidgets())
+noOverlaps("Pages panel at the minimum width with the override showing",
+    IMI.Edit.PagesPanelWidgets())
+IMI.Core.SetCategoryChannel(cat.id, nil)
+IMI.Core.SetPageChannel(cat.id, page.id, nil)
+IMI.Edit.SetCategory(cat.id)
 noOverlaps("Edit header at the minimum width, Pages tab", IMI.Edit.HeaderWidgets())
 
 IMI.Edit.ShowTab("enemies")

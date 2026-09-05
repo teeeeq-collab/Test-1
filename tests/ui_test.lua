@@ -1789,5 +1789,105 @@ check("the page name box is also the list of pages", function()
     if chooser.overlay:IsShown() then error("double-click did not hand over to the box") end
 end)
 
+--------------------------------------------------------------------------------
+-- The channel a callout actually goes out on
+--
+-- The setting is only worth anything if it reaches the macro text on the
+-- button. Everything above this is bookkeeping; this is the part that decides
+-- what the group sees.
+--------------------------------------------------------------------------------
+
+check("each page's callouts carry that page's channel", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Channelled")
+    local mob = IMI.Core.AddEnemy(cat.id, "Mob")
+    IMI.Core.AddLine(cat.id, mob.id, "", "kick it")
+
+    local gathering = IMI.Core.AddPage(cat.id, "Gathering")
+    local pull = IMI.Core.AddPage(cat.id, "Pull")
+    IMI.Core.AddEnemyToPage(cat.id, gathering.id, mob.id)
+    IMI.Core.AddEnemyToPage(cat.id, pull.id, mob.id)
+
+    IMI.Core.Settings().channel = "/p"
+    IMI.Core.SetCategoryChannel(cat.id, "/raid")
+    IMI.Core.SetPageChannel(cat.id, pull.id, "/i")
+
+    IMI.UI.Show("run")
+    IMI.UI.OpenRun(cat.id)
+
+    local onGathering = IMI.Runtime.PageButtons(1)[1]:GetAttribute("macrotext")
+    local onPull = IMI.Runtime.PageButtons(2)[1]:GetAttribute("macrotext")
+
+    if onGathering ~= "/raid kick it" then
+        error("the gathering page did not take the dungeon channel: " .. tostring(onGathering))
+    end
+    if onPull ~= "/i kick it" then
+        error("the pull page did not take its own channel: " .. tostring(onPull))
+    end
+end)
+
+check("a line that is already a command is left alone whatever the override", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Commands")
+    local mob = IMI.Core.AddEnemy(cat.id, "Mob")
+    IMI.Core.AddLine(cat.id, mob.id, "", "/cast Kick")
+    local page = IMI.Core.AddPage(cat.id, "Route")
+    IMI.Core.AddEnemyToPage(cat.id, page.id, mob.id)
+    IMI.Core.SetCategoryChannel(cat.id, "/raid")
+
+    IMI.UI.Show("run")
+    IMI.UI.OpenRun(cat.id)
+    local macro = IMI.Runtime.PageButtons(1)[1]:GetAttribute("macrotext")
+    if macro ~= "/cast Kick" then error("a command was prefixed: " .. tostring(macro)) end
+end)
+
+check("the override toggles show what is stored and set what is toggled", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Toggles")
+    local page = IMI.Core.AddPage(cat.id, "Route")
+
+    IMI.UI.Show("edit")
+    IMI.Edit.SetCategory(cat.id)
+    IMI.Edit.ShowTab("pages")
+    IMI.Edit.RefreshPages()
+
+    local w = IMI.Edit.ChannelWidgets()
+    if w.dungeon:GetChecked() then error("a fresh dungeon came up overridden") end
+    if w.dungeonDrop:IsShown() then error("the chooser is showing with the toggle off") end
+
+    -- Turning it on has to store something, not just light up.
+    w.dungeon:GetScript("OnClick")(w.dungeon)
+    if not IMI.Core.GetCategory(cat.id).channel then
+        error("toggling on stored no channel")
+    end
+    if not w.dungeonDrop:IsShown() then error("the chooser did not appear") end
+
+    -- And off has to clear it, not set it to whatever was showing.
+    w.dungeon:GetScript("OnClick")(w.dungeon)
+    if IMI.Core.GetCategory(cat.id).channel ~= nil then
+        error("toggling off left a channel behind")
+    end
+
+    if w.page:GetChecked() then error("a fresh page came up overridden") end
+    w.page:GetScript("OnClick")(w.page)
+    if not IMI.Core.GetPage(cat.id, page.id).channel then
+        error("the page toggle stored nothing")
+    end
+end)
+
+check("a new page does not inherit the open page's override", function()
+    IMI.Core.Init({})
+    local cat = IMI.Core.AddCategory("Fresh pages")
+    local first = IMI.Core.AddPage(cat.id, "First")
+    IMI.Core.SetPageChannel(cat.id, first.id, "/i")
+
+    IMI.UI.Show("edit")
+    IMI.Edit.SetCategory(cat.id)
+    IMI.Edit.ShowTab("pages")
+
+    local second = IMI.Core.AddPage(cat.id, "Second")
+    if second.channel ~= nil then error("the new page copied the old one's channel") end
+end)
+
 realPrint(("\n%d passed, %d failed"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

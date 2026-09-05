@@ -271,6 +271,11 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
     local enemies = Core.PageEnemies(catId, pageData.id)
     local buttonIndex = 0
 
+    -- Resolved once for the page, not once per line: every callout on a page
+    -- goes to the same place, and asking per line would let two buttons on one
+    -- page disagree about where they send.
+    local channel = Core.ChannelFor(catId, pageData.id)
+
     -- Keys for this page, held two ways: as attributes, the only shape the
     -- restricted environment can read, and as a plain list for the path used
     -- out of combat. Both written here so the two cannot disagree.
@@ -348,10 +353,9 @@ local function layoutPage(page, pageIndex, catId, pageData, width, settings)
                 y - HEADER_H - row * (cardBH + LINE_GAP))
 
             -- The whole point: the line's text, on the button, set now, while
-            -- we are out of combat and allowed to. Plain text gains the chosen
+            -- we are out of combat and allowed to. Plain text gains the page's
             -- channel; a body that already starts with a slash command is left
             -- exactly as written.
-            local channel = (settings and settings.channel) or Util.DEFAULT_CHANNEL
             local macro = Util.ComposeMacro(line.body, channel)
 
             button:SetAttribute("macrotext", macro)

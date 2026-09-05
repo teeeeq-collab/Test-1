@@ -285,6 +285,76 @@ end
 function Core.ActiveProfile() return Core.db.activeProfile end
 
 --------------------------------------------------------------------------------
+-- Where plain text goes
+--
+-- One setting for the whole addon was not enough. A raid wants /raid and a key
+-- wants /i, and the thing that decides which is the dungeon you opened, not a
+-- preference you have to remember to change on the way in. A page wants it
+-- narrower still: the same route reads better in /p while people are still
+-- gathering and in /i once the timer is running.
+--
+-- So a channel can be set at three levels and the nearest one wins: the page,
+-- then the dungeon, then the master setting. Absent means "whatever the level
+-- above says", which is why every override is a toggle and not just a value --
+-- there has to be a way to say nothing.
+--------------------------------------------------------------------------------
+
+local function validChannel(channel)
+    if type(channel) ~= "string" then return nil end
+    for _, known in ipairs(Util.CHANNELS) do
+        if channel == known then return channel end
+    end
+    return nil
+end
+
+--- What a line on this page actually gets sent to.
+---
+--- Both arguments are optional: asking with no page answers for the dungeon,
+--- and asking with neither answers the master setting. That is what makes this
+--- the single place the order is written down.
+function Core.ChannelFor(catId, pageId)
+    if pageId then
+        local page = Core.GetPage(catId, pageId)
+        local channel = page and validChannel(page.channel)
+        if channel then return channel, "page" end
+    end
+
+    if catId then
+        local cat = Core.GetCategory(catId)
+        local channel = cat and validChannel(cat.channel)
+        if channel then return channel, "dungeon" end
+    end
+
+    return validChannel(Core.db.settings.channel) or Util.DEFAULT_CHANNEL, "master"
+end
+
+--- nil turns the override off, which is not the same as setting it to the
+--- channel the level above happens to use today.
+function Core.SetCategoryChannel(catId, channel)
+    local cat = Core.GetCategory(catId)
+    if not cat then return false end
+
+    local wanted = channel and validChannel(channel) or nil
+    if cat.channel == wanted then return true end
+
+    cat.channel = wanted
+    edited()
+    return true
+end
+
+function Core.SetPageChannel(catId, pageId, channel)
+    local page = Core.GetPage(catId, pageId)
+    if not page then return false end
+
+    local wanted = channel and validChannel(channel) or nil
+    if page.channel == wanted then return true end
+
+    page.channel = wanted
+    edited()
+    return true
+end
+
+--------------------------------------------------------------------------------
 -- Categories
 --------------------------------------------------------------------------------
 

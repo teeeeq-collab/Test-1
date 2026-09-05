@@ -145,5 +145,127 @@ check("nothing usable says what it wanted", function()
     if not tostring(err):find("sheet") then error("unhelpful message: " .. tostring(err)) end
 end)
 
+--------------------------------------------------------------------------------
+-- Out and back
+--
+-- The one property worth guaranteeing about the written form: what comes out
+-- goes back in unchanged. Column widths are taste; this is not.
+--------------------------------------------------------------------------------
+
+check("a channel row sets the dungeon's override", function()
+    local profile = IMI.Sheet.Parse("Dungeon:\tAltar\nChannel:\t/i\nEnemy:\tMob\n\tkick")
+    if profile.categories[1].channel ~= "/i" then
+        error("no channel: " .. tostring(profile.categories[1].channel))
+    end
+end)
+
+check("a channel written without its slash still reads", function()
+    local profile = IMI.Sheet.Parse("Dungeon:\tAltar\nChannel:\traid\nEnemy:\tMob\n\tkick")
+    if profile.categories[1].channel ~= "/raid" then
+        error("wrong channel: " .. tostring(profile.categories[1].channel))
+    end
+end)
+
+check("a colour row is read, and a typo is not", function()
+    local good = IMI.Sheet.Parse("Dungeon:\tA\nColor:\t#33cc66\nEnemy:\tMob\n\tkick")
+    local colour = good.categories[1].color
+    if not colour then error("the colour was not read") end
+    if math.abs(colour[1] - 0x33 / 255) > 0.001 then error("wrong red") end
+
+    local bad = IMI.Sheet.Parse("Dungeon:\tA\nColor:\tgreenish\nEnemy:\tMob\n\tkick")
+    if bad.categories[1].color ~= nil then error("a typo became a colour") end
+end)
+
+check("what is written out reads back the same", function()
+    local original = IMI.Sheet.Parse(table.concat({
+        "Dungeon:\tAltar of Fangs",
+        "Channel:\t/i",
+        "Enemy:\tRavenous Descendant\tVenom Leech",
+        "\tKick the Enrage\tDispel the leech",
+        "\tSpread for the cone\t",
+        "",
+        "Dungeon:\tMurder Row",
+        "Enemy:\tBribed Captain",
+        "\tInterrupt the shout",
+    }, "\n"))
+
+    local back = IMI.Sheet.Parse(IMI.Sheet.Format(original))
+    if #back.categories ~= #original.categories then
+        error("a dungeon was lost on the way out and back")
+    end
+
+    for i, cat in ipairs(original.categories) do
+        local other = back.categories[i]
+        if cat.name ~= other.name then error("wrong name: " .. other.name) end
+        if cat.channel ~= other.channel then
+            error("the channel did not survive: " .. tostring(other.channel))
+        end
+        local a, b = cat.variants[1].enemies, other.variants[1].enemies
+        if #a ~= #b then error("enemies lost: " .. #a .. " became " .. #b) end
+        for j, enemy in ipairs(a) do
+            if enemy.name ~= b[j].name then error("wrong enemy: " .. b[j].name) end
+            if #enemy.lines ~= #b[j].lines then
+                error(("%s: %d callouts became %d")
+                    :format(enemy.name, #enemy.lines, #b[j].lines))
+            end
+            for k, line in ipairs(enemy.lines) do
+                if line.body ~= b[j].lines[k].body then
+                    error("a callout changed: " .. b[j].lines[k].body)
+                end
+            end
+        end
+    end
+end)
+
+-- More enemies than fit across a readable sheet are written in blocks, and the
+-- blocks have to read back as one dungeon rather than several.
+check("a dungeon wider than one block survives the trip", function()
+    local rows = { "Dungeon:\tWide", "Enemy:" }
+    local names = { "Enemy:" }
+    for i = 1, 9 do names[#names + 1] = "Mob " .. i end
+    rows[2] = table.concat(names, "\t")
+    local callouts = { "" }
+    for i = 1, 9 do callouts[#callouts + 1] = "kick " .. i end
+    rows[3] = table.concat(callouts, "\t")
+
+    local original = IMI.Sheet.Parse(table.concat(rows, "\n"))
+    local back = IMI.Sheet.Parse(IMI.Sheet.Format(original))
+    if #back.categories ~= 1 then
+        error("the blocks became " .. #back.categories .. " dungeons")
+    end
+    if #enemies(back) ~= 9 then error("expected nine enemies, got " .. #enemies(back)) end
+    if enemies(back)[9].lines[1].body ~= "kick 9" then error("the last block lost its callout") end
+end)
+
+check("rows starting with # are notes, not enemies", function()
+    local profile = IMI.Sheet.Parse(table.concat({
+        "# Fill this in and paste it into Import.",
+        "# A row starting Dungeon or Enemy is an instruction.",
+        "Dungeon:\tAltar",
+        "Enemy:\tMob",
+        "\tkick",
+    }, "\n"))
+    if not profile then error("the template was refused") end
+    local list = enemies(profile)
+    if #list ~= 1 then error("a note became an enemy: " .. #list) end
+    if profile.categories[1].name ~= "Altar" then error("wrong dungeon name") end
+end)
+
+-- The file handed to people to start from. If this stops importing, the
+-- template and the parser have come apart.
+check("the shipped template imports", function()
+    local file = io.open("tools/profile-template.csv")
+    if not file then error("tools/profile-template.csv is missing") end
+    local text = file:read("*a")
+    file:close()
+
+    local profile, err, count = IMI.Sheet.Parse(text)
+    if not profile then error("the template does not import: " .. tostring(err)) end
+    if count ~= 2 then error("expected two dungeons in the template, got " .. count) end
+    if profile.categories[1].channel ~= "/i" then
+        error("the template's channel row did not read")
+    end
+end)
+
 realPrint(("\nsheet: %d passed, %d failed"):format(pass, fail))
 if fail > 0 then os.exit(1) end

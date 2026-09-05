@@ -598,11 +598,29 @@ local function checkLayout()
 
     if IMI.Edit.ShowTab then IMI.Edit.ShowTab("pages") end
     checkGroup("Pages panel", IMI.Edit.PagesPanelWidgets and IMI.Edit.PagesPanelWidgets())
+    checkGroup("Chat overrides", IMI.Edit.ChannelWidgets and IMI.Edit.ChannelWidgets())
+
+    if IMI.UI.Show and IMI.UI.ProfileWidgets then
+        IMI.UI.Show("settings")
+        checkGroup("Profile row", IMI.UI.ProfileWidgets())
+        IMI.UI.Show("edit")
+    end
 
     -- Back where you left it.
     if IMI.Edit.ShowTab and wasTab then IMI.Edit.ShowTab(wasTab) end
     if IMI.UI.ShowView and wasView then IMI.UI.ShowView(wasView) end
     if not wasShown then IMI.UI.root:Hide() end
+
+    -- Where a callout actually goes. Three levels decide it, and the one that
+    -- matters is the one that reaches the macro text on the button.
+    if IMI.Core and IMI.Core.ChannelFor then
+        local cat = IMI.Core.Categories and IMI.Core.Categories()[1]
+        if cat then
+            local channel, from = IMI.Core.ChannelFor(cat.id)
+            record("Wiring", "where this dungeon's plain text goes", true,
+                ("%s (from the %s)"):format(tostring(channel), tostring(from)))
+        end
+    end
 
     -- Nothing may hang outside the window it lives in. Measured while it is
     -- still open, before the state above is restored.

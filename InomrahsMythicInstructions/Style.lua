@@ -468,6 +468,43 @@ end
 --- The little box in a button's corner saying which key fires it.
 ---
 --- Sized to its text rather than fixed: "E" and "CTRL+E" are very different
+--- A tick box in the addon's own colours.
+---
+--- Not UICheckButtonTemplate: that brings Blizzard's frame art with it, which
+--- reads as somebody else's control dropped into the panel. This is the same
+--- ground and edge every other box here uses, with the accent colour filling
+--- it when it is on, so on and off are readable at a glance and in any of the
+--- palettes the addon can be put into.
+function Style.Check(parent, onChange)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(16, 16)
+
+    Style.Background(b, Style.colors.window)
+    Style.Border(b, Style.colors.rowEdge)
+
+    b.fill = b:CreateTexture(nil, "OVERLAY")
+    b.fill:SetPoint("TOPLEFT", 3, -3)
+    b.fill:SetPoint("BOTTOMRIGHT", -3, 3)
+    b.fill:Hide()
+    b.fill:SetColorTexture(unpackColor(Style.colors.accent))
+
+    function b:SetChecked(on)
+        self.checked = on and true or false
+        self.fill:SetShown(self.checked)
+    end
+    function b:GetChecked() return self.checked == true end
+
+    b:SetScript("OnClick", function(self)
+        self:SetChecked(not self:GetChecked())
+        if onChange then onChange(self:GetChecked()) end
+    end)
+    b:SetScript("OnEnter", function(self) Style.SetBorderColor(self, Style.colors.accent) end)
+    b:SetScript("OnLeave", function(self) Style.SetBorderColor(self, Style.colors.rowEdge) end)
+
+    b:SetChecked(false)
+    return b
+end
+
 --- widths and a box wide enough for the second wastes a third of a button for
 --- the first. A floor keeps a single letter from becoming a sliver.
 function Style.KeyBadge(parent)

@@ -210,7 +210,10 @@ local function updateCounter(eb)
     if not ui.counter then return end
 
     local text = eb:GetText()
-    local channel = Core.Settings().channel or Util.DEFAULT_CHANNEL
+    -- The dungeon's channel, not the master one: the prefix that will be added
+    -- is the one this dungeon actually sends to, and counting against a
+    -- shorter one would let a line be typed into a length that fails on write.
+    local channel = Core.ChannelFor(state.categoryId, state.pageId)
 
     -- The cap applies to the composed macro, not the raw text, so the room a
     -- channel prefix will take is subtracted up front. The typed cap moves with
@@ -254,7 +257,9 @@ local namePool, linePool, btnPool, cardPool = {}, {}, {}, {}
 local function card(index)
     return acquire(cardPool, index, function()
         local f = CreateFrame("Frame", nil, ui.enemyList)
+        -- Behind the card's contents by design: it is the panel they sit on.
         f:SetFrameLevel(math.max(1, (ui.enemyList:GetFrameLevel() or 1)))
+        f.overlapsOnPurpose = true
         IMI.Style.Background(f, IMI.Style.colors.row)
         IMI.Style.Border(f, IMI.Style.colors.rowEdge)
         return f
@@ -491,6 +496,7 @@ function Edit.RefreshPages()
         releaseFrom(pagePool, 1)
         ui.pageName:SetText("")
         ui.pageList:SetHeight(1)
+        Edit.RefreshChannels()
         return
     end
 
@@ -498,6 +504,10 @@ function Edit.RefreshPages()
         local pages = Core.Pages(state.categoryId)
         state.pageId = pages[1] and pages[1].id or nil
     end
+
+    -- Which page is open decides what the page-level override is showing, so
+    -- it is refreshed here rather than only when the toggle is touched.
+    Edit.RefreshChannels()
 
     local page = state.pageId and Core.GetPage(state.categoryId, state.pageId)
     ui.pageName:SetText(page and page.name or "")
@@ -654,6 +664,7 @@ function Edit.SetCategory(catId)
 
     Edit.RefreshVariants()
     if cat then showTab(state.tab) end
+    Edit.RefreshChannels()
     Edit.RefreshSendHint()
     Edit.RefreshStaleMarker()
 end
@@ -719,6 +730,9 @@ function Edit.PagesPanelWidgets()
         prev = ui.pagePrev, name = ui.pageName, next = ui.pageNext,
         index = ui.pageIndex, binds = ui.bindsBtn, delete = ui.delPage,
         list = ui.pagesScroll,
+        chanCheck = ui.pageChanOverride and ui.pageChanOverride.check,
+        chanLabel = ui.pageChanOverride and ui.pageChanOverride.label,
+        chanDrop = ui.pageChanOverride and ui.pageChanOverride.drop,
     }
 end
 
@@ -751,6 +765,9 @@ function Edit.HeaderWidgets()
         tabEnemies = ui.tabEnemies, tabPages = ui.tabPages,
         counter = ui.counter, stale = ui.stale,
         enemiesPanel = ui.enemiesPanel, pagesPanel = ui.pagesPanel,
+        chanCheck = ui.chanOverride and ui.chanOverride.check,
+        chanLabel = ui.chanOverride and ui.chanOverride.label,
+        chanDrop = ui.chanOverride and ui.chanOverride.drop,
     }
 end
 
@@ -768,6 +785,36 @@ function Edit.MeasureWrapped(eb, text)
     wrapFS:SetWidth(math.max(40, (eb:GetWidth() or 200) - 12))
     wrapFS:SetText(text or "")
     return wrapFS:GetStringHeight()
+end
+
+--- Pulls both channel overrides back in line with what is stored.
+---
+--- Called wherever the answer can have changed: opening a dungeon, changing
+--- page, toggling either override, and undo. A control showing the wrong
+--- channel is worse than no control, because it is the one you will trust
+--- while a pull is starting.
+function Edit.RefreshChannels()
+    if ui.chanOverride then
+        ui.chanOverride:SetShown(state.categoryId ~= nil)
+        if state.categoryId then ui.chanOverride:Refresh() end
+    end
+    if ui.pageChanOverride then
+        ui.pageChanOverride:SetShown(state.pageId ~= nil)
+        if state.pageId then ui.pageChanOverride:Refresh() end
+    end
+end
+
+--- The two override controls, for the overlap test and for tests that drive
+--- them.
+function Edit.ChannelWidgets()
+    return {
+        dungeon = ui.chanOverride and ui.chanOverride.check,
+        dungeonLabel = ui.chanOverride and ui.chanOverride.label,
+        dungeonDrop = ui.chanOverride and ui.chanOverride.drop,
+        page = ui.pageChanOverride and ui.pageChanOverride.check,
+        pageLabel = ui.pageChanOverride and ui.pageChanOverride.label,
+        pageDrop = ui.pageChanOverride and ui.pageChanOverride.drop,
+    }
 end
 
 --- The page name box's list, for tests.
@@ -816,6 +863,63 @@ function Edit.RestoreContext(ctx)
 end
 
 --------------------------------------------------------------------------------
+-- Overriding where plain text goes
+--
+-- The same control twice: once for the dungeon, once for the page. Built by
+-- one function so they look identical and behave identically, because they are
+-- the same idea at two levels and a player should not have to learn it twice.
+--
+-- Off means "whatever the level above says", which is why it is a toggle and
+-- not just a chooser: picking /p is not the same as saying nothing, and
+-- without the toggle there is no way to go back to inheriting.
+--------------------------------------------------------------------------------
+
+local function channelOverride(parent, opts)
+    local o = {}
+
+    o.check = IMI.Style.Check(parent, function(on)
+        opts.onToggle(on and (opts.get() or Core.ChannelFor(state.categoryId,
+            opts.pageLevel and state.pageId or nil)) or nil)
+    end)
+
+    o.label = label(parent, "Override chat channel")
+    o.label:SetPoint("LEFT", o.check, "RIGHT", 6, 0)
+
+    o.drop = IMI.UI.Dropdown(parent, 66)
+    o.drop:SetPoint("LEFT", o.label, "RIGHT", 8, 0)
+    o.drop:Hide()
+
+    IMI.Style.Tooltip(o.check, "Override chat channel", opts.tip)
+    IMI.Style.Tooltip(o.drop, "Chat channel", opts.tip)
+
+    --- Brings both halves back in line with what is stored. The dropdown is
+    --- only on screen while the override is, so an off toggle cannot leave a
+    --- channel showing that nothing is using.
+    function o:Refresh()
+        local channel = opts.get()
+        self.check:SetChecked(channel ~= nil)
+        self.drop:SetShown(channel ~= nil)
+        self.drop:SetText(channel or "")
+
+        local items = {}
+        for _, c in ipairs(Util.CHANNELS) do
+            items[#items + 1] = { text = c, value = c }
+        end
+        self.drop:SetItems(items, function(picked)
+            opts.onToggle(picked)
+        end)
+    end
+
+    function o:SetShown(shown)
+        self.check:SetShown(shown)
+        self.label:SetShown(shown)
+        self.drop:SetShown(shown and opts.get() ~= nil)
+    end
+
+    return o
+end
+
+--------------------------------------------------------------------------------
 -- Construction
 --------------------------------------------------------------------------------
 
@@ -857,10 +961,29 @@ function Edit.Build(parent)
     ui.colorSwatch = ui.colorSwatchFrame:CreateTexture(nil, "ARTWORK")
     ui.colorSwatch:SetAllPoints()
 
+    -- Its own row, under the colour button and above the variant. A property
+    -- of the dungeon, like its colour, and read before you get as far as which
+    -- variant you are editing.
+    ui.chanOverride = channelOverride(parent, {
+        get = function()
+            local cat = state.categoryId and Core.GetCategory(state.categoryId)
+            return cat and cat.channel or nil
+        end,
+        onToggle = function(channel)
+            if not state.categoryId then return end
+            Core.SetCategoryChannel(state.categoryId, channel)
+            Edit.RefreshChannels()
+            Edit.RefreshSendHint()
+        end,
+        tip = "Sends this dungeon's callouts to this channel instead of the one "
+           .. "in Settings. A page can override it again.",
+    })
+    ui.chanOverride.check:SetPoint("TOPLEFT", 10, -52)
+
     -- Variants sit above the tabs, because which set you are editing is a level
     -- above whether you are editing its enemies or its pages.
     ui.variantLabel = label(parent, "Variant")
-    ui.variantLabel:SetPoint("TOPLEFT", 8, -52)
+    ui.variantLabel:SetPoint("TOPLEFT", 8, -76)
 
     ui.variant = IMI.UI.Dropdown(parent, 120)
     ui.variant:SetPoint("LEFT", ui.variantLabel, "RIGHT", 6, 0)
@@ -894,7 +1017,7 @@ function Edit.Build(parent)
     -- anchoring to a button that has not been made yet silently anchors to the
     -- parent instead. Chained the other way the row's width was a sum that had
     -- to come to less than the panel's, and in a narrow window it did not.
-    ui.variantDelete:SetPoint("TOPRIGHT", -8, -52)
+    ui.variantDelete:SetPoint("TOPRIGHT", -8, -76)
     ui.variantRename:SetPoint("RIGHT", ui.variantDelete, "LEFT", -3, 0)
     ui.variantNew:SetPoint("RIGHT", ui.variantRename, "LEFT", -3, 0)
     IMI.Style.Tooltip(ui.variantDelete, "Delete this variant",
@@ -925,7 +1048,7 @@ function Edit.Build(parent)
     ui.variantName:HookScript("OnHide", function(self) self:ClearFocus() end)
 
     ui.tabEnemies = button(parent, "Enemies", 70, 20, function() showTab("enemies") end)
-    ui.tabEnemies:SetPoint("TOPLEFT", 8, -76)
+    ui.tabEnemies:SetPoint("TOPLEFT", 8, -100)
     IMI.Style.Tooltip(ui.tabEnemies, "Enemies", "The callouts themselves, one card per enemy.")
     ui.tabPages = button(parent, "Pages", 62, 20, function() showTab("pages") end)
     ui.tabPages:SetPoint("LEFT", ui.tabEnemies, "RIGHT", 4, 0)
@@ -935,7 +1058,7 @@ function Edit.Build(parent)
     -- On the tab row, not the variant row. At -56 it sat across the variant
     -- buttons, so the character count and the unbacked-edits marker were drawn
     -- behind Delete and Rename.
-    ui.counter:SetPoint("TOPRIGHT", -10, -78)
+    ui.counter:SetPoint("TOPRIGHT", -10, -102)
     ui.counter:Hide()
 
     ui.stale = label(parent, "")
@@ -943,7 +1066,7 @@ function Edit.Build(parent)
 
     -- Enemies ------------------------------------------------------------------
     ui.enemiesPanel = CreateFrame("Frame", nil, parent)
-    ui.enemiesPanel:SetPoint("TOPLEFT", 6, -100)
+    ui.enemiesPanel:SetPoint("TOPLEFT", 6, -124)
     ui.enemiesPanel:SetPoint("BOTTOMRIGHT", -6, 58)
 
     -- Bounded on both sides and allowed two lines. With only a left anchor it
@@ -999,7 +1122,7 @@ function Edit.Build(parent)
     ui.pagesPanel = CreateFrame("Frame", nil, parent)
     -- Level with the Enemies panel, below the tab buttons. It used to start at
     -- the tabs' own line, so the page controls were drawn straight over them.
-    ui.pagesPanel:SetPoint("TOPLEFT", 6, -100)
+    ui.pagesPanel:SetPoint("TOPLEFT", 6, -124)
     ui.pagesPanel:SetPoint("BOTTOMRIGHT", -6, 58)
     ui.pagesPanel:Hide()
 
@@ -1056,6 +1179,26 @@ function Edit.Build(parent)
                     .. "by every page." })
     ui.bindsBtn:SetPoint("RIGHT", ui.delPage, "LEFT", -6, 0)
 
+    -- The same control as the dungeon's, one level down and in the same place
+    -- relative to what it applies to: first thing on the left, under the row
+    -- that says which page you are on.
+    ui.pageChanOverride = channelOverride(ui.pagesPanel, {
+        pageLevel = true,
+        get = function()
+            local page = state.pageId
+                and Core.GetPage(state.categoryId, state.pageId)
+            return page and page.channel or nil
+        end,
+        onToggle = function(channel)
+            if not state.pageId then return end
+            Core.SetPageChannel(state.categoryId, state.pageId, channel)
+            Edit.RefreshChannels()
+        end,
+        tip = "Sends this page's callouts to this channel, whatever the dungeon "
+           .. "or Settings say. New pages start with this off.",
+    })
+    ui.pageChanOverride.check:SetPoint("TOPLEFT", 6, -28)
+
     -- The page row, anchored from both ends rather than left to right.
     --
     -- Every widget on it is a fixed size except the name box, which is given
@@ -1078,7 +1221,7 @@ function Edit.Build(parent)
 
     local pagesScroll = CreateFrame("ScrollFrame", nil, ui.pagesPanel, "UIPanelScrollFrameTemplate")
     ui.pagesScroll = IMI.Style.WheelScroll(pagesScroll)
-    pagesScroll:SetPoint("TOPLEFT", 0, -28)
+    pagesScroll:SetPoint("TOPLEFT", 0, -52)
     pagesScroll:SetPoint("BOTTOMRIGHT", -24, 1)
     ui.pageList = CreateFrame("Frame", nil, pagesScroll)
     ui.pageList:SetSize(470, 40)
@@ -1263,11 +1406,19 @@ end
 --- and fire nothing, so the rule is stated where the typing happens.
 function Edit.RefreshSendHint()
     if not ui.sendHint then return end
-    local channel = Core.Settings().channel or Util.DEFAULT_CHANNEL
+
+    -- Says where it comes from as well as what it is. "Sent to /i" is not much
+    -- use when three levels can decide that and you are looking at the one you
+    -- did not set.
+    local channel, from = Core.ChannelFor(state.categoryId, state.pageId)
+    local source = (from == "page" and " (this page)")
+        or (from == "dungeon" and " (this dungeon)")
+        or ""
+
     ui.sendHint:SetText((
-        "|cffaaaaaaPlain text is sent to |r|cffffff00%s|r|cffaaaaaa. " ..
+        "|cffaaaaaaPlain text is sent to |r|cffffff00%s|r|cffaaaaaa%s. " ..
         "Start a line with /cast, /i or any command to run it as written.|r")
-        :format(channel))
+        :format(channel, source))
 end
 
 function Edit.RefreshStaleMarker()

@@ -221,6 +221,15 @@ local function newFrame(frameType, name, parent, template)
     if template and template:find("ScrollFrameTemplate") then
         f.ScrollBar = newFrame("Frame", nil, f)
     end
+    -- Blizzard's slider template is a fixed height that the addon never sets,
+    -- so without this every slider is 300 tall here and appears to overlap the
+    -- whole Settings panel -- which buried the real overlaps in that panel
+    -- under a page of noise.
+    if template and template:find("SliderTemplate") then
+        f.height, f.heightSet = 17, true
+        f.Low, f.High, f.Text = newFrame("FontString", nil, f),
+            newFrame("FontString", nil, f), newFrame("FontString", nil, f)
+    end
 
     -- What a scroll frame is actually scrolling. Recorded rather than ignored:
     -- the callouts overflowed the window because nothing clipped them, and the

@@ -190,6 +190,11 @@ local function adoptCategory(source)
     local cat = Core.AddCategory(source.name)
     local variants = variantsOf(source)
 
+    -- Through the setters, so a colour or a channel that is not one this build
+    -- recognises is dropped rather than written straight into the file.
+    if source.color then Core.SetCategoryColor(cat.id, source.color) end
+    if source.channel then Core.SetCategoryChannel(cat.id, source.channel) end
+
     for index, sourceVariant in ipairs(variants) do
         -- AddCategory already made one, so the first import fills that rather
         -- than leaving an empty Default in front of the real content.
@@ -216,6 +221,9 @@ local function adoptCategory(source)
 
         for _, page in ipairs(sourceVariant.pages or {}) do
             local newPage = Core.AddPage(cat.id, page.name)
+            if page.channel then
+                Core.SetPageChannel(cat.id, newPage.id, page.channel)
+            end
             for _, oldId in ipairs(page.enemyIds or {}) do
                 local newId = idMap[oldId]
                 if newId then Core.AddEnemyToPage(cat.id, newPage.id, newId) end

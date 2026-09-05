@@ -5,6 +5,12 @@ that produced it.
 
 ## Works, verified in game
 
+- Chat channel overrides: master setting, per dungeon, per page — nearest wins
+- One spreadsheet paste builds a whole profile: every dungeon, its enemies,
+  its callouts, its channel and its colour
+- As sheet writes the loaded profile back out as rows to paste into a
+  spreadsheet, and what comes out imports back unchanged
+
 - Profiles: save the whole state under a name, load one back, rename, delete
 - Import replaces the loaded profile and asks first, offering to keep the old
   one under a name; it also reads rows pasted out of a spreadsheet
