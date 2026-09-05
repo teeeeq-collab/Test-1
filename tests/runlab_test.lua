@@ -604,6 +604,32 @@ check("a timed-out counter step still records what it measured", function()
     end
 end)
 
+-- The geometry record recomputed its "requested" size from ROOT_H - 90, which
+-- stopped being the ancestor's height when the window was re-laid out. The
+-- report then printed a request nobody made -- 104 beside an "after" of 71
+-- that had actually been honoured exactly, which reads as a partial refusal.
+check("the geometry record reports the size the snippet actually asks for", function()
+    local source = io.open("InomrahsMISelfTest/RunLab.lua"):read("*a")
+
+    -- The snippet halves the ancestor's own dimensions.
+    local snippet = source:match("local TOGGLE_GEO = %[==%[(.-)%]==%]")
+    if not snippet then error("could not find TOGGLE_GEO") end
+    if not (snippet:find("WIDE_W / 2") and snippet:find("TALL_H / 2")) then
+        error("TOGGLE_GEO no longer halves the ancestor")
+    end
+    if not source:find(':gsub("WIDE_W", tostring(ANC_W))', 1, true) then
+        error("WIDE_W is not the ancestor's width")
+    end
+
+    -- So the record must halve the same two numbers, not re-derive them.
+    if source:find("fmt%(%(ROOT_W %- 20%) / 2%)") or source:find("fmt%(%(ROOT_H %- 90%) / 2%)") then
+        error("the record still recomputes the requested size from the root")
+    end
+    if not source:find("fmt(ANC_W / 2), fmt(ANC_H / 2)", 1, true) then
+        error("the record does not report the size the snippet asks for")
+    end
+end)
+
 check("the report survives having nothing to report", function()
     Lab.Command("setup")
     Lab.Command("report")

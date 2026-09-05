@@ -1685,7 +1685,12 @@ local function buildSteps(mode)
                 target = "SecureHandlerBaseTemplate containing a SecureActionButton",
                 operation = "SetWidth and SetHeight from a snippet",
                 before = ("%s x %s"):format(fmt(Lab.geoW), fmt(Lab.geoH)),
-                requested = ("%s x %s"):format(fmt((ROOT_W - 20) / 2), fmt((ROOT_H - 90) / 2)),
+                -- The snippet halves the ancestor's own size. This line
+                -- recomputed it from ROOT_H - 90, which stopped being the
+                -- ancestor's height when the window was re-laid out, and the
+                -- report then claimed a request that was never made: 104 next
+                -- to an "after" of 71 that had in fact been honoured exactly.
+                requested = ("%s x %s"):format(fmt(ANC_W / 2), fmt(ANC_H / 2)),
                 after = ("%s x %s"):format(fmt(nowW), fmt(nowH)),
                 note = ("snippet ran %d -> %d, clicks %d -> %d")
                     :format(Lab.geoRan, ran, Lab.geoClicks, clicks),
@@ -2048,6 +2053,7 @@ local HELP = {
     "  /imitest runlab release    emergency: unbind, restore, let go",
     "",
     "runlab followup  the short run: only what Stage 1 left open",
+    "runlab clicks    which operation buttons receive clicks, and where",
     "runlab goto <n>   resume at step n, out of combat",
     "",
     "The lab guides you a step at a time once it is set up.",
@@ -2196,6 +2202,28 @@ function Lab.Command(arg)
         advance()
         say("resuming at step %d of %d. steps 1-%d are marked not attempted.",
             target, #steps, stepIndex)
+        return
+    end
+
+    -- Which operation buttons are actually receiving clicks, and where they
+    -- are. Three of them recorded no clicks in a run where their neighbours
+    -- recorded one each, and no theory about the layout explains that pattern.
+    -- Guessing again is worse than measuring: click each button once, out of
+    -- combat, and read this.
+    if arg == "clicks" then
+        beginCapture()
+        say("click each operation button once, then run this again.")
+        for _, entry in ipairs(F.ops or {}) do
+            local button = entry.button
+            local l, t = left(button), top(button)
+            local w, h = width(button), height(button)
+            say("%-18s clicks %-3s ran %-3s  at %s,%s  %sx%s  shown %s",
+                entry.text,
+                tostring(button.clicks or 0),
+                tostring(tonumber(select(2, pcall(button.GetAttribute, button, "ran"))) or 0),
+                fmt(l), fmt(t), fmt(w), fmt(h), tri(shown(button)))
+        end
+        endCapture("which buttons receive clicks")
         return
     end
 
