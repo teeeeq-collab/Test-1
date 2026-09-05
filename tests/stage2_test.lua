@@ -1,0 +1,347 @@
+--------------------------------------------------------------------------------
+-- Stage 2, loaded and driven against the stub.
+--
+-- Nothing here can measure a combat capability. What it catches is the class of
+-- fault that has cost this project the most time: a local used before it is
+-- declared, a frame reached for before it exists, a command that throws on a
+-- fresh install, and -- new for Stage 2 -- an owner architecture that claims
+-- separation it does not have.
+--------------------------------------------------------------------------------
+
+local realPrint = print
+package.path = "tests/?.lua;" .. package.path
+local stub = require("wowstub")
+stub.install()
+
+local pass, fail = 0, 0
+local function check(label, fn)
+    local ok, err = pcall(fn)
+    if ok then pass = pass + 1
+    else fail = fail + 1; realPrint("  FAIL: " .. label .. "\n         " .. tostring(err)) end
+end
+
+local IMI = {}
+for _, f in ipairs({ "Libs/LibStub/LibStub", "Libs/LibDeflate/LibDeflate",
+                     "Libs/LibSerialize/LibSerialize" }) do
+    loadfile("InomrahsMythicInstructions/" .. f .. ".lua")()
+end
+for _, f in ipairs({ "Util", "Color", "Style", "Core", "History", "Runtime", "UI",
+                     "Picker", "Binds", "Edit", "Export", "Sheet", "Starter",
+                     "Capture" }) do
+    loadfile("InomrahsMythicInstructions/" .. f .. ".lua")("InomrahsMythicInstructions", IMI)
+end
+_G.InomrahsMI = IMI
+InomrahsMythicInstructionsDB = IMI.Core.Init({})
+IMI.UI.Init()
+
+loadfile("InomrahsMISelfTest/Manifest.lua")()
+loadfile("InomrahsMISelfTest/SelfTest.lua")("InomrahsMISelfTest")
+loadfile("InomrahsMISelfTest/RunLab.lua")("InomrahsMISelfTest")
+
+check("Stage 2 loads after the lab", function()
+    local chunk, err = loadfile("InomrahsMISelfTest/Stage2.lua")
+    if not chunk then error("Stage2.lua: " .. tostring(err)) end
+    chunk("InomrahsMISelfTest")
+    if type(_G.InomrahsMISelfTestStage2) ~= "table" then
+        error("Stage2 did not publish its table")
+    end
+end)
+
+local S2 = _G.InomrahsMISelfTestStage2
+local Lab = _G.InomrahsMISelfTestRunLab
+InomrahsMISelfTestAPI.Report = function() end
+
+check("every command is safe before setup", function()
+    for _, arg in ipairs({ "", "preflight", "arm", "status", "reset", "release",
+                           "nonsense" }) do
+        local ok, err = pcall(S2.Command, arg)
+        if not ok then error(("stage2 %s -> %s"):format(arg, tostring(err))) end
+    end
+end)
+
+check("the slash command reaches Stage 2, with the rest of the line", function()
+    local handler = SlashCmdList.INOMRAHSMISELFTEST
+    local real = S2.Command
+    local seen
+    S2.Command = function(a) seen = a end
+
+    local cases = {
+        { typed = "runlab stage2", expect = "" },
+        { typed = "runlab stage2 arm", expect = "arm" },
+        { typed = "RUNLAB STAGE2 PREFLIGHT", expect = "preflight" },
+        { typed = "  runlab  stage2   status ", expect = "status" },
+    }
+    for _, case in ipairs(cases) do
+        seen = nil
+        pcall(handler, case.typed)
+        if seen ~= case.expect then
+            S2.Command = real
+            error(("/imitest %s handed Stage 2 %q, expected %q")
+                :format(case.typed, tostring(seen), case.expect))
+        end
+    end
+
+    -- And a near miss must not be handed to it.
+    for _, typed in ipairs({ "runlab stage22", "runlab status", "runlab" }) do
+        seen = nil
+        pcall(handler, typed)
+        if seen ~= nil then
+            S2.Command = real
+            error(("/imitest %s was handed to Stage 2 as %q"):format(typed, seen))
+        end
+    end
+    S2.Command = real
+end)
+
+check("setup, reset and release are each idempotent", function()
+    for _ = 1, 3 do S2.Command("setup") end
+    for _ = 1, 3 do S2.Command("reset") end
+    for _ = 1, 3 do S2.Command("release") end
+    S2.Command("setup")
+end)
+
+-- The whole architectural claim of Stage 2 is that three owners hold three
+-- disjoint key sets. Two names resolving to one frame, or one key appearing in
+-- two owners' sets, would make the separation argument vacuous while every
+-- in-game result still looked fine.
+check("the three binding owners are distinct frames", function()
+    S2.Command("setup")
+    local F = S2.frames
+    if not (F.pager and F.moder and F.toggler) then error("an owner is missing") end
+    if F.pager == F.moder or F.moder == F.toggler or F.pager == F.toggler then
+        error("two owners are the same frame")
+    end
+    for _, name in ipairs({ "Pager", "Moder", "Toggler" }) do
+        if not _G["InomrahsMISelfTestS2" .. name] then
+            error(name .. " is not a named global, so nothing can address it")
+        end
+    end
+end)
+
+check("no key is owned by two owners", function()
+    local seen = {}
+    for _, entry in ipairs(S2.KEYS) do
+        if seen[entry.key] then
+            error(("%s is claimed by %s and %s"):format(entry.key, seen[entry.key],
+                entry.owner))
+        end
+        seen[entry.key] = entry.owner
+    end
+    for _, key in pairs(S2.CollideKeys) do
+        if seen[key] then error(key .. " collides with a real Stage 2 key") end
+        seen[key] = "collider"
+    end
+
+    -- The pager is the only owner allowed to clear, so it must own exactly the
+    -- three keys a flip rebuilds and nothing else.
+    local pagerKeys = 0
+    for _, entry in ipairs(S2.KEYS) do
+        if entry.owner == "pager" then pagerKeys = pagerKeys + 1 end
+    end
+    if pagerKeys ~= 3 then
+        error(("the pager owns %d keys; it must own exactly action, next, prev")
+            :format(pagerKeys))
+    end
+end)
+
+check("only the pager clears bindings", function()
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+
+    -- The mode apply body must not clear anything: that is the entire reason
+    -- the mode owner exists as a separate frame.
+    local apply = source:match("local MODE_APPLY = %[==%[(.-)%]==%]")
+    if not apply then error("could not find MODE_APPLY") end
+    if apply:find("ClearBindings", 1, true) then
+        error("the mode apply clears bindings, which would erase the pager's keys")
+    end
+
+    local toggle = source:match("local TOGGLE_SNIPPET = %[==%[(.-)%]==%]")
+    if not toggle then error("could not find TOGGLE_SNIPPET") end
+    if toggle:find("ClearBindings", 1, true) then
+        error("the toggle clears bindings; hiding the root must cost nothing")
+    end
+    if toggle:find("pageIndex", 1, true) or toggle:find('"mode"', 1, true) then
+        error("the toggle touches page or mode state")
+    end
+end)
+
+-- Stage 1 lost two whole runs to steps whose checks read attributes the
+-- restricted side had written. The page and mode readers must derive state from
+-- prebuilt frames instead.
+check("state is read from prebuilt visuals, not restricted attributes", function()
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+    for _, name in ipairs({ "S2.Page", "S2.Mode" }) do
+        local body = source:match("function " .. name:gsub("%.", "%%.") .. "%b()(.-)\nend\n")
+        if not body then error("could not find " .. name) end
+        if body:find("GetAttribute", 1, true) then
+            error(name .. " reads an attribute; those come back unreadable")
+        end
+        if not body:find("shown(", 1, true) then
+            error(name .. " does not read the prebuilt visuals")
+        end
+    end
+end)
+
+check("the sequence covers every required test family", function()
+    S2.Command("setup")
+    local steps = S2.BuildSequence()
+    if #steps < 30 then
+        error(("the sequence is only %d steps"):format(#steps))
+    end
+    local phases = {}
+    for _, step in ipairs(steps) do
+        if step.phase then phases[step.phase] = (phases[step.phase] or 0) + 1 end
+    end
+    for _, wanted in ipairs({ "A contextual binding", "B mode by mouse",
+                              "C mode keys", "D cycle", "E hidden", "F preserve",
+                              "G navigation in Minimal", "H escaping Minimal",
+                              "collision probe" }) do
+        if not phases[wanted] then error("no steps for phase " .. wanted) end
+    end
+end)
+
+-- An action assertion that passes on the total going up would let a stale
+-- binding through, which in production means running the previous page's macro.
+check("an action step never passes on the wrong page firing", function()
+    S2.Command("setup")
+    local steps = S2.BuildSequence()
+    local step
+    for _, s in ipairs(steps) do
+        if s.capability == "ACTION key targets page 2 after NEXT" then step = s end
+    end
+    if not step then error("could not find the page 2 action step") end
+
+    -- Read what the step actually recorded. Swapping Lab.Record here would
+    -- prove nothing: the steps captured it as an upvalue when the file loaded,
+    -- so a later substitution is never seen by them.
+    S2.results = {}
+    S2.fired[1], S2.fired[2] = 0, 0
+    step.enter()
+    S2.fired[1] = 1                                    -- the wrong page fires
+    step.done()
+
+    local entry = S2.results[#S2.results]
+    if not entry then error("the step recorded nothing") end
+    if (entry.conclusion or ""):match("^YES") then
+        error("page 1 fired while page 2 was expected and the step passed")
+    end
+    if not (entry.conclusion or ""):match("stale") then
+        error("a stale binding is not named as such: " .. tostring(entry.conclusion))
+    end
+end)
+
+check("both pages firing at once is worse than neither", function()
+    S2.Command("setup")
+    local steps = S2.BuildSequence()
+    local step
+    for _, s in ipairs(steps) do
+        if s.capability == "ACTION key targets page 1 before any flip" then step = s end
+    end
+    if not step then error("could not find the first action step") end
+
+    S2.results = {}
+    S2.fired[1], S2.fired[2] = 0, 0
+    step.enter()
+    S2.fired[1], S2.fired[2] = 1, 1                    -- both fire from one press
+    step.done()
+
+    local captured = S2.results[#S2.results]
+    if not captured then error("the step recorded nothing") end
+    if not (captured.conclusion or ""):match("^FAIL") then
+        error("one press firing both pages was not reported as FAIL: "
+            .. tostring(captured.conclusion))
+    end
+end)
+
+-- The isolation promise, checked as text rather than trusted. A production
+-- reference added by accident later would compile perfectly and be invisible.
+check("Stage 2 names no production frame and reaches for no production data", function()
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+    for _, pattern in ipairs({ "InomrahsMIToggle", "InomrahsMIPager", "InomrahsMIRoot",
+                               "InomrahsMythicInstructionsDB", "IMI%.Core",
+                               "IMI%.Runtime", "IMI%.UI", "InomrahsMI%.",
+                               "_G%.InomrahsMI[^S]" }) do
+        if source:find(pattern) then
+            error("Stage 2 references production: " .. pattern)
+        end
+    end
+    -- Every frame it creates must carry the Stage 2 prefix.
+    for name in source:gmatch('CreateFrame%("%a+", "([^"]+)"') do
+        if not name:find("^InomrahsMISelfTestS2") then
+            error("frame " .. name .. " is not namespaced to Stage 2")
+        end
+    end
+end)
+
+check("the summary appears in the lab report", function()
+    S2.Command("setup")
+    local shown
+    InomrahsMISelfTestAPI.Report = function(text) shown = text end
+    Lab.Command("copy")
+    InomrahsMISelfTestAPI.Report = function() end
+
+    if not shown then error("no report") end
+    if not shown:find("Stage 2", 1, true) then
+        error("the report does not carry the Stage 2 summary")
+    end
+end)
+
+check("preflight reports the owners and the keys", function()
+    S2.Command("setup")
+    local lines = {}
+    S2.Preflight(function(...) lines[#lines + 1] = string.format(...) end)
+    local text = table.concat(lines, "\n")
+    for _, wanted in ipairs({ "three binding owners are distinct frames",
+                              "rescue is outside the root", "CTRL-SHIFT-F6" }) do
+        if not text:find(wanted, 1, true) then
+            error("preflight never mentions " .. wanted)
+        end
+    end
+end)
+
+-- The canonical reset state, spelled out because "reset" that lands somewhere
+-- slightly different each time makes every later step a coin toss.
+check("reset lands on the canonical baseline", function()
+    S2.Command("setup")
+    local F = S2.frames
+
+    F.pageId1:Hide(); F.pageId2:Show()
+    F.visFull:Hide(); F.visMinimal:Show()
+    F.action1:Hide(); F.root:Hide()
+    S2.fired[1] = 9
+
+    S2.Restore()
+
+    if S2.Page() ~= 1 then error("reset did not return to page 1") end
+    if S2.Mode() ~= 1 then error("reset did not return to Full") end
+    if S2.RootVisible() ~= true then error("reset left the root hidden") end
+    if S2.ActionBodyShown() ~= true then error("reset left the action body hidden") end
+    if (S2.fired[1] or 0) ~= 0 then error("reset did not clear the counters") end
+
+    -- And doing it twice must not land anywhere else.
+    S2.Restore()
+    if S2.Page() ~= 1 or S2.Mode() ~= 1 then error("reset is not idempotent") end
+end)
+
+check("Stage 1's surface is put away while Stage 2 runs", function()
+    S2.Command("setup")
+    local labRoot = _G.InomrahsMISelfTestRunLabRoot
+    if not labRoot then error("no Stage 1 root") end
+    local ok, isShown = pcall(labRoot.IsShown, labRoot)
+    if ok and isShown == true then
+        error("Stage 1's window is still up; it would cover the Stage 2 test")
+    end
+
+    S2.Command("release")
+    if Lab.Hibernate and Lab.Hibernate(false) ~= false then
+        error("release did not wake Stage 1 back up")
+    end
+end)
+
+-- Printed so a change in the sequence length is visible in the run output
+-- rather than counted by hand before every handoff.
+S2.Command("setup")
+realPrint(("stage2 sequence: %d steps"):format(#S2.BuildSequence()))
+
+realPrint(("\nstage2: %d passed, %d failed"):format(pass, fail))
+if fail > 0 then os.exit(1) end

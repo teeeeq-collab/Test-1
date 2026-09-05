@@ -956,6 +956,17 @@ end
 -- as the operation having succeeded.
 --------------------------------------------------------------------------------
 
+-- While a later stage is using the panel, Stage 1's own surface stays out of
+-- the way. Without this its restore -- which runs every time combat ends --
+-- would put a second window back on top of the one under test, mid-run.
+local hibernating = false
+
+function Lab.Hibernate(on)
+    hibernating = on and true or false
+    if hibernating and F.root then pcall(function() F.root:Hide() end) end
+    return hibernating
+end
+
 local function restoreBaseline()
     if not built then return end
 
@@ -964,7 +975,7 @@ local function restoreBaseline()
         local frame = F[key]
         if frame then
             pcall(function()
-                frame:Show()
+                if not (hibernating and key == "root") then frame:Show() end
                 frame:SetAlpha(1)
                 frame:EnableMouse(true)
             end)
@@ -1017,6 +1028,11 @@ end
 local steps, stepIndex = {}, 0
 local watching = false
 local stepMode = nil
+
+-- A sequence handed in by a later stage. While one is set, reset re-drives it
+-- rather than rebuilding Stage 1's, which would silently swap the run out from
+-- under whoever is halfway through it.
+local externalSteps, externalRestore = nil, nil
 
 local function currentStep() return steps[stepIndex] end
 
@@ -2236,10 +2252,29 @@ local function matrixLines()
     return out
 end
 
+--- Extra summary blocks, registered by later stages.
+---
+--- Stage 2 lives in its own file but must appear in the same report: two
+--- reports for one run is how half a result gets pasted back. It registers a
+--- function here rather than printing its own.
+Lab.summaries = Lab.summaries or {}
+
+function Lab.Summary(fn)
+    Lab.summaries[#Lab.summaries + 1] = fn
+end
+
 local function report(full)
     local out = {}
     for _, l in ipairs(matrixLines()) do out[#out + 1] = l end
     out[#out + 1] = ""
+
+    for _, fn in ipairs(Lab.summaries) do
+        local ok, lines = pcall(fn)
+        if ok and type(lines) == "table" then
+            for _, l in ipairs(lines) do out[#out + 1] = l end
+            out[#out + 1] = ""
+        end
+    end
 
     if full then
         for _, l in ipairs(detailLines()) do out[#out + 1] = l end
@@ -2276,6 +2311,9 @@ local HELP = {
     "",
     "runlab followup  the short run: only what Stage 1 left open",
     "runlab clicks    which operation buttons receive clicks, and where",
+    "",
+    "runlab stage2    build Stage 2: pages x modes x hidden root",
+    "runlab stage2 preflight | arm | status | reset | release",
     "runlab goto <n>   resume at step n, out of combat",
     "",
     "The lab guides you a step at a time once it is set up.",
@@ -2285,8 +2323,53 @@ local HELP = {
     "top of the screen, so none of them has to be typed.",
 }
 
+--------------------------------------------------------------------------------
+-- What a later stage may borrow
+--
+-- Deliberately small, and deliberately the same objects Stage 1 uses: the step
+-- panel with its timeout, skip and combat-recovery behaviour, and the one
+-- record/report path. A second panel would be a second thing to debug, and a
+-- second evidence system is exactly what the Stage 2 brief forbids.
+--------------------------------------------------------------------------------
+
+--- Write a result into the shared report.
+function Lab.Record(entry) return record(entry) end
+
+--- Is the lab built? Stage 2 needs the rescue bar and panel to exist.
+function Lab.Built() return built end
+
+--- Hand the panel a sequence to drive. `restore` is called by reset/release.
+function Lab.Drive(list, restore)
+    if type(list) ~= "table" or #list == 0 then return false end
+    externalSteps, externalRestore = list, restore
+    steps = list
+    stepIndex = 0
+    advance()
+    if F.step then F.step:Show() end
+    if F.rescueBar then F.rescueBar:Show() end
+    return true
+end
+
+--- Give the panel back to Stage 1's own sequence.
+function Lab.Release()
+    externalSteps, externalRestore = nil, nil
+end
+
 function Lab.Command(arg)
     arg = (arg or ""):lower():match("^%s*(.-)%s*$")
+
+    -- Stage 2 owns everything after "stage2". It loads after this file, so it
+    -- is reached through the global: Stage 1 must keep working without it.
+    local stage2Arg = (arg == "stage2") and "" or arg:match("^stage2%s+(.*)$")
+    if stage2Arg then
+        local s2 = _G.InomrahsMISelfTestStage2
+        if type(s2) ~= "table" or type(s2.Command) ~= "function" then
+            say("Stage 2 is not loaded.")
+            return
+        end
+        s2.Command(stage2Arg)
+        return
+    end
 
     if arg == "" or arg == "help" then
         beginCapture()
@@ -2498,8 +2581,9 @@ function Lab.Command(arg)
             return
         end
         restoreBaseline()
+        if externalRestore then pcall(externalRestore) end
         stepIndex = 0
-        buildSteps(stepMode)
+        if externalSteps then steps = externalSteps else buildSteps(stepMode) end
         advance()
         say("back to baseline. results kept — /imitest runlab copy still works.")
         return

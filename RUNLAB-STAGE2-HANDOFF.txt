@@ -1,0 +1,188 @@
+RUN CAPABILITY LAB — STAGE 2
+Contextual page bindings x Run presentation state x fully hidden operation
+InomrahsMISelfTest 0.10.0
+Production addon unchanged at v0.41
+
+===============================================================================
+A. WHAT TO DO IN GAME
+===============================================================================
+
+ 1. Replace the InomrahsMISelfTest folder with this one.
+ 2. /reload
+ 3. /imitest runlab stage2
+       Builds it. Stage 1's window is put away and its test keys released;
+       its results are kept, so one report carries both stages.
+ 4. Press PREFLIGHT on the red bar   (or /imitest runlab stage2 preflight)
+       Read the key list. If any chord says "currently bound to" in orange,
+       stop and say so -- that is one of your real abilities.
+ 5. Press ARM                        (or /imitest runlab stage2 arm)
+ 6. Go to a TRAINING DUMMY. Not a real key.
+ 7. Follow the panel. 47 steps, one action each.
+       Skip is on every step from the moment it opens.
+ 8. When it says finished, leave combat.
+ 9. /imitest runlab copy   -> select all, copy, send it back
+10. /imitest runlab stage2 release
+
+The keys are:
+
+    CTRL-SHIFT-F6       the one contextual action key
+    CTRL-SHIFT-F7       previous page
+    CTRL-SHIFT-F8       next page
+    CTRL-SHIFT-F9       Full
+    CTRL-SHIFT-F10      Compact
+    CTRL-SHIFT-F11      Minimal
+    CTRL-SHIFT-F12      cycle mode
+    CTRL-ALT-SHIFT-F12  show / hide the Run root
+    CTRL-ALT-SHIFT-F10  collision probe, key A
+    CTRL-ALT-SHIFT-F11  collision probe, key B
+
+All override bindings. They cannot reach a saved file, cannot alter any real
+keybind, and cannot survive a /reload.
+
+===============================================================================
+B. WHAT IT MEASURES
+===============================================================================
+
+The single most important assertion, repeated across two full rounds:
+
+    one physical key, two pages, and it must fire the active page every time
+
+A press that fires the wrong page is reported as a stale binding. A press that
+fires BOTH is reported as FAIL, because in production one press would send two
+callouts. Neither is ever reported as a pass because the total went up.
+
+Then, in order:
+
+  A  contextual page binding, two full rounds
+  B  Full / Compact / Minimal by physical mouse click in combat
+  G  page navigation by mouse while Minimal
+  H  escaping Minimal by mouse
+  C  the four direct mode keys, and whether they survive a page flip
+  D  the cycle key, three transitions, ending exactly where it should
+  E  the root fully hidden: action, page and mode keys, then reopening
+  F  hide and show preserving mode and page rather than resetting them
+     the deliberate same-owner ClearBindings collision, on a disposable owner
+
+===============================================================================
+C. THE ARCHITECTURE UNDER TEST
+===============================================================================
+
+Three state variables that must move independently:
+
+    pageIndex         1 or 2
+    presentationMode  FULL / COMPACT / MINIMAL
+    rootVisible       true / false
+
+Hidden is not a fourth mode. It is a separate axis, and the test that matters
+is: hide while Compact/Page 1, change page and mode while invisible, show
+again, and see the state you left it in.
+
+Three binding owners, three disjoint key sets:
+
+    Pager    action, next, previous      -- the only owner that clears
+    Moder    Full, Compact, Minimal, Cycle
+    Toggler  show/hide root
+
+ClearBindings is not selective: it removes everything the header owns. The
+pager rebuilds its three keys on every flip, so if it also owned the mode keys
+it would delete them each time. Production already gives the open/close key its
+own owner for exactly this reason; this extends the same rule.
+
+The toggle control is a child of the root on purpose. When the root hides, the
+control hides with it, and the question is whether its override binding can
+still drive it. Moving it outside would have made the test pass and told us
+nothing.
+
+Modes differ by size, scale and visibility only. Stage 1 measured that
+restricted SetPoint takes exactly one argument, so no snippet here re-anchors
+anything with offsets, and nothing calls SetParent.
+
+===============================================================================
+D. HOW STATE IS OBSERVED
+===============================================================================
+
+Not from attributes. Stage 1 lost two runs to steps whose checks read values
+the restricted side had written and never got a usable answer back.
+
+Page and mode are read from prebuilt frames instead -- PAGE 1 / PAGE 2 and
+FULL / COMPACT / MINIMAL labels, anchored out of combat, shown and hidden by
+the snippets. IsShown after a restricted Show or Hide was measured readable.
+
+That also makes the hidden-root tests possible: IsShown reports a frame's own
+flag rather than its inherited visibility, so the labels keep answering while
+their ancestor is hidden. This is the same mechanism section 27 of the brief
+asks for -- state maintained while hidden, rather than reconstructed on show,
+which insecure code could not do during combat anyway.
+
+===============================================================================
+E. IF SOMETHING GETS STUCK
+===============================================================================
+
+SHOW RUN ROOT   red bar, outside the root, works during combat. It only shows
+                the root -- it never changes page or mode, so it cannot be
+                blamed for a state that looks wrong afterwards.
+
+Skip step       on every step now, immediately. A skipped step records an
+                honest INCONCLUSIVE and the run continues.
+
+/imitest runlab stage2 reset      out of combat, back to Full / Page 1 / shown
+/imitest runlab stage2 status     page, mode, root and both counters, in chat
+/imitest runlab stage2 release    clears the Stage 2 keys, puts the surface away
+/reload                           last resort; clears every override binding
+
+===============================================================================
+F. FILES CHANGED
+===============================================================================
+
+InomrahsMISelfTest/
+  Stage2.lua       NEW — the whole of Stage 2
+  RunLab.lua       exports the step panel, the record path and a summary hook;
+                   hibernates its own window while Stage 2 runs
+  InomrahsMISelfTest.toc   version 0.10.0, loads Stage2.lua
+
+tests/
+  stage2_test.lua  NEW — 16 offline checks
+  run.sh           runs them
+
+InomrahsMythicInstructions/   NOTHING. Zero production changes.
+
+===============================================================================
+G. VERIFIED OFFLINE BEFORE THIS WAS SENT
+===============================================================================
+
+  Stage 2 loads after the lab, and every command is safe before setup
+  setup, reset and release are each idempotent
+  the slash command reaches Stage 2 with the rest of the line, and near
+    misses like "stage22" do not
+  the three binding owners are distinct frames with distinct names
+  no key is claimed by two owners, and the pager owns exactly three
+  the mode apply and the toggle never call ClearBindings
+  the toggle touches neither page nor mode
+  page and mode are read from prebuilt visuals, never from an attribute
+  the sequence covers all nine test families
+  an action step reports the wrong page firing as a stale binding, not a pass
+  one press firing both pages is reported as FAIL
+  Stage 2 names no production frame and reaches for no production data,
+    and every frame it creates carries its own prefix
+  reset lands on the canonical baseline and is idempotent
+  Stage 1's window is put away while Stage 2 runs, and comes back on release
+  the Stage 2 summary appears in the lab report
+  preflight reports the owners and the keys
+
+What none of it can confirm is a single combat behaviour. That needs the live
+client, which is the whole reason the lab exists.
+
+===============================================================================
+H. KNOWN UNMEASURED
+===============================================================================
+
+  - more than two pages, and a page count that changes mid-fight
+  - more than one callout key per page
+  - this architecture built on production's own frames rather than a synthetic
+    copy of them
+  - a dungeon change while Run is hidden
+  - whether the mode controls being inside the hidden root is the right
+    production choice, as opposed to merely a testable one
+
+Stage 2 deliberately does not implement any production UI. It establishes
+whether the state machine is buildable, nothing more.
