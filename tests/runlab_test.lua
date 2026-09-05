@@ -381,7 +381,7 @@ check("no step asks for two clicks, and stateful steps check their state", funct
         capability = capability or ""
         local stateful = (capability:find("hidden") or capability:find("parked")
             or capability:find("1x1")) and not capability:find("clipped")
-        if stateful and not block:find("check = function", 1, true) then
+        if stateful and not block:find("check =", 1, true) then
             error(("the step %q describes a state but never checks it")
                 :format(capability))
         end
@@ -416,6 +416,69 @@ check("a stuck step can be skipped and a run can be resumed", function()
     if not shown then error("no report after goto") end
     if not shown:find("not attempted", 1, true) then
         error("goto did not mark the skipped steps as not attempted")
+    end
+end)
+
+-- The follow-up must be a real subset of the full sequence, not a second
+-- hand-written list that can drift from it.
+check("the follow-up is shorter than the full run and covers what was open", function()
+    Lab.Command("setup")
+    local function length()
+        local n
+        local out = print
+        print = function(line)
+            local got = tostring(line):match("step numbers run 1 to (%d+)")
+            if got then n = tonumber(got) end
+        end
+        Lab.Command("goto 99999")
+        print = out
+        return n
+    end
+
+    local full = length()
+    Lab.Command("followup")
+    local short = length()
+
+    if not full or not short then error("could not measure the sequence length") end
+    if short >= full then
+        error(("the follow-up is %d steps, the full run %d"):format(short, full))
+    end
+    if short < 6 then
+        error(("the follow-up is only %d steps -- the filter dropped too much"):format(short))
+    end
+
+    -- And reset must not silently drop back to the full run.
+    Lab.Command("reset")
+    if length() ~= short then error("reset rebuilt the wrong sequence") end
+
+    Lab.Command("setup")
+    if length() ~= full then error("setup did not go back to the full sequence") end
+end)
+
+-- A probe that measured nothing must not read as a pass. This is the same
+-- defect as a check hardcoded to true, and it survived a live run: four lines
+-- printed [ok] while saying "not attempted" and "nothing to scroll".
+check("a probe that measured nothing does not report as ok", function()
+    local source = io.open("InomrahsMISelfTest/SelfTest.lua"):read("*a")
+
+    if not source:find("local function measured", 1, true) then
+        error("no measured() helper")
+    end
+    if not source:find('r.ok == "none"', 1, true) then
+        error("the report does not render the measured-nothing state")
+    end
+
+    -- Every probe whose detail can be "not attempted" or "nothing to scroll"
+    -- must go through measured(), not a bare true.
+    for _, marker in ipairs({ "A: restricted SetVerticalScroll",
+                              "B: restricted SetPoint on protected content",
+                              "B: did the content actually move",
+                              "D: Run has something to scroll" }) do
+        local call = source:match('"' .. marker:gsub("%p", "%%%1") .. '",%s*([^,\n]+)')
+        if not call then error(("could not find the %s probe"):format(marker)) end
+        if not call:find("measured", 1, true) then
+            error(("the %s probe still records a bare %s"):format(marker, call))
+        end
     end
 end)
 

@@ -215,7 +215,7 @@ local built = false
 local armed = false
 local baseline = {}              -- canonical geometry, captured at build time
 
-local ROOT_W, ROOT_H = 320, 210
+local ROOT_W, ROOT_H = 320, 232   -- 232 leaves a fourth row of op buttons room
 local ACTION_W, ACTION_H = 160, 34
 local PARK_X, PARK_Y = 1200, -1200   -- far off any real UI, and lab-owned
 
@@ -316,13 +316,70 @@ local TOGGLE_ANCHOR = [==[
     self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
 ]==]
 
+--- The operations ordinary Lua was refused in combat, attempted from a snippet
+--- instead. The restricted method inventory lists SetScale, EnableMouse and
+--- SetAlpha as available to snippets, and Stage 1 watched insecure code be
+--- refused all three. Whether a method is listed and whether calling it is
+--- permitted are different facts, and only this tells them apart.
+local SNIPPET_SCALE = [==[
+    local target = self:GetFrameRef("target")
+    if not target then return end
+
+    if self:GetAttribute("scaled") then
+        target:SetScale(1)
+        self:SetAttribute("scaled", false)
+    else
+        target:SetScale(0.6)
+        self:SetAttribute("scaled", true)
+    end
+
+    self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
+]==]
+
+local SNIPPET_MOUSE = [==[
+    local target = self:GetFrameRef("target")
+    if not target then return end
+
+    if self:GetAttribute("nomouse") then
+        target:EnableMouse(true)
+        self:SetAttribute("nomouse", false)
+    else
+        target:EnableMouse(false)
+        self:SetAttribute("nomouse", true)
+    end
+
+    self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
+]==]
+
+--- 0.25 rather than 0 on purpose: a surface you can still see is a surface you
+--- can still click to undo, and this probe is about whether the call lands.
+local SNIPPET_ALPHA = [==[
+    local target = self:GetFrameRef("target")
+    if not target then return end
+
+    if self:GetAttribute("faded") then
+        target:SetAlpha(1)
+        self:SetAttribute("faded", false)
+    else
+        target:SetAlpha(0.25)
+        self:SetAttribute("faded", true)
+    end
+
+    self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
+]==]
+
 --- The rescue. Shows everything the lab can hide, unconditionally, in one
 --- click. It is the reason a destructive probe is safe to run at all, so it
 --- takes no arguments, reads no state, and cannot be told not to.
 local RESCUE = [==[
     for _, name in ipairs(newtable("root", "ancestor", "action", "visual")) do
         local target = self:GetFrameRef(name)
-        if target then target:Show() end
+        if target then
+            target:Show()
+            -- Show alone left an alpha-0 surface just as invisible as before,
+            -- which made the one unconditional escape hatch conditional.
+            target:SetAlpha(1)
+        end
     end
 
     local action = self:GetFrameRef("action")
@@ -395,6 +452,16 @@ local function secureButton(name, parent, text, snippet, refs)
 
     for key, frame in pairs(refs or {}) do b:SetFrameRef(key, frame) end
     b:SetAttribute("_onclick", withNumbers(snippet))
+
+    -- Two counters, deliberately. "ran" is the snippet's, written from the
+    -- restricted side; "clicks" is this one, written from ordinary Lua. With
+    -- only the first, a button that was never pressed and a snippet the client
+    -- refused to run are the same number, and Stage 1 could not tell them
+    -- apart for three of its results. With both, they never look alike.
+    b.clicks = 0
+    b:HookScript("OnClick", function(self)
+        self.clicks = (self.clicks or 0) + 1
+    end)
     return b
 end
 
@@ -601,6 +668,9 @@ local function build()
     op("OpSize",   "1x1 / normal",       TOGGLE_SIZE, { target = F.action })
     op("OpGeo",    "ancestor w/h",       TOGGLE_GEO,  { target = F.ancestor })
     op("OpAnchor", "ancestor anchor",    TOGGLE_ANCHOR, { target = F.ancestor, home = F.root })
+    op("OpScale",  "ancestor scale",     SNIPPET_SCALE, { target = F.ancestor })
+    op("OpMouse",  "root mouse off",     SNIPPET_MOUSE, { target = F.root })
+    op("OpFade",   "root fade",          SNIPPET_ALPHA, { target = F.root })
 
     for i, entry in ipairs(F.ops) do
         local col = (i - 1) % 3
@@ -735,6 +805,7 @@ end
 
 local steps, stepIndex = {}, 0
 local watching = false
+local stepMode = nil
 
 local function currentStep() return steps[stepIndex] end
 
@@ -901,6 +972,13 @@ local function insecureProbe(name, frame, operation, read, requested, apply)
         and not approximately(before, after, 0.001)
         or (before ~= after)
 
+    -- If it already held the requested value, a refusal and a successful no-op
+    -- are indistinguishable. Reporting that as "NO -- observed refusal" is a
+    -- confident wrong answer, which is the one thing this report must not do.
+    local alreadyThere = (type(before) == "number" and type(requested) == "number")
+        and approximately(before, requested, 0.001)
+        or (before == requested)
+
     return record({
         capability = name,
         context = inCombat() and "combat" or "out of combat",
@@ -909,7 +987,11 @@ local function insecureProbe(name, frame, operation, read, requested, apply)
         operation = operation,
         before = fmt(before), requested = fmt(requested), after = fmt(after),
         err = (not ok) and tostring(err) or nil,
-        conclusion = moved and "YES — observed" or "NO — observed refusal",
+        conclusion = moved and "YES — observed"
+            or (alreadyThere
+                and "INCONCLUSIVE — it already held the requested value, so a "
+                    .. "refusal and a successful no-op look identical"
+                or "NO — observed refusal"),
     })
 end
 
@@ -1056,6 +1138,9 @@ local function actionStep(phase, capability, text, prepare, restore, which, expe
                     F.step.body:SetText((text or "") .. "\n\n|cffff8800Not yet: "
                         .. (expect.text or "the state this step needs is not set")
                         .. ".|r")
+                    -- Offered immediately. Making someone wait out 90 seconds
+                    -- for permission to move on is a worse kind of stuck.
+                    if F.step.skip then F.step.skip:Show() end
                 end
                 return false, "the state this step needs was never set: "
                     .. (expect.text or "?")
@@ -1085,13 +1170,49 @@ local function actionStep(phase, capability, text, prepare, restore, which, expe
     }
 end
 
-local function buildSteps()
+--- The follow-up run: the questions Stage 1 left open, and nothing else.
+---
+--- Named rather than rebuilt. A second hand-written sequence would be a second
+--- thing to keep right, and the first time it drifted from the real one the
+--- report would still look convincing.
+local FOLLOWUP = {
+    ["secure Hide on the visual-only child"] = true,
+    ["action key with only the visual child hidden"] = true,
+    ["restore: the decoration is visible again"] = true,
+    ["secure re-anchor of the action button"] = true,
+    ["action key while the button is parked off screen"] = true,
+    ["restore: the button is back in place"] = true,
+    ["secure width and height on a protected ancestor"] = true,
+    ["secure re-anchor of a protected ancestor"] = true,
+    ["secure SetScale on a protected ancestor"] = true,
+    ["secure EnableMouse(false) on the lab root"] = true,
+    ["secure SetAlpha on the lab root"] = true,
+}
+
+local function buildSteps(mode)
     steps = {}
     local function add(step) steps[#steps + 1] = step end
 
     ----------------------------------------------------------------------------
     -- Phase 0 — prove the evidence mechanism before trusting it.
     ----------------------------------------------------------------------------
+
+    -- The sequence used to open on "press the key", with a 120 second clock,
+    -- before anything had bound that key. Reading the preflight output was
+    -- enough to time it out, and the first thing the lab did was fail at a
+    -- step that could not have succeeded. It waits now.
+    add({
+        phase = "setup",
+        text = "Press |cffffd200PREFLIGHT|r on the red bar, then |cffffd200ARM|r.\n"
+            .. "Nothing else works until the test keys are armed.\n"
+            .. "This step moves on by itself the moment they are.",
+        timeout = 3600,
+        observe = function()
+            if armed then return true end
+            return false, "the test keys were never armed"
+        end,
+    })
+
     add({
         phase = "evidence, out of combat",
         capability = "/run counter, out of combat",
@@ -1283,19 +1404,32 @@ local function buildSteps()
                     if entry.key == opKey then button = entry.button end
                 end
                 Lab.opButton = button
-                Lab.opRan = button and (button:GetAttribute("ran") or 0) or 0
+                Lab.opRan = button and (tonumber(button:GetAttribute("ran")) or 0) or 0
+                Lab.opClicks = button and (button.clicks or 0) or 0
             end,
             done = function()
                 local button = Lab.opButton
-                local ran = button and (button:GetAttribute("ran") or 0) or 0
+                local ran = button and (tonumber(button:GetAttribute("ran")) or 0) or 0
+                local clicks = button and (button.clicks or 0) or 0
+
+                local conclusion
+                if ran > Lab.opRan then
+                    conclusion = "YES — observed"
+                elseif clicks > Lab.opClicks then
+                    conclusion = "NO — observed refusal: the button was clicked "
+                        .. "and the snippet did not run"
+                else
+                    conclusion = "INCONCLUSIVE — the button was never clicked"
+                end
+
                 record({
                     capability = capability .. " (the snippet ran)",
                     context = inCombat() and "combat" or "out of combat",
                     trigger = "hardware click on SecureHandlerClickTemplate",
                     target = buttonText,
                     before = Lab.opRan, after = ran,
-                    conclusion = ran > Lab.opRan and "YES — observed"
-                        or "NO — observed refusal: the snippet never ran",
+                    note = ("clicks %d -> %d"):format(Lab.opClicks, clicks),
+                    conclusion = conclusion,
                 })
             end,
         }
@@ -1354,14 +1488,39 @@ local function buildSteps()
         }
     end
 
-    local function opAttr(opKey, name)
+    local function opButton(opKey)
         for _, entry in ipairs(F.ops or {}) do
-            if entry.key == opKey then
-                local ok, value = pcall(entry.button.GetAttribute, entry.button, name)
-                if ok then return value end
-            end
+            if entry.key == opKey then return entry.button end
         end
         return nil
+    end
+
+    local function ranCount(opKey)
+        local button = opButton(opKey)
+        if not button then return 0 end
+        local ok, value = pcall(button.GetAttribute, button, "ran")
+        return (ok and tonumber(value)) or 0
+    end
+
+    -- Asking the snippet whether it thinks it parked the button was the wrong
+    -- question twice over: the answer comes back from the restricted side and
+    -- may not be readable, and it is the snippet's belief rather than the
+    -- client's behaviour. These read the frame instead, using the same values
+    -- runlab status prints without trouble.
+    --
+    -- An unanchored frame counts as away from home on purpose: that is exactly
+    -- what a successful ClearAllPoints followed by a refused SetPoint leaves
+    -- behind, and it is emphatically not "still in place".
+    local function awayFromHome()
+        local here, home = left(F.action), left(F.home)
+        if here == nil then return true end
+        if home == nil then return false end
+        return math.abs(here - home) > 50
+    end
+
+    local function tiny()
+        local w = width(F.action)
+        return w ~= nil and w <= 2
     end
 
     add(secureOpStep("hidden states", "secure Hide on the protected ancestor",
@@ -1414,10 +1573,10 @@ local function buildSteps()
         "The button is parked off screen. Press |cffffd200" .. CHORDS[1].key .. "|r.",
         nil, nil, 1,
         { text = "the button is not parked — click park/unpark",
-          check = function() return opAttr("oppark", "parked") == true end }))
+          check = awayFromHome }))
 
     add(restoreStep("the button is back in place", "park/unpark",
-        function() return opAttr("oppark", "parked") ~= true end))
+        function() return awayFromHome() == false end))
 
     add(secureOpStep("hidden states", "secure resize of the action button to 1x1",
         "1x1 / normal",
@@ -1427,10 +1586,10 @@ local function buildSteps()
         "The button is one pixel. Press |cffffd200" .. CHORDS[1].key .. "|r.",
         nil, nil, 1,
         { text = "the button is not 1x1 — click 1x1 / normal",
-          check = function() return opAttr("opsize", "small") == true end }))
+          check = tiny }))
 
     add(restoreStep("the button is its normal size again", "1x1 / normal",
-        function() return opAttr("opsize", "small") ~= true end))
+        function() return tiny() == false end))
 
     add(actionStep("hidden states", "action key on a clipped button",
         "Press |cffffd200" .. CHORDS[2].key .. "|r — the second action, which is "
@@ -1443,20 +1602,28 @@ local function buildSteps()
     ----------------------------------------------------------------------------
     add({
         phase = "geometry",
-        manual = true,
-        buttonText = "I clicked it",
         capability = "secure width and height on a protected ancestor",
+        timeout = 90,
         text = "Click |cffffd200ancestor w/h|r in the lab window.\n"
-            .. "This is the shape a denser Run layout would need in combat.",
+            .. "This is the shape a denser Run layout would need in combat.\n"
+            .. "This step moves on by itself once it sees the click.",
         enter = function()
             Lab.geoW, Lab.geoH = width(F.ancestor), height(F.ancestor)
-            for _, entry in ipairs(F.ops) do
-                if entry.key == "opgeo" then Lab.geoBtn = entry.button end
-            end
-            Lab.geoRan = Lab.geoBtn and (Lab.geoBtn:GetAttribute("ran") or 0) or 0
+            Lab.geoBtn = opButton("opgeo")
+            Lab.geoRan = ranCount("opgeo")
+            Lab.geoClicks = Lab.geoBtn and (Lab.geoBtn.clicks or 0) or 0
+        end,
+        -- Waits for the click, not for you to say you clicked. A step that
+        -- advanced on trust could not report whether the operation was refused
+        -- or the button was never pressed, and it reported both as the same.
+        observe = function()
+            local clicks = Lab.geoBtn and (Lab.geoBtn.clicks or 0) or 0
+            if clicks > Lab.geoClicks then return true end
+            return false, "the ancestor w/h button was never clicked"
         end,
         done = function()
-            local ran = Lab.geoBtn and (Lab.geoBtn:GetAttribute("ran") or 0) or 0
+            local ran = ranCount("opgeo")
+            local clicks = Lab.geoBtn and (Lab.geoBtn.clicks or 0) or 0
             local nowW, nowH = width(F.ancestor), height(F.ancestor)
             local changed = not approximately(Lab.geoW, nowW)
                 or not approximately(Lab.geoH, nowH)
@@ -1470,31 +1637,38 @@ local function buildSteps()
                 before = ("%s x %s"):format(fmt(Lab.geoW), fmt(Lab.geoH)),
                 requested = ("%s x %s"):format(fmt((ROOT_W - 20) / 2), fmt((ROOT_H - 90) / 2)),
                 after = ("%s x %s"):format(fmt(nowW), fmt(nowH)),
-                note = ("snippet ran %d -> %d"):format(Lab.geoRan, ran),
+                note = ("snippet ran %d -> %d, clicks %d -> %d")
+                    :format(Lab.geoRan, ran, Lab.geoClicks, clicks),
                 conclusion = (ran > Lab.geoRan and changed) and "YES — observed"
-                    or (ran <= Lab.geoRan
-                        and "INCONCLUSIVE — the snippet did not run, so nothing was measured"
-                        or "NO — observed refusal"),
+                    or (ran > Lab.geoRan and "NO — the snippet ran and nothing moved")
+                    or (clicks > Lab.geoClicks
+                        and "NO — observed refusal: clicked, and the snippet did not run")
+                    or "INCONCLUSIVE — the button was never clicked",
             })
         end,
     })
 
     add({
         phase = "geometry",
-        manual = true,
-        buttonText = "I clicked it",
         capability = "secure re-anchor of a protected ancestor",
+        timeout = 90,
         text = "Click |cffffd200ancestor anchor|r.\n"
-            .. "The inner panel should shift down and right.",
+            .. "The inner panel should shift down and right.\n"
+            .. "This step moves on by itself once it sees the click.",
         enter = function()
             Lab.ancLeft, Lab.ancTop = left(F.ancestor), top(F.ancestor)
-            for _, entry in ipairs(F.ops) do
-                if entry.key == "opanchor" then Lab.ancBtn = entry.button end
-            end
-            Lab.ancRan = Lab.ancBtn and (Lab.ancBtn:GetAttribute("ran") or 0) or 0
+            Lab.ancBtn = opButton("opanchor")
+            Lab.ancRan = ranCount("opanchor")
+            Lab.ancClicks = Lab.ancBtn and (Lab.ancBtn.clicks or 0) or 0
+        end,
+        observe = function()
+            local clicks = Lab.ancBtn and (Lab.ancBtn.clicks or 0) or 0
+            if clicks > Lab.ancClicks then return true end
+            return false, "the ancestor anchor button was never clicked"
         end,
         done = function()
-            local ran = Lab.ancBtn and (Lab.ancBtn:GetAttribute("ran") or 0) or 0
+            local ran = ranCount("opanchor")
+            local clicks = Lab.ancBtn and (Lab.ancBtn.clicks or 0) or 0
             local nowLeft, nowTop = left(F.ancestor), top(F.ancestor)
             local moved = not approximately(Lab.ancLeft, nowLeft)
                 or not approximately(Lab.ancTop, nowTop)
@@ -1507,17 +1681,88 @@ local function buildSteps()
                 operation = "ClearAllPoints and SetPoint from a snippet",
                 before = ("left %s top %s"):format(fmt(Lab.ancLeft), fmt(Lab.ancTop)),
                 after = ("left %s top %s"):format(fmt(nowLeft), fmt(nowTop)),
-                note = ("snippet ran %d -> %d"):format(Lab.ancRan, ran),
+                note = ("snippet ran %d -> %d, clicks %d -> %d")
+                    :format(Lab.ancRan, ran, Lab.ancClicks, clicks),
                 conclusion = (ran > Lab.ancRan and moved) and "YES — observed"
-                    or (ran <= Lab.ancRan
-                        and "INCONCLUSIVE — the snippet did not run"
-                        or "NO — observed refusal"),
+                    or (ran > Lab.ancRan and "NO — the snippet ran and nothing moved")
+                    or (clicks > Lab.ancClicks
+                        and "NO — observed refusal: clicked, and the snippet did not run")
+                    or "INCONCLUSIVE — the button was never clicked",
             })
         end,
     })
 
     ----------------------------------------------------------------------------
-    -- Phase 4 — the scroll probes that already exist, run at last.
+    -- Phase 4 — the same operations, from a snippet instead.
+    --
+    -- Every one of these was refused to insecure code in combat, and every one
+    -- appears in the restricted method inventory. Listed and permitted are not
+    -- the same thing, and guessing which way it falls is how a mode gets built
+    -- on an assumption that only breaks mid-fight.
+    ----------------------------------------------------------------------------
+    local function snippetOpStep(capability, opLabel, opKey, targetName, operation, read)
+        local button, ran0, clicks0, before
+        return {
+            phase = "snippet route",
+            capability = capability,
+            timeout = 90,
+            text = "Click |cffffd200" .. opLabel .. "|r in the lab window.\n"
+                .. "Ordinary code was refused this in combat. A snippet may not be.\n"
+                .. "This step moves on by itself once it sees the click.",
+            enter = function()
+                button = opButton(opKey)
+                ran0 = ranCount(opKey)
+                clicks0 = button and (button.clicks or 0) or 0
+                before = read()
+            end,
+            observe = function()
+                local clicks = button and (button.clicks or 0) or 0
+                if clicks > clicks0 then return true end
+                return false, "the " .. opLabel .. " button was never clicked"
+            end,
+            done = function()
+                local ran = ranCount(opKey)
+                local clicks = button and (button.clicks or 0) or 0
+                local after = read()
+
+                record({
+                    capability = capability,
+                    context = inCombat() and "combat" or "out of combat",
+                    trigger = "hardware click on SecureHandlerClickTemplate",
+                    target = targetName,
+                    operation = operation,
+                    before = before, after = after,
+                    note = ("snippet ran %d -> %d, clicks %d -> %d")
+                        :format(ran0, ran, clicks0, clicks),
+                    conclusion = (ran > ran0 and before ~= after) and "YES — observed"
+                        or (ran > ran0 and "NO — the snippet ran and nothing changed")
+                        or (clicks > clicks0
+                            and "NO — observed refusal: clicked, and the snippet did not run")
+                        or "INCONCLUSIVE — the button was never clicked",
+                })
+            end,
+        }
+    end
+
+    add(snippetOpStep("secure SetScale on a protected ancestor", "ancestor scale",
+        "opscale", "SecureHandlerBaseTemplate containing a SecureActionButton",
+        "SetScale(0.6) from a snippet",
+        function() return fmt(num(F.ancestor.GetScale, F.ancestor)) end))
+
+    add(snippetOpStep("secure EnableMouse(false) on the lab root", "root mouse off",
+        "opmouse", "lab root", "EnableMouse(false) from a snippet",
+        function()
+            local ok, value = pcall(function() return F.root:IsMouseEnabled() end)
+            return ok and tri(value) or "unreadable"
+        end))
+
+    add(snippetOpStep("secure SetAlpha on the lab root", "root fade",
+        "opfade", "lab root", "SetAlpha(0.25) from a snippet",
+        function() return fmt(alpha(F.root)) end))
+
+    ----------------------------------------------------------------------------
+    -- Phase 5 — the scroll probes that already exist, run at last.
+    -- (marker: the follow-up filter runs after everything below is added)
     ----------------------------------------------------------------------------
     add({
         phase = "scrolling",
@@ -1540,6 +1785,21 @@ local function buildSteps()
             restoreBaseline()
         end,
     })
+
+    -- The follow-up is the full sequence with everything already answered
+    -- taken out, so its steps are literally the same objects the full run
+    -- uses. The setup, combat and closing steps stay because a sequence with
+    -- no keys armed, nobody in combat and no ending is not a sequence.
+    if mode == "followup" then
+        local keep = {}
+        for _, step in ipairs(steps) do
+            local wanted = step.phase == "setup" or step.phase == "combat"
+                or step.phase == "done"
+                or (step.capability and FOLLOWUP[step.capability])
+            if wanted then keep[#keep + 1] = step end
+        end
+        steps = keep
+    end
 end
 
 --------------------------------------------------------------------------------
@@ -1735,6 +1995,7 @@ local HELP = {
     "  /imitest runlab reset      back to baseline",
     "  /imitest runlab release    emergency: unbind, restore, let go",
     "",
+    "runlab followup  the short run: only what Stage 1 left open",
     "runlab goto <n>   resume at step n, out of combat",
     "",
     "The lab guides you a step at a time once it is set up.",
@@ -1768,7 +2029,8 @@ function Lab.Command(arg)
         fired[1], fired[2] = 0, 0
         F.underlay.count = 0
         F.underlay.label:SetText("UNDERLAY 0")
-        buildSteps()
+        stepMode = nil
+        buildSteps(stepMode)
         stepIndex = 0
         advance()
 
@@ -1781,6 +2043,24 @@ function Lab.Command(arg)
 
     if not built then
         say("run |cffffd200/imitest runlab setup|r first.")
+        return
+    end
+
+    -- The short run: only what Stage 1 could not answer. Results already
+    -- recorded are kept, so one report can carry both runs.
+    if arg == "followup" then
+        if InCombatLockdown() then say("|cffff4444out of combat only.|r") return end
+        restoreBaseline()
+        stepMode = "followup"
+        buildSteps(stepMode)
+        stepIndex = 0
+        advance()
+        F.step:Show()
+        F.rescueBar:Show()
+        F.root:Show()
+        say("follow-up sequence: |cffffd200%d steps|r. anything already "
+            .. "recorded is kept.", #steps)
+        say("press |cffffd200PREFLIGHT|r then |cffffd200ARM|r, then follow the panel.")
         return
     end
 
@@ -1900,7 +2180,7 @@ function Lab.Command(arg)
         end
         restoreBaseline()
         stepIndex = 0
-        buildSteps()
+        buildSteps(stepMode)
         advance()
         say("back to baseline. results kept — /imitest runlab copy still works.")
         return

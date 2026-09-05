@@ -22,10 +22,20 @@ local ADDON = ...
 local results = {}
 local errorLog = {}
 
+--- `ok` is true, false, or the string "none" for a probe that ran but measured
+--- nothing -- an operation it never got to attempt, a value it could not read,
+--- a scroll frame with nothing to scroll. Those were reported as [ok] and read
+--- as evidence of a working feature. A green line nobody can trust is worse
+--- than a red one, and it is the same defect as a check hardcoded to pass.
 local function record(section, name, ok, detail)
     results[#results + 1] = {
         section = section, name = name, ok = ok, detail = detail,
     }
+end
+
+--- Marks a probe's result as "measured nothing" when `measured` is false.
+local function measured(value)
+    return value and true or "none"
 end
 
 local function check(section, name, fn)
@@ -872,18 +882,22 @@ local function checkCombatScroll(IMI)
     if ran then
         record("Combat", "A: what restricted code sees on a scroll frame", true,
             probe.header:GetAttribute("methods") or "nothing")
-        record("Combat", "A: restricted SetVerticalScroll", true,
-            probe.header:GetAttribute("scrolled") or "not attempted")
-        record("Combat", "B: restricted SetPoint on protected content", true,
-            probe.header:GetAttribute("shifted") or "not attempted")
+        local scrolled = probe.header:GetAttribute("scrolled")
+        record("Combat", "A: restricted SetVerticalScroll", measured(scrolled),
+            scrolled or "not attempted")
+        local shifted = probe.header:GetAttribute("shifted")
+        record("Combat", "B: restricted SetPoint on protected content", measured(shifted),
+            shifted or "not attempted")
 
         -- B is only answered by whether the frame actually moved, which has to
         -- be read out here: the restricted environment cannot report a number
         -- back except through an attribute, and a refused call throws nothing.
         local ok, top = pcall(function() return probe.content:GetTop() end)
-        record("Combat", "B: did the content actually move", true,
-            ok and ("content top is now %s"):format(tostring(top))
-                or "could not be read")
+        record("Combat", "B: did the content actually move",
+            measured(ok and type(top) == "number"),
+            (ok and type(top) == "number")
+                and ("content top is now %.2f"):format(top)
+                or "the content has no readable position, so nothing was measured")
     end
 
     -- C: the routes that exist on this build.
@@ -894,9 +908,9 @@ local function checkCombatScroll(IMI)
         local scroll = IMI.UI.RunScroll()
         local range = scroll and scroll.GetVerticalScrollRange
             and scroll:GetVerticalScrollRange() or 0
-        record("Combat", "D: Run has something to scroll", true,
-            (type(range) == "number" and range > 0)
-                and ("range %d"):format(range)
+        local haveRange = type(range) == "number" and range > 0
+        record("Combat", "D: Run has something to scroll", measured(haveRange),
+            haveRange and ("range %d"):format(range)
                 or "nothing to scroll — open a taller page and run this again")
 
         -- The old measurement, kept: this is the path that is known to fail,
@@ -1031,20 +1045,24 @@ local function reportText()
                   ("client build %s"):format(tostring((select(4, GetBuildInfo())))),
                   "" }
 
-    local section, passed, failed = nil, 0, 0
+    local section, passed, failed, nothing = nil, 0, 0, 0
     for _, r in ipairs(results) do
         if r.section ~= section then
             section = r.section
             out[#out + 1] = ""
             out[#out + 1] = "== " .. section .. " =="
         end
-        out[#out + 1] = ("[%s] %s%s"):format(r.ok and "ok  " or "FAIL", r.name,
+        local mark = (r.ok == "none") and "--  " or (r.ok and "ok  " or "FAIL")
+        out[#out + 1] = ("[%s] %s%s"):format(mark, r.name,
             r.detail and ("  -- " .. r.detail) or "")
-        if r.ok then passed = passed + 1 else failed = failed + 1 end
+        if r.ok == "none" then nothing = nothing + 1
+        elseif r.ok then passed = passed + 1
+        else failed = failed + 1 end
     end
 
     out[#out + 1] = ""
-    out[#out + 1] = ("%d ok, %d failed"):format(passed, failed)
+    out[#out + 1] = ("%d ok, %d failed%s"):format(passed, failed,
+        nothing > 0 and (", %d measured nothing"):format(nothing) or "")
 
     -- Split by version, because the log survives an install: an error thrown
     -- by a version that has since been fixed is history, not a fault, and
@@ -1270,7 +1288,7 @@ SlashCmdList.INOMRAHSMISELFTEST = function(arg)
 
     local failed = 0
     for _, r in ipairs(results) do
-        if not r.ok then failed = failed + 1 end
+        if r.ok ~= "none" and not r.ok then failed = failed + 1 end
     end
     print(("|cff8f7fe8MI Self-Test|r %d checks, |cff%s%d failed|r. Showing the report.")
         :format(#results, failed > 0 and "ff4444" or "44ff44", failed))
