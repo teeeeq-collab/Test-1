@@ -669,6 +669,11 @@ check("the geometry snippets stamp between each call", function()
         local body = source:match("local " .. name .. " = %[==%[(.-)%]==%]")
         if not body then error("could not find " .. name) end
 
+        -- Comments mention these calls by name. Matching prose as if it were
+        -- code put "SetPoint" ahead of ClearAllPoints and failed a snippet
+        -- that was written correctly.
+        body = body:gsub("%-%-[^\n]*", "")
+
         local order = {}
         for stamp in body:gmatch('SetAttribute%("(%a+)"') do
             if stamp == "entered" or stamp == "cleared" or stamp == "pointed"
