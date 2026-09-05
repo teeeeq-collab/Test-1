@@ -215,7 +215,18 @@ local built = false
 local armed = false
 local baseline = {}              -- canonical geometry, captured at build time
 
-local ROOT_W, ROOT_H = 320, 232   -- 232 leaves a fourth row of op buttons room
+-- The root is sized from its contents rather than the contents squeezed into
+-- the root. It was the other way round, and the scroll viewport -- anchored to
+-- the bottom edge -- ended up sitting on top of two thirds of the operation
+-- buttons. They rendered perfectly and swallowed every click, and three of the
+-- four "the snippet never ran" results in the first live run were that, not
+-- the client refusing anything.
+local ROOT_W = 320
+local ANC_W, ANC_H = ROOT_W - 20, 142          -- the protected ancestor
+local OPS_TOP = 24 + ANC_H + 8                 -- below the ancestor
+local OPS_ROWS, OPS_ROW_H = 4, 20
+local VIEW_H = 26
+local ROOT_H = OPS_TOP + OPS_ROWS * OPS_ROW_H + 10 + VIEW_H + 8
 local ACTION_W, ACTION_H = 160, 34
 local PARK_X, PARK_Y = 1200, -1200   -- far off any real UI, and lab-owned
 
@@ -245,14 +256,18 @@ local TOGGLE_PARK = [==[
     local home = self:GetFrameRef("home")
     if not target or not home then return end
 
+    -- The intent is recorded before the move is attempted. It was recorded
+    -- after, so a refused SetPoint left the toggle believing it had never
+    -- parked: the next click took the same branch, was refused in the same
+    -- place, and the button could never come back.
     if self:GetAttribute("parked") then
+        self:SetAttribute("parked", false)
         target:ClearAllPoints()
         target:SetPoint("TOPLEFT", home, "TOPLEFT", 0, 0)
-        self:SetAttribute("parked", false)
     else
+        self:SetAttribute("parked", true)
         target:ClearAllPoints()
         target:SetPoint("TOPLEFT", home, "TOPLEFT", PARK_X_VALUE, PARK_Y_VALUE)
-        self:SetAttribute("parked", true)
     end
 
     self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
@@ -304,13 +319,13 @@ local TOGGLE_ANCHOR = [==[
     if not target or not home then return end
 
     if self:GetAttribute("moved") then
+        self:SetAttribute("moved", false)
         target:ClearAllPoints()
         target:SetPoint("TOPLEFT", home, "TOPLEFT", 0, 0)
-        self:SetAttribute("moved", false)
     else
+        self:SetAttribute("moved", true)
         target:ClearAllPoints()
         target:SetPoint("TOPLEFT", home, "TOPLEFT", 40, -40)
-        self:SetAttribute("moved", true)
     end
 
     self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
@@ -405,8 +420,8 @@ local function withNumbers(snippet)
         :gsub("PARK_Y_VALUE", tostring(PARK_Y))
         :gsub("NORMAL_W", tostring(ACTION_W))
         :gsub("NORMAL_H", tostring(ACTION_H))
-        :gsub("WIDE_W", tostring(ROOT_W - 20))
-        :gsub("TALL_H", tostring(ROOT_H - 90)))
+        :gsub("WIDE_W", tostring(ANC_W))
+        :gsub("TALL_H", tostring(ANC_H)))
 end
 
 --------------------------------------------------------------------------------
@@ -520,7 +535,7 @@ local function build()
     -- so a result here is about the shape production would actually use.
     F.ancestor = CreateFrame("Frame", "InomrahsMISelfTestRunLabAncestor", F.root,
         "SecureHandlerBaseTemplate")
-    F.ancestor:SetSize(ROOT_W - 20, ROOT_H - 90)
+    F.ancestor:SetSize(ANC_W, ANC_H)
     F.ancestor:SetPoint("TOPLEFT", 10, -24)
 
     local abg = F.ancestor:CreateTexture(nil, "BACKGROUND")
@@ -564,7 +579,7 @@ local function build()
     -- other in a state it did not ask for.
     ----------------------------------------------------------------------------
     F.viewport = CreateFrame("ScrollFrame", "InomrahsMISelfTestRunLabViewport", F.root)
-    F.viewport:SetSize(ROOT_W - 20, 26)
+    F.viewport:SetSize(ANC_W, VIEW_H)
     F.viewport:SetPoint("BOTTOMLEFT", 10, 8)
 
     F.content = CreateFrame("Frame", "InomrahsMISelfTestRunLabContent", F.viewport)
@@ -677,7 +692,7 @@ local function build()
         local row = math.floor((i - 1) / 3)
         entry.button:SetSize(98, 18)
         entry.button:SetPoint("TOPLEFT", F.root, "TOPLEFT",
-            6 + col * 102, -(ROOT_H - 62) + row * -20)
+            6 + col * 102, -OPS_TOP + row * -OPS_ROW_H)
     end
 
     ----------------------------------------------------------------------------
@@ -772,8 +787,8 @@ local function restoreBaseline()
 
         F.ancestor:ClearAllPoints()
         F.ancestor:SetPoint("TOPLEFT", F.root, "TOPLEFT", 10, -24)
-        F.ancestor:SetWidth(baseline.ancW or (ROOT_W - 20))
-        F.ancestor:SetHeight(baseline.ancH or (ROOT_H - 90))
+        F.ancestor:SetWidth(baseline.ancW or ANC_W)
+        F.ancestor:SetHeight(baseline.ancH or ANC_H)
 
         F.viewport:SetVerticalScroll(0)
     end)

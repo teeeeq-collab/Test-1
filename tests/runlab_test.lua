@@ -482,6 +482,63 @@ check("a probe that measured nothing does not report as ok", function()
     end
 end)
 
+-- The bug that cost most of two live runs. The scroll viewport is anchored to
+-- the root's bottom edge; the operation buttons were laid out from the bottom
+-- too, and the viewport ended up covering six of them. They rendered perfectly
+-- and ate every click, and the results came back as "the snippet never ran" --
+-- indistinguishable, at the time, from the client refusing the operation.
+--
+-- Nothing in the suite looked at the lab's own layout. The production sweep
+-- exists precisely for this and had never been pointed here.
+check("nothing sits on top of the operation buttons", function()
+    Lab.Command("setup")
+    local geo = dofile("tests/geometry.lua")
+
+    local root = _G.InomrahsMISelfTestRunLabRoot
+    if not root then error("no lab root") end
+    local rootRect = geo.resolve(root)
+    if not rootRect then error("the lab root has no resolvable position") end
+
+    -- Everything the lab builds that takes the mouse and is not an op button.
+    local obstacles = {}
+    for _, name in ipairs({ "Viewport", "Ancestor", "Action", "Clipped", "Home" }) do
+        local frame = _G["InomrahsMISelfTestRunLab" .. name]
+        local rect = frame and geo.resolve(frame)
+        if rect then obstacles[#obstacles + 1] = { name = name, rect = rect } end
+    end
+
+    local names = { "OpRoot", "OpAnc", "OpAction", "OpVisual", "OpPark", "OpSize",
+                    "OpGeo", "OpAnchor", "OpScale", "OpMouse", "OpFade" }
+    local checked = 0
+    for _, name in ipairs(names) do
+        local button = _G["InomrahsMISelfTestRunLab" .. name]
+        if button then
+            local rect = geo.resolve(button)
+            if not rect then error(name .. " has no resolvable position") end
+            checked = checked + 1
+
+            for _, obstacle in ipairs(obstacles) do
+                if geo.overlaps(rect, obstacle.rect, 0) then
+                    error(("%s is covered by %s -- %s vs %s")
+                        :format(name, obstacle.name, geo.describe(rect),
+                                geo.describe(obstacle.rect)))
+                end
+            end
+
+            -- And inside the window, or it floats over the game world.
+            if rect.left < rootRect.left - 0.5 or rect.right > rootRect.right + 0.5
+                or rect.bottom < rootRect.bottom - 0.5 or rect.top > rootRect.top + 0.5 then
+                error(("%s hangs outside the lab window -- %s not within %s")
+                    :format(name, geo.describe(rect), geo.describe(rootRect)))
+            end
+        end
+    end
+
+    if checked < 11 then
+        error(("only %d operation buttons were found, expected 11"):format(checked))
+    end
+end)
+
 check("the report survives having nothing to report", function()
     Lab.Command("setup")
     Lab.Command("report")
