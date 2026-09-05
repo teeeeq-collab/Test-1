@@ -750,6 +750,30 @@ check("the cause probe attempts the offset before anything clears", function()
     end
 end)
 
+-- The offset-free frame anchor is the useful form, so it must be attempted
+-- first: a snippet stops where it throws, and putting the zero-offset question
+-- ahead of it would let a refusal there hide the answer that matters.
+check("the frame-anchor probe attempts the useful form first", function()
+    local source = io.open("InomrahsMISelfTest/RunLab.lua"):read("*a")
+    local body = source:match("local TOGGLE_ANCHOR_FRAME = %[==%[(.-)%]==%]")
+    if not body then error("could not find TOGGLE_ANCHOR_FRAME") end
+    body = body:gsub("%-%-[^\n]*", "")
+
+    local toFrame = body:find('SetAttribute%("toframe"')
+    local zero = body:find('SetAttribute%("zerooffset"')
+    if not (toFrame and zero) then error("the probe does not stamp both forms") end
+    if toFrame > zero then
+        error("the zero-offset attempt comes first and can hide the frame anchor")
+    end
+
+    -- And the frame anchor must genuinely pass no offsets, or it tests nothing.
+    local call = body:match('SetPoint%("TOPLEFT", home, "TOPLEFT"([^%)]*)%)')
+    if not call then error("the probe does not anchor to another frame") end
+    if call:find("%d") then
+        error("the frame anchor passes offsets, which is the thing being ruled out")
+    end
+end)
+
 check("the report survives having nothing to report", function()
     Lab.Command("setup")
     Lab.Command("report")

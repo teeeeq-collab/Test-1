@@ -491,6 +491,34 @@ local TOGGLE_ANCHOR_CAUSE = [==[
     self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
 ]==]
 
+--- The one form left, and the one that would be useful.
+---
+--- SetPoint("CENTER") and SetAllPoints() both run. SetPoint("CENTER", 40, -40)
+--- throws on the offsets, before anything else in its snippet. So a point is
+--- accepted and numbers after it are not.
+---
+--- That leaves anchoring to another frame with no offsets at all. If it works,
+--- there is a whole architecture behind it: place invisible anchor frames
+--- wherever a layout needs them, out of combat where offsets are free, then
+--- snap a protected frame onto one of them during a fight with a single
+--- offset-free call. A Compact mode could move things after all -- to
+--- positions decided in advance, which is all it ever needed.
+local TOGGLE_ANCHOR_FRAME = [==[
+    self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
+    local target = self:GetFrameRef("target")
+    local home = self:GetFrameRef("home")
+    if not target or not home then return end
+
+    target:SetPoint("TOPLEFT", home, "TOPLEFT")
+    self:SetAttribute("toframe", (self:GetAttribute("toframe") or 0) + 1)
+
+    -- Only reached if the above is allowed: are zero offsets still offsets?
+    target:SetPoint("CENTER", 0, 0)
+    self:SetAttribute("zerooffset", (self:GetAttribute("zerooffset") or 0) + 1)
+
+    self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
+]==]
+
 --- The rescue. Shows everything the lab can hide, unconditionally, in one
 --- click. It is the reason a destructive probe is safe to run at all, so it
 --- takes no arguments, reads no state, and cannot be told not to.
@@ -799,6 +827,8 @@ local function build()
     op("OpSelfAnc", "anchor, no ref",    TOGGLE_SELF_ANCHOR, { target = F.ancestor })
     op("OpForms",  "anchor forms",       TOGGLE_ANCHOR_FORMS, { target = F.ancestor })
     op("OpCause",  "anchor: which",      TOGGLE_ANCHOR_CAUSE, { target = F.ancestor })
+    op("OpToFrame", "anchor: to frame",  TOGGLE_ANCHOR_FRAME,
+        { target = F.action, home = F.home })
 
     for i, entry in ipairs(F.ops) do
         local col = (i - 1) % 3
@@ -2371,6 +2401,10 @@ function Lab.Command(arg)
                 tostring(attr("pointed")), tostring(attr("allpoints")),
                 tostring(attr("centered")), tostring(attr("offset")),
                 tostring(attr("afterclear")), tostring(attr("ran")))
+            if attr("toframe") > 0 or attr("zerooffset") > 0 or entry.key == "optoframe" then
+                say("    %-14s toframe %s  zerooffset %s",
+                    "", tostring(attr("toframe")), tostring(attr("zerooffset")))
+            end
         end
         endCapture("which buttons receive clicks")
         return
