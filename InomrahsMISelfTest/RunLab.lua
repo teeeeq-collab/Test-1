@@ -239,6 +239,8 @@ local PARK_X, PARK_Y = 1200, -1200   -- far off any real UI, and lab-owned
 -- the snippet's belief against what the client actually reports. Those two
 -- disagreeing is a finding in itself.
 local TOGGLE_SHOW = [==[
+    self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
+
     local target = self:GetFrameRef("target")
     if not target then return end
 
@@ -252,6 +254,8 @@ local TOGGLE_SHOW = [==[
 --- visible area. A candidate for Minimal if alpha turns out to steal clicks:
 --- a frame nobody can reach cannot intercept anything.
 local TOGGLE_PARK = [==[
+    self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
+
     local target = self:GetFrameRef("target")
     local home = self:GetFrameRef("home")
     if not target or not home then return end
@@ -277,6 +281,8 @@ local TOGGLE_PARK = [==[
 --- is rejected outright by the client and would measure the rejection rather
 --- than the capability.
 local TOGGLE_SIZE = [==[
+    self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
+
     local target = self:GetFrameRef("target")
     if not target then return end
 
@@ -297,6 +303,8 @@ local TOGGLE_SIZE = [==[
 --- Width and height are toggled together and the anchor separately, so a client
 --- that allows one and refuses the other is not reported as allowing both.
 local TOGGLE_GEO = [==[
+    self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
+
     local target = self:GetFrameRef("target")
     if not target then return end
 
@@ -314,6 +322,8 @@ local TOGGLE_GEO = [==[
 ]==]
 
 local TOGGLE_ANCHOR = [==[
+    self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
+
     local target = self:GetFrameRef("target")
     local home = self:GetFrameRef("home")
     if not target or not home then return end
@@ -337,6 +347,8 @@ local TOGGLE_ANCHOR = [==[
 --- refused all three. Whether a method is listed and whether calling it is
 --- permitted are different facts, and only this tells them apart.
 local SNIPPET_SCALE = [==[
+    self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
+
     local target = self:GetFrameRef("target")
     if not target then return end
 
@@ -352,6 +364,8 @@ local SNIPPET_SCALE = [==[
 ]==]
 
 local SNIPPET_MOUSE = [==[
+    self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
+
     local target = self:GetFrameRef("target")
     if not target then return end
 
@@ -369,6 +383,8 @@ local SNIPPET_MOUSE = [==[
 --- 0.25 rather than 0 on purpose: a surface you can still see is a surface you
 --- can still click to undo, and this probe is about whether the call lands.
 local SNIPPET_ALPHA = [==[
+    self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
+
     local target = self:GetFrameRef("target")
     if not target then return end
 
@@ -383,10 +399,38 @@ local SNIPPET_ALPHA = [==[
     self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
 ]==]
 
+--- The same re-anchor, without a second frame.
+---
+--- park/unpark and ancestor anchor are the only two snippets that hand another
+--- frame to SetPoint, and they are the only two whose buttons register nothing
+--- at all -- not a click, not a snippet run -- while their immediate
+--- neighbours register both, out of combat, at identical positions and sizes.
+--- If this one works and those do not, the constraint is passing a second
+--- frame handle, not moving a frame.
+local TOGGLE_SELF_ANCHOR = [==[
+    self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
+    local target = self:GetFrameRef("target")
+    if not target then return end
+
+    if self:GetAttribute("selfmoved") then
+        self:SetAttribute("selfmoved", false)
+        target:ClearAllPoints()
+        target:SetPoint("TOPLEFT", 10, -24)
+    else
+        self:SetAttribute("selfmoved", true)
+        target:ClearAllPoints()
+        target:SetPoint("TOPLEFT", 50, -64)
+    end
+
+    self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
+]==]
+
 --- The rescue. Shows everything the lab can hide, unconditionally, in one
 --- click. It is the reason a destructive probe is safe to run at all, so it
 --- takes no arguments, reads no state, and cannot be told not to.
 local RESCUE = [==[
+    self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
+
     for _, name in ipairs(newtable("root", "ancestor", "action", "visual")) do
         local target = self:GetFrameRef(name)
         if target then
@@ -686,6 +730,7 @@ local function build()
     op("OpScale",  "ancestor scale",     SNIPPET_SCALE, { target = F.ancestor })
     op("OpMouse",  "root mouse off",     SNIPPET_MOUSE, { target = F.root })
     op("OpFade",   "root fade",          SNIPPET_ALPHA, { target = F.root })
+    op("OpSelfAnc", "anchor, no ref",    TOGGLE_SELF_ANCHOR, { target = F.ancestor })
 
     for i, entry in ipairs(F.ops) do
         local col = (i - 1) % 3
@@ -2217,10 +2262,18 @@ function Lab.Command(arg)
             local button = entry.button
             local l, t = left(button), top(button)
             local w, h = width(button), height(button)
-            say("%-18s clicks %-3s ran %-3s  at %s,%s  %sx%s  shown %s",
+            local function attr(name)
+                local ok, value = pcall(button.GetAttribute, button, name)
+                return (ok and tonumber(value)) or 0
+            end
+            -- entered says the snippet began; ran says it reached the end.
+            -- entered 1 with ran 0 is a snippet that threw partway, which is a
+            -- different fact from a click that never arrived, and the two were
+            -- indistinguishable before.
+            say("%-18s clicks %-3s entered %-3s ran %-3s  at %s,%s  %sx%s  shown %s",
                 entry.text,
                 tostring(button.clicks or 0),
-                tostring(tonumber(select(2, pcall(button.GetAttribute, button, "ran"))) or 0),
+                tostring(attr("entered")), tostring(attr("ran")),
                 fmt(l), fmt(t), fmt(w), fmt(h), tri(shown(button)))
         end
         endCapture("which buttons receive clicks")

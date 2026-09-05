@@ -630,6 +630,34 @@ check("the geometry record reports the size the snippet actually asks for", func
     end
 end)
 
+-- A snippet that throws partway looks exactly like a click that never arrived:
+-- both leave "ran" at zero. Every snippet stamps "entered" as its first line,
+-- before anything that can fail, so the two separate.
+check("every snippet records that it started before it can throw", function()
+    local source = io.open("InomrahsMISelfTest/RunLab.lua"):read("*a")
+
+    -- Lua patterns have no alternation, so match the two prefixes separately.
+    -- %w does not include the underscore, which is how this check first found
+    -- nothing at all and passed itself as if the file had no snippets.
+    local checked = 0
+    for _, prefix in ipairs({ "TOGGLE", "SNIPPET" }) do
+        for name, body in source:gmatch("local (" .. prefix .. "[%w_]*) = %[==%[(.-)%]==%]") do
+            checked = checked + 1
+            local first = body:match("^%s*([^\n]+)")
+            if not first or not first:find("entered", 1, true) then
+                error(("%s does not stamp entered as its first line"):format(name))
+            end
+        end
+    end
+    if checked < 6 then
+        error(("only %d snippets were found"):format(checked))
+    end
+
+    if not source:find('attr("entered")', 1, true) then
+        error("runlab clicks does not report entered")
+    end
+end)
+
 check("the report survives having nothing to report", function()
     Lab.Command("setup")
     Lab.Command("report")
