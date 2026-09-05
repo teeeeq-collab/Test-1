@@ -626,8 +626,22 @@ end
 
 --- Hide everything. Used when leaving Run for Edit, where stale secure buttons
 --- would otherwise sit under the editor.
-function Runtime.HideAll()
+--- Puts Run away. Pass true when what was built no longer exists.
+---
+--- Hiding the pages is enough for switching views, where the dungeon is still
+--- there to come back to. It is not enough after an import: the build still
+--- pointed at a dungeon that had been replaced, so Run reported "category not
+--- found" and drew the old profile's callouts over the new one.
+function Runtime.HideAll(forget)
     for _, page in ipairs(frames.pages) do
         page:Hide()
+    end
+
+    if forget then
+        for index, pool in pairs(frames.buttons) do
+            for _, button in ipairs(pool) do button:Hide() end
+        end
+        built.categoryId, built.pageCount = nil, 0
+        if manager then manager:SetAttribute("pageCount", 0) end
     end
 end

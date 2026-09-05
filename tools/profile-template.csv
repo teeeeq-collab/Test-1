@@ -1,20 +1,41 @@
-# Inomrah's Mythic Instructions — profile template
-"# Fill this in, select the cells, copy, then paste into Settings > Profile > Import."
-"# A row starting Dungeon, Channel or Enemy is an instruction. Everything else is a callout."
-# Channel is optional: leave the row out and the dungeon follows the setting in Settings.
+"# Inomrah's Mythic Instructions — profile, one instruction per line"
+"# Fill in column A only. Select column A, copy, paste into Settings > Profile > Import."
+"# A line starting Dungeon:, Channel:, Color: or Enemy: is an instruction."
+# Every other line is a callout for the enemy above it.
 
-Dungeon:,Altar of Fangs
-Channel:,/i
-Enemy:,Ravenous Descendant,Venom Leech,Bribed Captain,Street Sneak
-,Kick the Enrage,Dispel the leech on the tank,Interrupt the shout,Stun on pull
-,Spread 5 yards for the cone,Stack for the pull,Save a stop for the second cast,
+Dungeon: Altar of Fangs
+Channel: /i
+Enemy: Ravenous Descendant
+Dangerous: [Ravenous Descendant] Attack speed +10% with each melee attack. Help tank by CC from time to time. I will kite out to not die.
+Help CC!
+Enemy: Venom Leech
+[Venom Leech]: Move out of pools on ground.
+Enemy: Primal Serpent
+Priority kick: [Serpent] <Piercing hiss> - Kick or we lose a lot of dps!
+"If you have a focus kick macro, please set your focus to one of the [Primal Serpent]. My color is Purple"
+Enemy: Twinfang Harrower
+[Twinfang Harrower]: (Paralyzing Shots): Healer magic dispel or use slow removal. Watch out for poison spin.
+"Healer, please help dispel [Paralyzing Shots]"
+Use freedom effects to remove Paralyzing shots.
+Enemy: Ritual Chieftain
+[Ritual Chieftain]: <Blood Sacrifice> Big 5 player healing absorb. 1. Use personal heal ability or 2. (Emergency): Use health pot.
+Enemy: High Evolutionist
+Priority mob: [High Evolutionist]: Kick <Envenom> or dispel poison
+"We have to CC (stun, para, displace, poly etc) <Evolve> or it starts poisoning everyone. Focus kill if evolved!"
+Help CC <Evolve>!
+Enemy: Rattling Writhe
+Enemy: Hatchling
+Walking on eggs spawns [Hatchlings]. Not dangerous --> stand together for aoe.
+Please don't walk over the eggs. [Hatchlings] give 0% count.
+Enemy: Bloodletter
+Avoid Blood pools on the ground
+Enemy: Boss 1: Ra'Vi
+1. Avoid circles on ground and poison attacks. I will tank her next to the empty pile. Meat pile = bad time.
+2. Soak (stand in) the green circles when she eats. <Ssssscavenging>
+3. <Triple Shot>: Use defensive (OR Warrior: Spell reflect)
 
-Enemy:,Ra'Vi
-,P1 — spread for the volley
-,P2 — stack behind the pillar
-,Bloodlust now
-
-Dungeon:,Murder Row
-Enemy:,Gutter Thug,Alley Cutpurse
-,Kick the heal,Dispel the poison
-
+Dungeon: Murder Row
+Enemy: Gutter Thug
+Kick the heal
+Enemy: Alley Cutpurse
+Dispel the poison

@@ -31,6 +31,33 @@ that produced it.
 
 ## Known to have been broken, now fixed
 
+**The spreadsheet import produced nonsense** (v0.38). Not the parser: WoW
+strips tab characters when text is pasted into an edit box, so a block copied
+across several spreadsheet columns arrives as one run-together line per row and
+every cell boundary is gone. The structure then collapses into one enemy whose
+name is an entire row, and the callouts split at whatever commas they happened
+to contain.
+
+Fixed in v0.39 by making the format one column, one instruction per line —
+`Enemy: Ravenous Descendant`, then its callouts under it. A column has no cell
+boundaries to lose. The wide tab-separated form still reads, because it is what
+a CSV opened in a text editor looks like and those tabs survive; it is just not
+what to reach for when copying out of a spreadsheet. A paste whose columns ran
+together is refused with a message saying exactly that, and the confirmation now
+counts enemies and callouts as well as dungeons, so a paste that arrived wrong
+is visible before it replaces anything.
+
+**Importing left Run holding a deleted dungeon** (v0.38). The heading read
+"category not found" and the old profile's callouts were still drawn over the
+new one. An import replaces everything, so what Run built from the old profile
+has to go with it.
+
+**Clicking an empty import box did nothing** (v0.38). A multi-line edit box only
+takes a click that lands on a line of text; empty, every click is below the last
+line, so the box quietly lost focus and the only way back was to close and
+reopen the window.
+
+
 **Callout text was painted over the row beneath it** (v0.35 and earlier). Two
 causes, both in `boxHeight`:
 

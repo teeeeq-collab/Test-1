@@ -1742,9 +1742,50 @@ check("a paste that is neither a string nor a sheet is refused", function()
     if IMI.Core.Categories()[1].name ~= "Mine" then error("it changed something anyway") end
 end)
 
+-- The Run screen was left holding a dungeon that no longer existed: its secure
+-- buttons kept drawing over the new profile and the heading read "category not
+-- found". An import replaces everything, so everything built from the old
+-- profile has to go with it.
+check("importing clears what Run had built from the old profile", function()
+    local str = withMine(makeString())
+
+    -- Standing in Run with the old dungeon open, which is where it went wrong.
+    IMI.UI.Show("run")
+    IMI.UI.SelectCategory(IMI.Core.Categories()[1].id)
+    IMI.UI.OpenRun(IMI.Core.Categories()[1].id)
+    if IMI.Runtime.BuiltCategory() == nil then error("nothing was built to begin with") end
+
+    IMI.UI.ImportOverProfile(str)
+    IMI.UI.ConfirmFrame().dialog.accept:GetScript("OnClick")()
+
+    local built = IMI.Runtime.BuiltCategory()
+    if built and not IMI.Core.GetCategory(built) then
+        error("Run is still holding a dungeon that no longer exists")
+    end
+    for _, button in ipairs(IMI.Runtime.PageButtons(1) or {}) do
+        if button:IsVisible() then
+            error("a callout from the old profile is still on screen")
+        end
+    end
+end)
+
+check("the question says how much it found, not just how many dungeons", function()
+    withMine(makeString())
+    IMI.UI.ImportOverProfile("Enemy: Big Mob\nkick it\nstun it")
+
+    local body = IMI.UI.ConfirmFrame().dialog.body:GetText()
+    if not body:find("1 enemy", 1, true) then
+        error("the question does not say how many enemies: " .. body)
+    end
+    if not body:find("2 callouts", 1, true) then
+        error("the question does not say how many callouts: " .. body)
+    end
+    IMI.UI.ConfirmFrame():Hide()
+end)
+
 check("a spreadsheet paste goes through the same question", function()
     withMine(makeString())
-    IMI.UI.ImportOverProfile("Enemy:\tBig Mob\n\tkick it")
+    IMI.UI.ImportOverProfile("Enemy: Big Mob\nkick it")
 
     local d = IMI.UI.ConfirmFrame()
     if not d or not d:IsShown() then error("a sheet paste did not ask") end

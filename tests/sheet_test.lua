@@ -267,5 +267,92 @@ check("the shipped template imports", function()
     end
 end)
 
+--------------------------------------------------------------------------------
+-- One column, one instruction per line
+--
+-- The form that survives the journey. WoW strips tab characters when text is
+-- pasted into an edit box, so a row copied across several spreadsheet columns
+-- arrives run together with every cell boundary gone. A column has no
+-- boundaries to lose.
+--------------------------------------------------------------------------------
+
+local COLUMN = table.concat({
+    "Dungeon: Altar of Fangs",
+    "Channel: /i",
+    "Enemy: Ravenous Descendant",
+    "Dangerous: [Ravenous Descendant] Attack speed +10% with each melee attack.",
+    "Help CC!",
+    "Enemy: Venom Leech",
+    "[Venom Leech]: Move out of pools on ground.",
+    "",
+    "Dungeon: Murder Row",
+    "Enemy: Gutter Thug",
+    "Kick the heal",
+}, "\n")
+
+check("a single column of instructions imports", function()
+    local profile, err, count = IMI.Sheet.Parse(COLUMN)
+    if not profile then error(tostring(err)) end
+    if count ~= 2 then error("expected two dungeons, got " .. tostring(count)) end
+
+    local first = profile.categories[1]
+    if first.name ~= "Altar of Fangs" then error("wrong dungeon: " .. first.name) end
+    if first.channel ~= "/i" then error("the inline channel did not read") end
+
+    local list = first.variants[1].enemies
+    if #list ~= 2 then error("expected two enemies, got " .. #list) end
+    if list[1].name ~= "Ravenous Descendant" then error("wrong name: " .. list[1].name) end
+    if #list[1].lines ~= 2 then error("wrong callout count: " .. #list[1].lines) end
+    if list[2].lines[1].body ~= "[Venom Leech]: Move out of pools on ground." then
+        error("the callout landed on the wrong enemy")
+    end
+end)
+
+-- Callouts routinely start with a word and a colon. Only the real keywords may
+-- be read as instructions, or half the content becomes structure.
+check("a callout that begins like a keyword is still a callout", function()
+    local profile = IMI.Sheet.Parse(table.concat({
+        "Enemy: Primal Serpent",
+        "Priority kick: <Piercing hiss>",
+        "Dangerous: it enrages",
+        "Note: stack behind the pillar",
+    }, "\n"))
+    local list = enemies(profile)
+    if #list ~= 1 then error("a callout was read as an instruction: " .. #list .. " enemies") end
+    if #list[1].lines ~= 3 then error("callouts lost: " .. #list[1].lines) end
+end)
+
+-- An enemy name may itself contain a colon.
+check("an enemy name with a colon in it survives", function()
+    local profile = IMI.Sheet.Parse("Enemy: Boss 1: Ra'Vi\nAvoid the circles")
+    local list = enemies(profile)
+    if list[1].name ~= "Boss 1: Ra'Vi" then error("wrong name: " .. list[1].name) end
+end)
+
+-- The failure that shipped: a wide paste, tabs eaten by the game.
+check("a paste with its columns run together is refused, not imported", function()
+    local wide = table.concat({
+        "Dungeon:\tAltar of Fangs",
+        "Enemy:\tRavenous Descendant\tVenom Leech\tPrimal Serpent\tTwinfang Harrower\tRitual Chieftain",
+        "\tkick it\tdispel it\tstun it\tfree it\tsoak it",
+    }, "\n")
+
+    -- Intact, it is exactly right.
+    local good = IMI.Sheet.Parse(wide)
+    if not good then error("the tabbed form stopped working") end
+    if #enemies(good) ~= 5 then error("expected five enemies from the tabbed form") end
+
+    -- As the game delivers it, with every tab turned into a space.
+    local mangled = (wide:gsub("\t", " "))
+    local bad, err = IMI.Sheet.Parse(mangled)
+    if bad then
+        error("a run-together paste was accepted: it became "
+            .. tostring(#enemies(bad)) .. " enemies")
+    end
+    if not tostring(err):find("run together", 1, true) then
+        error("the message does not say what happened: " .. tostring(err))
+    end
+end)
+
 realPrint(("\nsheet: %d passed, %d failed"):format(pass, fail))
 if fail > 0 then os.exit(1) end

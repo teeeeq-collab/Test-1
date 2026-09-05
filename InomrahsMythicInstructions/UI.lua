@@ -666,8 +666,10 @@ end
 
 --- Puts Run back to its nothing-selected state. Both Back and deleting the
 --- dungeon you were looking at end up here.
-local function clearRun()
-    Runtime.HideAll()
+--- Empties the Run panel. `forget` also throws away what was built, for when
+--- the dungeon it was built from has gone rather than merely been left.
+local function clearRun(forget)
+    Runtime.HideAll(forget)
     views.run.title:SetText("")
     views.run.prompt:SetText("Pick a dungeon on the left.")
     views.run.prompt:Show()
@@ -2377,6 +2379,17 @@ local function ensureStringWindow()
     f:HookScript("OnHide", function() f.editBox:ClearFocus() end)
     scroll:SetScrollChild(f.editBox)
 
+    -- Clicking an empty box has to put the cursor in it.
+    --
+    -- A multi-line edit box only takes a click that lands on a line of text.
+    -- Empty, every click is below the last line, so nothing happened and the
+    -- box quietly lost focus: the only way back was to close the window and
+    -- reopen it. The scroll frame underneath catches those clicks and hands
+    -- focus to the box, which is what clicking an empty text field should do
+    -- anywhere.
+    scroll:EnableMouse(true)
+    scroll:SetScript("OnMouseDown", function() f.editBox:SetFocus() end)
+
     f.action = panelButton(f, "", 110, 22)
     f.action:SetPoint("BOTTOMRIGHT", -16, 14)
 
@@ -2463,16 +2476,45 @@ function UI.ImportOverProfile(text)
         profile, count = sheet, sheetCount
     end
 
-    local what = ("%d dungeon%s"):format(count, count == 1 and "" or "s")
+    -- Counted out rather than summarised as "a profile".
+    --
+    -- A paste can parse cleanly and still be wrong -- WoW strips tabs, so a
+    -- spreadsheet copied across columns arrives run together and reads as one
+    -- enemy with an enormous name. No heuristic catches every shape of that,
+    -- but a player who wrote nine enemies and is told this holds one will stop.
+    -- The numbers are the check.
+    local enemies, callouts = 0, 0
+    for _, cat in ipairs(profile.categories) do
+        for _, variant in ipairs(cat.variants or { cat }) do
+            for _, enemy in ipairs(variant.enemies or {}) do
+                enemies = enemies + 1
+                callouts = callouts + #(enemy.lines or {})
+            end
+        end
+    end
+
+    local what = ("%d dungeon%s, %d enem%s, %d callout%s"):format(
+        count, count == 1 and "" or "s",
+        enemies, enemies == 1 and "y" or "ies",
+        callouts, callouts == 1 and "" or "s")
     local current = Core.ActiveProfile()
 
     local function apply()
+        -- Whatever Run has built belongs to a dungeon that is about to stop
+        -- existing. Left standing, its secure buttons keep drawing over the
+        -- new profile's page and the heading reads "category not found" --
+        -- which is exactly what the first import produced.
+        UI.SelectCategory(nil)
+        clearRun(true)
+        IMI.Style.SetDungeonColor(nil)
+
         Core.ReplaceProfile({ categories = {}, settings = profile.settings })
         for _, cat in ipairs(profile.categories) do IMI.Export.Adopt(cat) end
+
         UI.RefreshCategories()
         UI.ApplySettings()
         UI.RefreshSettings()
-        if UI.CurrentView() == "edit" then IMI.Edit.SetCategory(nil) end
+        IMI.Edit.SetCategory(nil)
         Util.Print(("imported %s over |cffffff00%s|r."):format(what, Core.ActiveProfile()))
     end
 
@@ -2533,15 +2575,20 @@ function UI.ShowHelp()
         "  keeps a copy under a name; the list loads one back.",
         "  Import replaces the loaded profile rather than adding to it, and asks",
         "  first, so you can keep the old one under a name before it goes.",
-        "  Import also takes rows pasted straight out of a spreadsheet. One",
-        "  paste can build the whole profile, every dungeon in it:",
-        "     Dungeon:  Altar of Fangs",
-        "     Channel:  /i",
-        "     Enemy:    Ravenous Descendant     Venom Leech",
-        "               Kick the Enrage         Dispel the leech",
-        "  A row starting Dungeon, Channel, Color, Page or Enemy tells it what",
-        "  follows; every other row is callouts, read down each enemy\'s own",
-        "  column. Rows starting # are notes. As sheet writes yours back out.",
+        "  Import also takes lines pasted out of a spreadsheet. One paste can",
+        "  build the whole profile, every dungeon in it. Put it in ONE column:",
+        "     Dungeon: Altar of Fangs",
+        "     Channel: /i",
+        "     Enemy: Ravenous Descendant",
+        "     Kick the Enrage",
+        "     Enemy: Venom Leech",
+        "     Dispel the leech",
+        "  A line starting Dungeon:, Channel:, Color: or Enemy: says what",
+        "  follows; every other line is a callout for the enemy above it.",
+        "  Lines starting # are notes. As sheet writes yours back out.",
+        "  One column, not several: WoW eats tab characters when you paste, so",
+        "  cells copied across columns arrive run together. Import will say so",
+        "  rather than importing the mess.",
         "",
         "WHERE PLAIN TEXT GOES",
         "  Settings sets it for everything. A dungeon can override that, and a",

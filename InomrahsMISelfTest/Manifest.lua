@@ -316,5 +316,5 @@ InomrahsMISelfTestManifest = {
         "toggleKey",
         "width",
     },
-    builtFor = "0.38",
+    builtFor = "0.39",
 }

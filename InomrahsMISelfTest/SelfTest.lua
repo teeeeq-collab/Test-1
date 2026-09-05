@@ -707,6 +707,186 @@ end
 -- 7. The combat checks, which only mean anything mid-fight.
 --------------------------------------------------------------------------------
 
+--------------------------------------------------------------------------------
+-- Can the callout list be scrolled during a fight?
+--
+-- Measured, not reasoned about. The insecure path is already known to be
+-- refused; what is not known is whether any secure route exists, and the
+-- project has shipped serious bugs before from assuming an answer here.
+--
+-- Four questions, each answered separately so a partial result is still worth
+-- something:
+--
+--   A  can restricted code call SetVerticalScroll on a scroll frame at all
+--   B  can restricted code move a frame that parents a protected button
+--   C  can a mouse wheel reach restricted code during combat
+--   D  which parts of the scrollbar still work
+--
+-- Every probe is built on disposable frames of its own. None of them touches
+-- the real Run panel: a probe that breaks the thing it is measuring is worse
+-- than no probe, and this one would be running mid-pull.
+--------------------------------------------------------------------------------
+
+local scrollProbe
+
+local SCROLL_PROBE_SNIPPET = [==[
+    local found = ""
+    local target = self:GetFrameRef("scroller")
+    if target then
+        for _, name in ipairs(newtable("SetVerticalScroll", "GetVerticalScroll",
+                                       "GetVerticalScrollRange", "SetPoint",
+                                       "ClearAllPoints", "SetHeight")) do
+            if target[name] then found = found .. name .. " " end
+        end
+    end
+    self:SetAttribute("methods", found)
+
+    -- A: move the scroll frame's offset from inside the restricted environment.
+    local moved = "no scroll frame"
+    if target and target.SetVerticalScroll then
+        local before = target:GetVerticalScroll() or 0
+        target:SetVerticalScroll(before > 0 and 0 or 20)
+        local after = target:GetVerticalScroll() or 0
+        moved = tostring(before) .. " -> " .. tostring(after)
+        target:SetVerticalScroll(before)
+    end
+    self:SetAttribute("scrolled", moved)
+
+    -- B: move the content instead, which is what the generic probe said the
+    -- restricted environment can do to any frame.
+    local content = self:GetFrameRef("content")
+    local shifted = "no content frame"
+    if content then
+        content:ClearAllPoints()
+        content:SetPoint("TOPLEFT", 0, -37)
+        shifted = "SetPoint accepted"
+    end
+    self:SetAttribute("shifted", shifted)
+]==]
+
+--- Builds the probe once, out of combat, because everything it needs to create
+--- is refused mid-fight. Run creates it; the combat checks only use it.
+local function buildScrollProbe()
+    if scrollProbe or InCombatLockdown() then return scrollProbe end
+    if type(SecureHandlerExecute) ~= "function" then return nil end
+
+    local header = CreateFrame("Frame", "InomrahsMISelfTestScrollHeader", UIParent,
+        "SecureHandlerBaseTemplate")
+    if type(header.SetFrameRef) ~= "function" then return nil end
+    header:Hide()
+
+    local host = CreateFrame("Frame", nil, header)
+    host:SetSize(120, 60)
+    host:Hide()
+
+    local scroller = CreateFrame("ScrollFrame", nil, host)
+    scroller:SetAllPoints()
+
+    local content = CreateFrame("Frame", "InomrahsMISelfTestScrollContent", scroller)
+    content:SetSize(120, 400)
+    scroller:SetScrollChild(content)
+
+    -- A protected button inside the content, because that is the thing the
+    -- question is about: an unprotected frame moves in combat happily and
+    -- would answer the wrong question.
+    local button = CreateFrame("Button", "InomrahsMISelfTestScrollButton", content,
+        "SecureActionButtonTemplate")
+    button:SetSize(80, 20)
+    button:SetPoint("TOPLEFT")
+    button:SetAttribute("type", "macro")
+    button:SetAttribute("macrotext", "")
+
+    header:SetFrameRef("scroller", scroller)
+    header:SetFrameRef("content", content)
+
+    scrollProbe = { header = header, host = host, scroller = scroller,
+                    content = content, button = button }
+    return scrollProbe
+end
+
+--- Whether a wheel can reach restricted code at all on this client.
+---
+--- Reported as what exists rather than as a verdict: a template being present
+--- is not the same as it working through a protected frame in combat, and the
+--- difference between those two is exactly what has burned this project.
+local function wheelRoute()
+    local parts = {}
+
+    for _, name in ipairs({ "SecureHandlerMouseWheelTemplate",
+                            "SecureHandlerStateTemplate",
+                            "SecureHandlerBaseTemplate" }) do
+        -- A template that does not exist makes CreateFrame throw rather than
+        -- return nil, so this asks the only way that is safe.
+        local ok = pcall(function()
+            local f = CreateFrame("Frame", nil, UIParent, name)
+            f:Hide()
+            return f
+        end)
+        parts[#parts + 1] = ("%s %s"):format(name, ok and "exists" or "absent")
+    end
+
+    parts[#parts + 1] = ("SecureHandlerWrapScript %s"):format(
+        type(_G.SecureHandlerWrapScript) == "function" and "exists" or "absent")
+
+    return table.concat(parts, ", ")
+end
+
+local function checkCombatScroll(IMI)
+    local probe = scrollProbe
+    if not probe then
+        record("Combat", "scrolling the callouts", true,
+            "the probe was not built — leave combat, run /imitest once, then "
+            .. "come back and run /imitest combat")
+        return
+    end
+
+    -- Probe A and B, both from inside one restricted snippet.
+    local ran = pcall(SecureHandlerExecute, probe.header, SCROLL_PROBE_SNIPPET)
+    record("Combat", "the scroll probe ran", ran)
+
+    if ran then
+        record("Combat", "A: what restricted code sees on a scroll frame", true,
+            probe.header:GetAttribute("methods") or "nothing")
+        record("Combat", "A: restricted SetVerticalScroll", true,
+            probe.header:GetAttribute("scrolled") or "not attempted")
+        record("Combat", "B: restricted SetPoint on protected content", true,
+            probe.header:GetAttribute("shifted") or "not attempted")
+
+        -- B is only answered by whether the frame actually moved, which has to
+        -- be read out here: the restricted environment cannot report a number
+        -- back except through an attribute, and a refused call throws nothing.
+        local ok, top = pcall(function() return probe.content:GetTop() end)
+        record("Combat", "B: did the content actually move", true,
+            ok and ("content top is now %s"):format(tostring(top))
+                or "could not be read")
+    end
+
+    -- C: the routes that exist on this build.
+    record("Combat", "C: wheel routes available", true, wheelRoute())
+
+    -- D: what the real scrollbar reports, without touching it.
+    if IMI.UI.RunScroll then
+        local scroll = IMI.UI.RunScroll()
+        local range = scroll and scroll.GetVerticalScrollRange
+            and scroll:GetVerticalScrollRange() or 0
+        record("Combat", "D: Run has something to scroll", true,
+            (type(range) == "number" and range > 0)
+                and ("range %d"):format(range)
+                or "nothing to scroll — open a taller page and run this again")
+
+        -- The old measurement, kept: this is the path that is known to fail,
+        -- and its failing is what the rest of this is trying to route around.
+        if type(range) == "number" and range > 0 then
+            local before = scroll:GetVerticalScroll() or 0
+            scroll:SetVerticalScroll(before > 0 and 0 or math.min(20, range))
+            local after = scroll:GetVerticalScroll() or 0
+            scroll:SetVerticalScroll(before)
+            record("Combat", "insecure SetVerticalScroll (known to fail)", true,
+                (math.abs(after - before) > 0.5) and "allowed" or "refused")
+        end
+    end
+end
+
 local function checkCombat()
     if not InCombatLockdown() then
         record("Combat", "not in combat", false,
@@ -723,7 +903,10 @@ local function checkCombat()
     frame:SetWidth(50)
     check("Combat", "an ordinary frame can still be resized", function()
         frame:SetWidth(90)
-        return frame:GetWidth() == 90, ("width came back %s"):format(frame:GetWidth())
+        -- Within a whisker, not exactly. The client returns 90.000007629395
+        -- and an exact comparison reported a working client as broken.
+        local got = frame:GetWidth() or 0
+        return math.abs(got - 90) < 0.01, ("width came back %s"):format(got)
     end)
 
     check("Combat", "the window refuses to switch views", function()
@@ -740,32 +923,7 @@ local function checkCombat()
             "it should switch by itself when the fight ends"
     end)
 
-    -- The callouts sit in a scroll frame, and scrolling it moves a plain frame
-    -- that happens to parent protected buttons. Whether combat allows that has
-    -- never been measured, and guessing about the restricted environment is
-    -- what broke dragging for six versions. Recorded, not failed: if it is
-    -- refused, the answer is a smaller scale or another page, not a bug.
-    if IMI.UI.RunScroll then
-        local scroll = IMI.UI.RunScroll()
-        if scroll and scroll.GetVerticalScrollRange then
-            local range = scroll:GetVerticalScrollRange() or 0
-            if type(range) ~= "number" or range <= 0 then
-                record("Combat", "scrolling the callouts", true,
-                    "nothing to scroll — open a dungeon with more cards than fit "
-                    .. "and run this again")
-            else
-                local before = scroll:GetVerticalScroll() or 0
-                local target = (before > 0) and 0 or math.min(20, range)
-                scroll:SetVerticalScroll(target)
-                local after = scroll:GetVerticalScroll() or 0
-                scroll:SetVerticalScroll(before)
-                record("Combat", "scrolling the callouts", true,
-                    (math.abs(after - target) < 1)
-                        and "allowed — the list can be scrolled mid-fight"
-                        or ("refused — it stayed at %s"):format(tostring(after)))
-            end
-        end
-    end
+    checkCombatScroll(IMI)
 end
 
 --------------------------------------------------------------------------------
@@ -816,6 +974,9 @@ local SECTIONS = {
     { "Self-test", checkVersion },
     { "Wiring", checkWiring },
     { "Layout", checkLayout },
+    -- Built here because everything it needs to create is refused in combat,
+    -- and the checks that use it only ever run in combat.
+    { "Combat", function() buildScrollProbe() end },
 }
 
 local function runAll()

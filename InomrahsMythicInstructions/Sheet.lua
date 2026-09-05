@@ -11,18 +11,29 @@
 -- clipboard, which is exactly what this reads. Nothing has to be exported,
 -- converted, or installed: select, copy, paste.
 --
--- The shape it expects, which is the shape the sheet already has:
+-- One column, one instruction per line:
 --
---   Dungeon:  Altar of Fangs
---   Page:     Route 1
---   Enemy:    Ravenous Descendant   Venom Leech
---             Kick the Enrage       Dispel the leech
---             Spread for the cone   Stack for the pull
+--   Dungeon: Altar of Fangs
+--   Channel: /i
+--   Enemy: Ravenous Descendant
+--   Kick the Enrage
+--   Spread for the cone
+--   Enemy: Venom Leech
+--   Dispel the leech
 --
--- A row whose first cell says Dungeon, Page or Enemy is an instruction to this
--- parser. Every other row is callouts, read across into whichever enemies the
--- last Enemy row named. Blank rows separate blocks and mean nothing else, so
--- laying the sheet out to be readable does not change what it imports.
+-- A line beginning Dungeon:, Channel:, Color:, Page: or Enemy: is an
+-- instruction to this parser. Every other line is a callout for the enemy
+-- above it. Blank lines separate blocks and mean nothing else.
+--
+-- One column and not several, for a reason that has nothing to do with taste:
+-- WoW strips tab characters when text is pasted into an edit box. Cells copied
+-- across columns therefore arrive run together with every boundary gone, and
+-- the whole structure collapses into one enemy with an enormous name. A column
+-- has no boundaries to lose.
+--
+-- The wide, tab-separated form is still read, because it is what a CSV opened
+-- in a text editor looks like and those tabs survive. It is just not the form
+-- to reach for when copying out of a spreadsheet.
 --
 -- Deliberately forgiving about everything except structure: a sheet somebody
 -- made by hand is going to have stray spaces, empty columns and a missing
@@ -144,6 +155,25 @@ local function keyword(cell)
     return KEYWORDS[trim(cell):lower():gsub(":%s*$", "")]
 end
 
+--- The same keywords, written as "Enemy: Ravenous Descendant" in one cell.
+---
+--- This is the form that survives the journey. WoW strips tab characters when
+--- text is pasted into an edit box, so a row copied out of several spreadsheet
+--- columns arrives as a single run-together line and every cell boundary is
+--- gone. A column has no cell boundaries to lose: one cell per line, and the
+--- keyword and its value share the line.
+---
+--- Only the exact keywords count, which is what keeps a callout beginning
+--- "Priority kick:" or "Dangerous:" from being mistaken for one.
+local function inlineKeyword(cell)
+    local word, value = trim(cell):match("^(%a+)%s*:%s*(.+)$")
+    if not word then return nil end
+
+    local found = KEYWORDS[word:lower()]
+    if not found then return nil end
+    return found, trim(value)
+end
+
 local function firstFilled(cells, from)
     for i = from or 1, #cells do
         if cells[i] ~= "" then return cells[i] end
@@ -218,20 +248,30 @@ function Sheet.Parse(text)
             -- callouts cannot land in the previous block's columns.
             columns = nil
         else
-            -- A keyword only counts when something follows it. A lone word in
-            -- the first column is a name, whatever it happens to say.
-            local word = keyword(cells[1])
-            if word and not firstFilled(cells, 2) then word = nil end
+            -- A keyword in its own cell only counts when something follows it
+            -- in another: a lone word in the first column is a name, whatever
+            -- it happens to say. Failing that, the keyword may be written
+            -- inline, "Enemy: Ravenous Descendant", which is the form a single
+            -- column takes.
+            local word, value = keyword(cells[1]), nil
+            if word then
+                value = firstFilled(cells, 2)
+                if not value then word = nil end
+            end
+            if not word then word, value = inlineKeyword(cells[1]) end
+
+            -- An inline keyword names one thing, so its callouts arrive in the
+            -- same column it did rather than in the columns beside it.
+            local inline = (keyword(cells[1]) == nil)
 
             if word == "dungeon" then
-                category = newCategory(firstFilled(cells, 2) or "Imported")
+                category = newCategory(value or "Imported")
                 categories[#categories + 1] = category
                 page, columns = nil, nil
 
             elseif word == "page" then
                 ensureCategory()
-                page = { id = id("page"), name = firstFilled(cells, 2) or "Page",
-                         enemyIds = {} }
+                page = { id = id("page"), name = value or "Page", enemyIds = {} }
                 category._variant.pages[#category._variant.pages + 1] = page
                 columns = nil
 
@@ -241,24 +281,31 @@ function Sheet.Parse(text)
                 -- the panel uses, so a sheet cannot express something the
                 -- interface cannot show.
                 ensureCategory()
-                local wanted = firstFilled(cells, 2)
+                local wanted = value
                 if wanted and not wanted:match("^/") then wanted = "/" .. wanted end
                 if page then page.channel = wanted else category.channel = wanted end
 
             elseif word == "color" then
                 ensureCategory()
-                category.color = Sheet.Color(firstFilled(cells, 2))
+                category.color = Sheet.Color(value)
 
             elseif word == "enemy" then
                 ensureCategory()
                 columns = {}
-                for i = 2, #cells do
-                    if cells[i] ~= "" then
-                        local enemy = { id = id("enemy"), name = cells[i],
-                                        perRow = 1, lines = {} }
-                        category._variant.enemies[#category._variant.enemies + 1] = enemy
-                        columns[i] = enemy
-                        if page then page.enemyIds[#page.enemyIds + 1] = enemy.id end
+
+                local function addEnemy(at, name)
+                    local enemy = { id = id("enemy"), name = name,
+                                    perRow = 1, lines = {} }
+                    category._variant.enemies[#category._variant.enemies + 1] = enemy
+                    columns[at] = enemy
+                    if page then page.enemyIds[#page.enemyIds + 1] = enemy.id end
+                end
+
+                if inline then
+                    addEnemy(1, value)
+                else
+                    for i = 2, #cells do
+                        if cells[i] ~= "" then addEnemy(i, cells[i]) end
                     end
                 end
 
@@ -314,7 +361,27 @@ function Sheet.Parse(text)
 
     if #kept == 0 or (lines == 0 and names < 2) then
         return nil, "this does not look like an export string or a sheet: "
-            .. "put the enemy names in one row and their callouts underneath"
+            .. "put one instruction per line, starting with Dungeon: or Enemy:"
+    end
+
+    -- The failure this catches is not a typo, it is the game.
+    --
+    -- WoW strips tab characters when text is pasted into an edit box, so cells
+    -- copied out of several spreadsheet columns arrive run together on one
+    -- line. Everything then parses "successfully" into one enemy whose name is
+    -- an entire row -- which imports, replaces a profile, and is nonsense. A
+    -- mob is not called sixty characters, so this is a reliable tell, and
+    -- saying what actually happened is worth far more than importing it.
+    for _, cat in ipairs(kept) do
+        for _, enemy in ipairs(cat.variants[1].enemies) do
+            if #enemy.name > 60 then
+                return nil, ("that paste arrived with its columns run together, "
+                    .. "which is what WoW does to tabs: %q became one name. "
+                    .. "Copy a single column instead, one instruction per line: "
+                    .. "Enemy: Ravenous Descendant, then its callouts under it.")
+                    :format(enemy.name:sub(1, 40) .. "...")
+            end
+        end
     end
 
     -- A sheet says nothing about pages unless it was asked to, and a dungeon
