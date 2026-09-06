@@ -530,6 +530,31 @@ check("bindings are made by name, not by frame handle", function()
     end
 end)
 
+-- CTRL-SHIFT-F8 flipped the page from the keyboard while CTRL-SHIFT-F6 did
+-- nothing -- same owner, same bind body, same call, different target. The
+-- secure handler buttons register AnyUp and work; Stage 1's action button,
+-- which fired in every hidden state, registers both up and down. Stage 2's
+-- registered AnyUp alone.
+check("action buttons register both click edges, like the one that works", function()
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+    local body = source:match("local function actionButton%b()(.-)\nend\n")
+    if not body then error("could not find actionButton") end
+    if not body:find('RegisterForClicks("AnyUp", "AnyDown")', 1, true) then
+        error("the action buttons do not register both click edges")
+    end
+    -- And they must be counted, or a binding that never arrives and a macro
+    -- that never runs are the same zero.
+    if not body:find("HookScript", 1, true) then
+        error("the action buttons are not click-counted")
+    end
+
+    local lab = io.open("InomrahsMISelfTest/RunLab.lua"):read("*a")
+    if not lab:find('F.action:RegisterForClicks("AnyUp", "AnyDown")', 1, true) then
+        error("the Stage 1 action button no longer registers both edges, so "
+            .. "this check no longer mirrors a known-working configuration")
+    end
+end)
+
 -- Printed so a change in the sequence length is visible in the run output
 -- rather than counted by hand before every handoff.
 S2.Command("setup")

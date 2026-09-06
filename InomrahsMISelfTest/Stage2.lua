@@ -430,7 +430,13 @@ local function actionButton(name, parent, page, text)
     local b = CreateFrame("Button", "InomrahsMISelfTestS2" .. name, parent,
         "SecureActionButtonTemplate")
     b:SetSize(FULL_W, FULL_H)
-    b:RegisterForClicks("AnyUp")
+
+    -- Both, matching the Stage 1 action button that fired in every hidden
+    -- state. Stage 2's registered "AnyUp" alone and its key did nothing, while
+    -- the secure handler buttons on the same binding call worked -- and they
+    -- are fine on AnyUp. The two arrows in production use AnyUp deliberately,
+    -- to avoid firing a page flip twice; an action button is a different case.
+    b:RegisterForClicks("AnyUp", "AnyDown")
     b:SetAttribute("type", "macro")
     b:SetAttribute("macrotext",
         ("/run InomrahsMISelfTestS2Fired(%d)"):format(page))
@@ -441,6 +447,11 @@ local function actionButton(name, parent, page, text)
 
     b.label = label(b, text)
     b.label:SetAllPoints()
+
+    -- Counted insecurely, so "the binding never reached the button" and "the
+    -- button was clicked and the macro did not run" stop being the same zero.
+    b.clicks = 0
+    b:HookScript("OnClick", function(self) self.clicks = (self.clicks or 0) + 1 end)
     return b
 end
 
@@ -1637,7 +1648,9 @@ function S2.Command(arg)
     if arg == "status" then
         beginCapture()
         say("combat: %s | %s", inCombat() and "yes" or "no", stateLine())
-        say("page 1 fired %d | page 2 fired %d", S2.fired[1] or 0, S2.fired[2] or 0)
+        say("page 1 fired %d (button clicked %d) | page 2 fired %d (clicked %d)",
+            S2.fired[1] or 0, F.action1 and F.action1.clicks or 0,
+            S2.fired[2] or 0, F.action2 and F.action2.clicks or 0)
         say("armed: %s | action size %s x %s scale %s", armed and "yes" or "no",
             fmt(width(F.action1)), fmt(height(F.action1)), fmt(scale(F.action1)))
         say("pager rebinds: %s", tostring(attr(F.pager, "bound") or 0))
