@@ -219,19 +219,32 @@ local BIND_BODY = [==[
 --- would stop matching the mode and the report would call it stale.
 local PAGE_PRESENT = [==[
     local moder = m:GetFrameRef("moder")
+    self:SetAttribute("gotmoder", (self:GetAttribute("gotmoder") or 0) + 1)
+
     local mode = 1
     if moder then mode = moder:GetAttribute("mode") or 1 end
+    self:SetAttribute("readmode", (self:GetAttribute("readmode") or 0) + 1)
 
+    -- The page labels: plain frames.
     for i = 1, 2 do
         local id = m:GetFrameRef("pageId" .. i)
         if id then
             if i == index then id:Show() else id:Hide() end
         end
+    end
+    self:SetAttribute("didlabels", (self:GetAttribute("didlabels") or 0) + 1)
+
+    -- The action buttons: protected frames, inside a plain parent. Separated
+    -- from the labels on purpose -- showing a plain frame and showing a
+    -- protected one are not the same operation, and out of combat both worked,
+    -- so whichever of them combat refuses has to be named rather than guessed.
+    for i = 1, 2 do
         local act = m:GetFrameRef("action" .. i)
         if act then
             if i == index and mode ~= 3 then act:Show() else act:Hide() end
         end
     end
+    self:SetAttribute("didactions", (self:GetAttribute("didactions") or 0) + 1)
 ]==]
 
 --- Stamped between every call, for the same reason the Stage 1 anchor probe
@@ -1666,12 +1679,18 @@ function S2.Command(arg)
         -- stops it rather than "the page did not change".
         for _, entry in ipairs({ { "< PREV", F.prev }, { "NEXT >", F.next } }) do
             local b = entry[2]
-            say("%s  entered %s gotmanager %s readindex %s wroteindex %s "
-                .. "presented %s ran %s", entry[1],
+            say("%s  entered %s gotmanager %s readindex %s wroteindex %s",
+                entry[1],
                 tostring(attr(b, "entered") or 0),
                 tostring(attr(b, "gotmanager") or 0),
                 tostring(attr(b, "readindex") or 0),
-                tostring(attr(b, "wroteindex") or 0),
+                tostring(attr(b, "wroteindex") or 0))
+            say("        gotmoder %s readmode %s didlabels %s didactions %s "
+                .. "presented %s ran %s",
+                tostring(attr(b, "gotmoder") or 0),
+                tostring(attr(b, "readmode") or 0),
+                tostring(attr(b, "didlabels") or 0),
+                tostring(attr(b, "didactions") or 0),
                 tostring(attr(b, "presented") or 0),
                 tostring(attr(b, "ran") or 0))
             if (attr(b, "nomanager") or 0) > 0 then

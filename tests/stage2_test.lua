@@ -555,6 +555,35 @@ check("action buttons register both click edges, like the one that works", funct
     end
 end)
 
+-- In combat the flip reached wroteindex and never reached presented, so it
+-- throws somewhere inside the presentation block. Showing a plain frame and
+-- showing a protected one are different operations and were in one loop; they
+-- are stamped separately now, because "it stops in here somewhere" is not an
+-- answer.
+check("the presentation block stamps each kind of frame separately", function()
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+    local body = source:match("local PAGE_PRESENT = %[==%[(.-)%]==%]")
+    if not body then error("could not find PAGE_PRESENT") end
+    local code = body:gsub("%-%-[^\n]*", "")
+
+    for _, stamp in ipairs({ "gotmoder", "readmode", "didlabels", "didactions" }) do
+        if not code:find('SetAttribute%("' .. stamp .. '"') then
+            error("the presentation block never stamps " .. stamp)
+        end
+    end
+
+    -- The labels and the action buttons must be in separate loops, or one
+    -- stamp covers both kinds of frame and names neither.
+    local labelsAt = code:find('SetAttribute%("didlabels"')
+    local actionsAt = code:find('SetAttribute%("didactions"')
+    local firstAction = code:find('GetFrameRef%("action"')
+    if not (labelsAt < firstAction) then
+        error("the action buttons are touched before the label stamp, so a "
+            .. "failure on either reads the same")
+    end
+    if not (firstAction < actionsAt) then error("didactions is stamped too early") end
+end)
+
 -- Printed so a change in the sequence length is visible in the run output
 -- rather than counted by hand before every handoff.
 S2.Command("setup")
