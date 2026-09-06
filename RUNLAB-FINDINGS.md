@@ -43,6 +43,7 @@ Reached by a hardware click on a `SecureHandlerClickTemplate`.
 | `ClearAllPoints` | allowed |
 | `SetAllPoints()` | allowed — but anchors to the **screen**, not the parent |
 | `SetPoint(point)` | allowed |
+| `SetPoint(point, x, y)` on a protected ancestor | **refused**, re-measured cleanly |
 | `SetPoint(point, x, y)` | **refused** |
 | `SetPoint(point, frame, point)` | **refused** |
 | `SetPoint(point, frame, point, x, y)` | **refused** |
@@ -51,6 +52,33 @@ Reached by a hardware click on a `SecureHandlerClickTemplate`.
 
 Restricted `SetPoint` takes exactly one argument. Anything after the point —
 offsets, a relative frame, or both — throws.
+
+The refusal of `SetPoint` was re-measured on the corrected instrumentation,
+which reports it the way it should always have been reported:
+
+```
+[NO] secure re-anchor of a protected ancestor
+  before: left 916.6666 top 764.9999
+  after:  left unreadable top unreadable
+  note:   snippet ran 0 -> 0, entered 0 -> 1, clicks 0 -> 0
+```
+
+`entered 1, ran 0` says the click arrived and the snippet died inside itself.
+`after: unreadable` says the frame was left with no anchor at all — the
+`ClearAllPoints` before it had succeeded. `clicks 0` is the insecure hook not
+firing because the script it hooks threw first, which is why that counter is
+no longer trusted on its own.
+
+The resize on the same ancestor, in the same run, was honoured exactly:
+
+```
+[YES] secure width and height on a protected ancestor
+  before: 300.0000 x 142.0000
+  requested: 150.0000 x 71.0000
+  after: 150.0000 x 71.0000
+```
+
+So one protected frame, one snippet, one combat: resize yes, move no.
 
 `SetScale` and `EnableMouse(false)` were **refused to ordinary code** in the
 same session. The snippet route is not a workaround; for those two it is the
