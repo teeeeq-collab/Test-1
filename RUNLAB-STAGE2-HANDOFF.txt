@@ -48,9 +48,13 @@ The keys are:
     CTRL-SHIFT-F10      Compact
     CTRL-SHIFT-F11      Minimal
     CTRL-SHIFT-F12      cycle mode
-    CTRL-ALT-SHIFT-F12  show / hide the Run root
-    CTRL-ALT-SHIFT-F10  collision probe, key A
-    CTRL-ALT-SHIFT-F11  collision probe, key B
+    CTRL-SHIFT-F5       show / hide the Run root
+    CTRL-SHIFT-F3       collision probe, key A
+    CTRL-SHIFT-F4       collision probe, key B
+
+Two modifiers, never three. The first live run used CTRL-ALT-SHIFT chords for
+these three; all were bound correctly and not one ever reached its button,
+while every CTRL-SHIFT chord worked every time.
 
 All override bindings. They cannot reach a saved file, cannot alter any real
 keybind, and cannot survive a /reload.

@@ -140,11 +140,21 @@ local KEYS = {
     { id = "compact", key = "CTRL-SHIFT-F10",     what = "Compact",            owner = "moder" },
     { id = "minimal", key = "CTRL-SHIFT-F11",     what = "Minimal",            owner = "moder" },
     { id = "cycle",   key = "CTRL-SHIFT-F12",     what = "cycle mode",         owner = "moder" },
-    { id = "toggle",  key = "CTRL-ALT-SHIFT-F12", what = "show/hide Run root", owner = "toggler" },
+    { id = "toggle",  key = "CTRL-SHIFT-F5",       what = "show/hide Run root", owner = "toggler" },
 }
 
-local COLLIDE_PAGE_KEY = "CTRL-ALT-SHIFT-F10"
-local COLLIDE_MODE_KEY = "CTRL-ALT-SHIFT-F11"
+-- Two modifiers, not three.
+--
+-- The toggle was CTRL-ALT-SHIFT-F12 and the collision keys were the F10 and
+-- F11 of the same family. All three were bound correctly -- GetBindingAction
+-- reported them -- and not one of them ever reached its button: the toggle
+-- registered a single activation across a whole run, and that was a mouse
+-- click. Every CTRL-SHIFT chord in the same run worked every time. Something
+-- between the keyboard and the client eats the three-modifier combination, and
+-- a key that is bound and never arrives looks exactly like a refused
+-- operation, which cost most of the hidden-root phase.
+local COLLIDE_PAGE_KEY = "CTRL-SHIFT-F3"
+local COLLIDE_MODE_KEY = "CTRL-SHIFT-F4"
 
 local function keyFor(id)
     for _, entry in ipairs(KEYS) do
@@ -1050,6 +1060,14 @@ end
 
 --- One "the state should become this" assertion, observed from the prebuilt
 --- visuals rather than from an attribute the restricted side wrote.
+--- A step asserts only what it tests.
+---
+--- These carried the page and mode they happened to inherit as well as the one
+--- thing they were about, and a live run drifted one step early: after that,
+--- every later step failed on a precondition it was never testing. The report
+--- then said "page NEXT key works with the root hidden: NO" beside an "after"
+--- field showing the page had gone from 1 to 2. Any field left nil here is a
+--- field this step does not care about.
 local function stateStep(phase, capability, text, wantPage, wantMode, wantRoot)
     local was
     return {
@@ -1289,7 +1307,7 @@ local function buildSequence()
     add(stateStep("E hidden", "page NEXT key works with the root hidden",
         "Press |cffffd200" .. keyFor("next") .. "|r.\n"
         .. "You will see nothing. The lab is watching the hidden page labels.",
-        2, MODE_COMPACT, false))
+        2, nil, false))
 
     add(actionStep("E hidden", "ACTION key targets page 2 after a hidden flip", 2,
         "Press |cffffd200" .. keyFor("action") .. "|r once.",
@@ -1299,14 +1317,14 @@ local function buildSequence()
         "Press |cffffd200" .. keyFor("minimal") .. "|r.\n"
         .. "The mode control it targets is inside the hidden root, which is the "
         .. "point: can a hidden secure handler still be driven by its key?",
-        2, MODE_MINIMAL, false))
+        nil, MODE_MINIMAL, false))
 
     add(stateStep("E hidden", "cycle key works with the root hidden",
         "Press |cffffd200" .. keyFor("cycle") .. "|r.\n"
-        .. "Minimal should cycle to Full.", 2, MODE_FULL, false))
+        .. "Minimal should cycle to Full.", nil, MODE_FULL, false))
 
     add(stateStep("E hidden", "page PREVIOUS key works with the root hidden",
-        "Press |cffffd200" .. keyFor("prev") .. "|r.", 1, MODE_FULL, false))
+        "Press |cffffd200" .. keyFor("prev") .. "|r.", 1, nil, false))
 
     add(actionStep("E hidden", "ACTION key targets page 1 after a hidden flip back", 1,
         "Press |cffffd200" .. keyFor("action") .. "|r once.",
@@ -1322,22 +1340,22 @@ local function buildSequence()
     -- F — hide and show must preserve, not reset.
     ----------------------------------------------------------------------------
     add(stateStep("F preserve", "set Compact before hiding",
-        "Press |cffffd200" .. keyFor("compact") .. "|r.", 1, MODE_COMPACT, true))
+        "Press |cffffd200" .. keyFor("compact") .. "|r.", nil, MODE_COMPACT, nil))
 
     add(stateStep("F preserve", "hide while Compact",
         "Press |cffffd200" .. keyFor("toggle") .. "|r once.\n"
-        .. "The window goes away. The mode must not.", 1, MODE_COMPACT, false))
+        .. "The window goes away. The mode must not.", nil, MODE_COMPACT, false))
 
     add(stateStep("F preserve", "hide and show preserves Compact",
         "Press |cffffd200" .. keyFor("toggle") .. "|r once more.\n"
         .. "It must come back |cffffd200Compact|r, not Full.",
-        1, MODE_COMPACT, true))
+        nil, MODE_COMPACT, true))
 
     add(stateStep("F preserve", "move to page 2 before the second hide",
-        "Press |cffffd200" .. keyFor("next") .. "|r.", 2, MODE_COMPACT, true))
+        "Press |cffffd200" .. keyFor("next") .. "|r.", 2, nil, nil))
 
     add(stateStep("F preserve", "set Minimal before the second hide",
-        "Press |cffffd200" .. keyFor("minimal") .. "|r.", 2, MODE_MINIMAL, true))
+        "Press |cffffd200" .. keyFor("minimal") .. "|r.", nil, MODE_MINIMAL, nil))
 
     add(stateStep("F preserve", "hide while Minimal on page 2",
         "Press |cffffd200" .. keyFor("toggle") .. "|r once.",

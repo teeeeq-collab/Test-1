@@ -724,6 +724,27 @@ check("every frame the snippets show or hide is a secure frame", function()
     end
 end)
 
+-- Every chord with three modifiers was bound correctly and never delivered a
+-- single press, while every two-modifier chord in the same run worked every
+-- time. A key that is bound and never arrives is indistinguishable from a
+-- refused operation, and it cost most of the hidden-root phase.
+check("no test chord uses three modifiers", function()
+    local chords = {}
+    for _, entry in ipairs(S2.KEYS) do chords[#chords + 1] = entry.key end
+    for _, key in pairs(S2.CollideKeys) do chords[#chords + 1] = key end
+
+    for _, chord in ipairs(chords) do
+        local modifiers = 0
+        for _, name in ipairs({ "CTRL", "ALT", "SHIFT" }) do
+            if chord:find(name, 1, true) then modifiers = modifiers + 1 end
+        end
+        if modifiers > 2 then
+            error(("%s uses %d modifiers; three never arrived in a live run")
+                :format(chord, modifiers))
+        end
+    end
+end)
+
 -- Printed so a change in the sequence length is visible in the run output
 -- rather than counted by hand before every handoff.
 S2.Command("setup")
