@@ -10,6 +10,11 @@ A. WHAT TO DO IN GAME
  1. Replace the InomrahsMISelfTest folder with this one.
  2. /reload
  3. /imitest runlab stage2
+       Or /imitest runlab stage2 followup for the short run -- only the
+       hidden-root phase, the preserve phase and the collision probe. Use it
+       when the earlier phases have already passed: re-running them costs
+       twenty minutes to re-prove what is proven, and skipping through them
+       would replace real results with "skipped by the player".
        Builds it. Stage 1's window is put away and its test keys released;
        its results are kept, so one report carries both stages.
  4. Press PREFLIGHT on the STAGE 2 bar
@@ -26,7 +31,7 @@ A. WHAT TO DO IN GAME
        Step 1 of the panel will not advance until this is done, because
        nothing after it can work without the keys.
  6. Go to a TRAINING DUMMY. Not a real key.
- 7. Follow the panel. 53 steps, one action each.
+ 7. Follow the panel. 54 steps, one action each.
        Skip is on every step from the moment it opens.
 
        Nothing is ever assumed. Every step that needs the window in a

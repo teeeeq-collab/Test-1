@@ -745,6 +745,66 @@ check("no test chord uses three modifiers", function()
     end
 end)
 
+-- The follow-up must be a real subset of the full sequence -- the same step
+-- objects -- rather than a second hand-written list that can drift from it.
+check("the follow-up is a shorter subset that still covers what is open", function()
+    S2.Command("setup")
+    local full = S2.BuildSequence(nil)
+    local short = S2.BuildSequence("followup")
+
+    if #short >= #full then
+        error(("the follow-up is %d steps and the full run %d")
+            :format(#short, #full))
+    end
+    if #short < 8 then
+        error(("the follow-up is only %d steps; the filter dropped too much")
+            :format(#short))
+    end
+
+    local phases = {}
+    for _, step in ipairs(short) do
+        if step.phase then phases[step.phase] = true end
+    end
+    for _, wanted in ipairs({ "stage 2 setup", "combat", "E hidden",
+                              "F preserve", "collision probe", "done" }) do
+        if not phases[wanted] then
+            error("the follow-up drops the phase " .. wanted)
+        end
+    end
+    for _, gone in ipairs({ "A contextual binding", "B mode by mouse",
+                            "C mode keys", "D cycle" }) do
+        if phases[gone] then
+            error("the follow-up still re-runs " .. gone)
+        end
+    end
+
+    -- Every follow-up step must exist in the full run. Comparing the tables
+    -- themselves proves nothing here -- each call builds fresh ones -- so this
+    -- compares what the report will actually key on.
+    local fullCapabilities = {}
+    for _, step in ipairs(full) do
+        if step.capability then fullCapabilities[step.capability] = true end
+    end
+    for _, step in ipairs(short) do
+        if step.capability and not fullCapabilities[step.capability] then
+            error(("the follow-up has a step the full run does not: %q")
+                :format(step.capability))
+        end
+    end
+end)
+
+-- The hidden phase cannot assume a mode that only the earlier phases would
+-- have set, or a follow-up run starts from wherever it happens to be.
+check("the hidden phase sets its own starting state", function()
+    S2.Command("setup")
+    local short = S2.BuildSequence("followup")
+    local found
+    for _, step in ipairs(short) do
+        if step.capability == "starting state for the hidden phase" then found = step end
+    end
+    if not found then error("the hidden phase never establishes its start state") end
+end)
+
 -- Printed so a change in the sequence length is visible in the run output
 -- rather than counted by hand before every handoff.
 S2.Command("setup")

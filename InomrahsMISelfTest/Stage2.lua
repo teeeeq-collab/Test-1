@@ -1118,7 +1118,23 @@ local function manualStep(phase, text, buttonText)
              text = text }
 end
 
-local function buildSequence()
+--- The phases a follow-up run keeps.
+---
+--- Phases A through D passed outright on the first live run and re-running
+--- them costs twenty minutes of dummy-hitting to re-prove what is already
+--- proven. Worse, setup clears the recorded results, so skipping through them
+--- would replace real YES lines with "skipped by the player" and leave a worse
+--- report than the one already in hand.
+local FOLLOWUP_PHASES = {
+    ["stage 2 setup"] = true,
+    ["combat"] = true,
+    ["E hidden"] = true,
+    ["F preserve"] = true,
+    ["collision probe"] = true,
+    ["done"] = true,
+}
+
+local function buildSequence(mode)
     local steps = {}
     local function add(s) steps[#steps + 1] = s end
 
@@ -1292,6 +1308,14 @@ local function buildSequence()
     ----------------------------------------------------------------------------
     -- E — fully hidden background operation.
     ----------------------------------------------------------------------------
+
+    -- On a follow-up run the phases that would have left the state here were
+    -- not run, so it is set explicitly rather than assumed. On a full run this
+    -- is a no-op the reader passes in one press.
+    add(stateStep("E hidden", "starting state for the hidden phase",
+        "Press |cffffd200" .. keyFor("compact") .. "|r so the hidden phase "
+        .. "starts from a known mode.", nil, MODE_COMPACT, true))
+
     add(stateStep("E hidden", "toggle key hides the root in combat",
         "Press |cffffd200" .. keyFor("toggle") .. "|r.\n"
         .. "The lab window should vanish. The red bar stays -- it is outside "
@@ -1448,6 +1472,20 @@ local function buildSequence()
             .. "the whole report back.",
         done = function() S2.Restore() end,
     })
+
+    -- The follow-up is the full sequence with the proven phases filtered out,
+    -- so its steps are literally the same objects. A second hand-written list
+    -- would be a second thing to keep right, and the first time it drifted the
+    -- report would still look convincing.
+    if mode == "followup" then
+        local keep = {}
+        for _, step in ipairs(steps) do
+            if step.phase and FOLLOWUP_PHASES[step.phase] then
+                keep[#keep + 1] = step
+            end
+        end
+        steps = keep
+    end
 
     return steps
 end
@@ -1750,13 +1788,24 @@ function S2.Command(arg)
         if Lab.Hibernate then Lab.Hibernate(true) end
         S2.Restore()
         S2.results = {}
-        Lab.Drive(buildSequence(), S2.Restore)
+        Lab.Drive(buildSequence(nil), S2.Restore)
         say("Stage 2 built. |cffffd200PREFLIGHT|r then |cffffd200ARM|r next.")
         say("Stage 1's test keys were released; its results are kept.")
         return
     end
 
     if not built then say("run |cffffd200/imitest runlab stage2|r first.") return end
+
+    -- Only what the first run left open: the hidden phase, the preserve phase
+    -- and the collision probe. Results already recorded are kept.
+    if arg == "followup" then
+        if inCombat() then say("|cffff4444out of combat only.|r") return end
+        S2.Restore()
+        Lab.Drive(buildSequence("followup"), S2.Restore)
+        say("follow-up sequence: |cffffd200%d steps|r. anything already "
+            .. "recorded is kept.", #buildSequence("followup"))
+        return
+    end
 
     if arg == "preflight" then
         if inCombat() then say("|cffff4444out of combat only.|r") return end
@@ -1893,7 +1942,7 @@ function S2.Command(arg)
         return
     end
 
-    say("stage2 commands: setup, preflight, arm, status, reset, release")
+    say("stage2 commands: setup, followup, preflight, arm, status, reset, release")
 end
 
 S2.KEYS = KEYS
