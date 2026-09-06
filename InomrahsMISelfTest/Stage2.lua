@@ -740,8 +740,32 @@ local record = Lab.Record
 --- Never passes on the total having gone up. The expected page's counter must
 --- move and the other must not: both moving is worse than neither, because in
 --- production one press would send two callouts.
-local function actionStep(phase, capability, expected, text, extra)
+--- `need` is the state the assertion is about: {page=, mode=, root=}.
+---
+--- Without it a step measures whatever is on screen, so arriving in the wrong
+--- state records a confident YES about a claim it never tested -- "ACTION key
+--- works in Minimal" measured while Full is on screen. Stage 1 shipped exactly
+--- that result and it took two runs to catch. While the state is wrong the
+--- step says so on the panel and re-marks the counters, so a press made too
+--- early cannot be counted once the state becomes right.
+local function actionStep(phase, capability, expected, text, need)
     local before1, before2, wasPage, wasMode
+    local warned = false
+
+    local function missing()
+        if not need then return nil end
+        if need.page and S2.Page() ~= need.page then
+            return "this step needs page " .. need.page
+        end
+        if need.mode and S2.Mode() ~= need.mode then
+            return "this step needs mode " .. (MODE_NAME[need.mode] or "?")
+        end
+        if need.root ~= nil and S2.RootVisible() ~= need.root then
+            return "this step needs the root " .. (need.root and "shown" or "hidden")
+        end
+        return nil
+    end
+
     return {
         phase = phase,
         capability = capability,
@@ -755,6 +779,21 @@ local function actionStep(phase, capability, expected, text, extra)
         end,
         observe = function()
             if not inCombat() then return false, "combat ended" end
+
+            local why = missing()
+            if why then
+                before1, before2 = S2.fired[1] or 0, S2.fired[2] or 0
+                if not warned then
+                    warned = true
+                    Lab.Hint("Not yet: " .. why .. ".")
+                end
+                return false, why
+            end
+            if warned then
+                warned = false
+                Lab.Hint("Ready — press the key.", "ff44ff44")
+            end
+
             if (S2.fired[1] or 0) > before1 or (S2.fired[2] or 0) > before2 then
                 return true
             end
@@ -791,7 +830,6 @@ local function actionStep(phase, capability, expected, text, extra)
                 page2 = ("%d -> %d"):format(before2, now2),
                 conclusion = conclusion,
             })
-            if extra then pcall(extra) end
         end,
     }
 end
@@ -871,20 +909,23 @@ local function buildSequence()
     -- A — the contextual page binding. If this fails, nothing after it matters.
     ----------------------------------------------------------------------------
     add(actionStep("A contextual binding", "ACTION key targets page 1 before any flip", 1,
-        "Press |cffffd200" .. keyFor("action") .. "|r once."))
+        "Press |cffffd200" .. keyFor("action") .. "|r once.",
+        { page = 1, mode = MODE_FULL, root = true }))
 
     add(stateStep("A contextual binding", "page NEXT key flips to page 2 in combat",
         "Press |cffffd200" .. keyFor("next") .. "|r once.\n"
         .. "The PAGE 2 label should replace PAGE 1.", 2, nil, nil))
 
     add(actionStep("A contextual binding", "ACTION key targets page 2 after NEXT", 2,
-        "Press |cffffd200" .. keyFor("action") .. "|r once."))
+        "Press |cffffd200" .. keyFor("action") .. "|r once.",
+        { page = 2 }))
 
     add(stateStep("A contextual binding", "page PREVIOUS key flips back in combat",
         "Press |cffffd200" .. keyFor("prev") .. "|r once.", 1, nil, nil))
 
     add(actionStep("A contextual binding", "ACTION key targets page 1 after PREVIOUS", 1,
-        "Press |cffffd200" .. keyFor("action") .. "|r once."))
+        "Press |cffffd200" .. keyFor("action") .. "|r once.",
+        { page = 1 }))
 
     add(stateStep("A contextual binding", "second flip to page 2",
         "Press |cffffd200" .. keyFor("next") .. "|r again.", 2, nil, nil))
@@ -899,7 +940,8 @@ local function buildSequence()
 
     add(actionStep("A contextual binding",
         "ACTION key still correct after two full rounds", 1,
-        "Press |cffffd200" .. keyFor("action") .. "|r once."))
+        "Press |cffffd200" .. keyFor("action") .. "|r once.",
+        { page = 1 }))
 
     ----------------------------------------------------------------------------
     -- B — mode by physical mouse click.
@@ -911,7 +953,8 @@ local function buildSequence()
 
     add(actionStep("B mode by mouse",
         "ACTION key survives a mouse mode change", 1,
-        "Press |cffffd200" .. keyFor("action") .. "|r once."))
+        "Press |cffffd200" .. keyFor("action") .. "|r once.",
+        { page = 1, mode = MODE_COMPACT }))
 
     add(manualStep("B mode by mouse",
         "Click the orange |cffffd200ACTION - PAGE 1|r button itself.\n"
@@ -925,7 +968,8 @@ local function buildSequence()
     add(actionStep("B mode by mouse",
         "ACTION key works in Minimal with no action body on screen", 1,
         "Press |cffffd200" .. keyFor("action") .. "|r once.\n"
-        .. "Nothing is visible to click. The key must still fire."))
+        .. "Nothing is visible to click. The key must still fire.",
+        { page = 1, mode = MODE_MINIMAL, root = true }))
 
     ----------------------------------------------------------------------------
     -- G — physical page navigation while Minimal.
@@ -937,7 +981,8 @@ local function buildSequence()
 
     add(actionStep("G navigation in Minimal",
         "ACTION key targets page 2 in Minimal", 2,
-        "Press |cffffd200" .. keyFor("action") .. "|r once."))
+        "Press |cffffd200" .. keyFor("action") .. "|r once.",
+        { page = 2, mode = MODE_MINIMAL, root = true }))
 
     add(stateStep("G navigation in Minimal", "page PREVIOUS by mouse while Minimal",
         "Click |cffffd200< PREV|r.", 1, MODE_MINIMAL, true))
@@ -952,7 +997,8 @@ local function buildSequence()
 
     add(actionStep("H escaping Minimal",
         "ACTION key correct after returning to Full", 1,
-        "Press |cffffd200" .. keyFor("action") .. "|r once."))
+        "Press |cffffd200" .. keyFor("action") .. "|r once.",
+        { page = 1, mode = MODE_FULL }))
 
     ----------------------------------------------------------------------------
     -- C — direct mode keys.
@@ -961,7 +1007,8 @@ local function buildSequence()
         "Press |cffffd200" .. keyFor("compact") .. "|r.", 1, MODE_COMPACT, true))
 
     add(actionStep("C mode keys", "ACTION key survives a mode key press", 1,
-        "Press |cffffd200" .. keyFor("action") .. "|r once."))
+        "Press |cffffd200" .. keyFor("action") .. "|r once.",
+        { page = 1, mode = MODE_COMPACT }))
 
     add(stateStep("C mode keys", "MINIMAL key works in combat",
         "Press |cffffd200" .. keyFor("minimal") .. "|r.", 1, MODE_MINIMAL, true))
@@ -972,18 +1019,24 @@ local function buildSequence()
         .. "cost the pager its keys.", 2, MODE_MINIMAL, true))
 
     add(actionStep("C mode keys", "ACTION key targets page 2 after mode keys", 2,
-        "Press |cffffd200" .. keyFor("action") .. "|r once."))
+        "Press |cffffd200" .. keyFor("action") .. "|r once.",
+        { page = 2, mode = MODE_MINIMAL }))
 
     add(stateStep("C mode keys", "FULL key works, and the page is untouched",
         "Press |cffffd200" .. keyFor("full") .. "|r.\n"
         .. "Mode should become Full and the page must stay on 2.",
         2, MODE_FULL, true))
 
+    add(stateStep("C mode keys", "page flip back to 1, which rebuilds the pager",
+        "Press |cffffd200" .. keyFor("prev") .. "|r.\n"
+        .. "This is the flip that calls ClearBindings on the pager.",
+        1, MODE_FULL, true))
+
     add(stateStep("C mode keys", "mode keys survive the pager's ClearBindings",
-        "Press |cffffd200" .. keyFor("prev") .. "|r, then "
-        .. "|cffffd200" .. keyFor("compact") .. "|r.\n"
-        .. "The flip rebuilds the pager's bindings. If that erased the mode "
-        .. "keys, the second press will do nothing.", 1, MODE_COMPACT, true))
+        "Now press |cffffd200" .. keyFor("compact") .. "|r.\n"
+        .. "The flip you just did rebuilt the pager's bindings. If that erased "
+        .. "the mode owner's keys, this press will do nothing.",
+        1, MODE_COMPACT, true))
 
     ----------------------------------------------------------------------------
     -- D — the cycle key.
@@ -998,7 +1051,8 @@ local function buildSequence()
         1, MODE_COMPACT, true))
 
     add(actionStep("D cycle", "ACTION key correct after three cycles", 1,
-        "Press |cffffd200" .. keyFor("action") .. "|r once."))
+        "Press |cffffd200" .. keyFor("action") .. "|r once.",
+        { page = 1, mode = MODE_COMPACT }))
 
     ----------------------------------------------------------------------------
     -- E — fully hidden background operation.
@@ -1012,7 +1066,8 @@ local function buildSequence()
 
     add(actionStep("E hidden", "ACTION key works with the root hidden", 1,
         "Press |cffffd200" .. keyFor("action") .. "|r once.\n"
-        .. "Nothing is on screen. This is the whole point of the test."))
+        .. "Nothing is on screen. This is the whole point of the test.",
+        { page = 1, root = false }))
 
     add(stateStep("E hidden", "page NEXT key works with the root hidden",
         "Press |cffffd200" .. keyFor("next") .. "|r.\n"
@@ -1020,7 +1075,8 @@ local function buildSequence()
         2, MODE_COMPACT, false))
 
     add(actionStep("E hidden", "ACTION key targets page 2 after a hidden flip", 2,
-        "Press |cffffd200" .. keyFor("action") .. "|r once."))
+        "Press |cffffd200" .. keyFor("action") .. "|r once.",
+        { page = 2, root = false }))
 
     add(stateStep("E hidden", "MINIMAL key works with the root hidden",
         "Press |cffffd200" .. keyFor("minimal") .. "|r.\n"
@@ -1036,7 +1092,8 @@ local function buildSequence()
         "Press |cffffd200" .. keyFor("prev") .. "|r.", 1, MODE_FULL, false))
 
     add(actionStep("E hidden", "ACTION key targets page 1 after a hidden flip back", 1,
-        "Press |cffffd200" .. keyFor("action") .. "|r once."))
+        "Press |cffffd200" .. keyFor("action") .. "|r once.",
+        { page = 1, root = false }))
 
     add(stateStep("E hidden", "toggle key restores the root in combat",
         "Press |cffffd200" .. keyFor("toggle") .. "|r.\n"
@@ -1047,20 +1104,36 @@ local function buildSequence()
     ----------------------------------------------------------------------------
     -- F — hide and show must preserve, not reset.
     ----------------------------------------------------------------------------
+    add(stateStep("F preserve", "set Compact before hiding",
+        "Press |cffffd200" .. keyFor("compact") .. "|r.", 1, MODE_COMPACT, true))
+
+    add(stateStep("F preserve", "hide while Compact",
+        "Press |cffffd200" .. keyFor("toggle") .. "|r once.\n"
+        .. "The window goes away. The mode must not.", 1, MODE_COMPACT, false))
+
     add(stateStep("F preserve", "hide and show preserves Compact",
-        "Press |cffffd200" .. keyFor("compact") .. "|r, then "
-        .. "|cffffd200" .. keyFor("toggle") .. "|r twice.\n"
-        .. "Hidden, then shown again. It must come back Compact, not Full.",
+        "Press |cffffd200" .. keyFor("toggle") .. "|r once more.\n"
+        .. "It must come back |cffffd200Compact|r, not Full.",
         1, MODE_COMPACT, true))
 
+    add(stateStep("F preserve", "move to page 2 before the second hide",
+        "Press |cffffd200" .. keyFor("next") .. "|r.", 2, MODE_COMPACT, true))
+
+    add(stateStep("F preserve", "set Minimal before the second hide",
+        "Press |cffffd200" .. keyFor("minimal") .. "|r.", 2, MODE_MINIMAL, true))
+
+    add(stateStep("F preserve", "hide while Minimal on page 2",
+        "Press |cffffd200" .. keyFor("toggle") .. "|r once.",
+        2, MODE_MINIMAL, false))
+
     add(stateStep("F preserve", "hide and show preserves Minimal and page 2",
-        "Press |cffffd200" .. keyFor("next") .. "|r, "
-        .. "|cffffd200" .. keyFor("minimal") .. "|r, then "
-        .. "|cffffd200" .. keyFor("toggle") .. "|r twice.",
+        "Press |cffffd200" .. keyFor("toggle") .. "|r once more.\n"
+        .. "It must come back |cffffd200Minimal, page 2|r.",
         2, MODE_MINIMAL, true))
 
     add(actionStep("F preserve", "ACTION key correct after hide and show", 2,
-        "Press |cffffd200" .. keyFor("action") .. "|r once."))
+        "Press |cffffd200" .. keyFor("action") .. "|r once.",
+        { page = 2, mode = MODE_MINIMAL, root = true }))
 
     ----------------------------------------------------------------------------
     -- The deliberate collision, last, on a disposable owner.

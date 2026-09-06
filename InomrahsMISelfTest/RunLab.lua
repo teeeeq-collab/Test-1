@@ -2335,6 +2335,22 @@ local HELP = {
 --- Write a result into the shared report.
 function Lab.Record(entry) return record(entry) end
 
+--- Put a coloured line under the current step's instruction.
+---
+--- A step that is waiting on a state the reader has not set yet must say so on
+--- the panel. Waiting silently and then timing out is how Stage 1 had someone
+--- pressing a key twenty times at a step that could never advance.
+function Lab.Hint(text, colour)
+    local step = currentStep()
+    if not F.step or not step then return end
+    if not text then
+        F.step.body:SetText(step.text or "")
+        return
+    end
+    F.step.body:SetText((step.text or "") .. "\n\n|c" .. (colour or "ffff8800")
+        .. text .. "|r")
+end
+
 --- Is the lab built? Stage 2 needs the rescue bar and panel to exist.
 function Lab.Built() return built end
 

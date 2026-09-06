@@ -338,6 +338,35 @@ check("Stage 1's surface is put away while Stage 2 runs", function()
     end
 end)
 
+-- The Stage 1 lesson, applied to the Stage 2 script: one action per step, and
+-- a step that names a state refuses to measure until that state holds. Without
+-- the second half, arriving in the wrong state records a confident YES about a
+-- claim the step never tested.
+check("no step asks for two actions, and action steps declare their state", function()
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+    local build = source:match("local function buildSequence%b()(.-)\nend\n")
+    if not build then error("could not find buildSequence") end
+
+    -- "press X, then Y" and "twice" are the shapes that hid a second action.
+    for _, phrase in ipairs({ '"|r, then "', "twice." }) do
+        if build:find(phrase, 1, true) then
+            error("a step still asks for more than one action: " .. phrase)
+        end
+    end
+
+    -- Every action step whose capability names a mode or the hidden root must
+    -- carry the state its claim is about.
+    for block in build:gmatch("add%(actionStep(.-)\n\n") do
+        local capability = select(2, block:match('"([^"]*)"%s*,%s*"([^"]*)"')) or ""
+        local aboutState = capability:find("Minimal") or capability:find("hidden")
+            or capability:find("Full") or capability:find("mode")
+        if aboutState and not block:find("mode = MODE_", 1, true)
+            and not block:find("root = ", 1, true) then
+            error(("the step %q claims a state it never checks"):format(capability))
+        end
+    end
+end)
+
 -- Printed so a change in the sequence length is visible in the run output
 -- rather than counted by hand before every handoff.
 S2.Command("setup")

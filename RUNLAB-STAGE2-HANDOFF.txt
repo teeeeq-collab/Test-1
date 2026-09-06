@@ -17,8 +17,15 @@ A. WHAT TO DO IN GAME
        stop and say so -- that is one of your real abilities.
  5. Press ARM                        (or /imitest runlab stage2 arm)
  6. Go to a TRAINING DUMMY. Not a real key.
- 7. Follow the panel. 47 steps, one action each.
+ 7. Follow the panel. 53 steps, one action each.
        Skip is on every step from the moment it opens.
+
+       Nothing is ever assumed. Every step that needs the window in a
+       particular state either sets it itself, or is preceded by a step that
+       does, and it will not record anything until that state actually holds.
+       If you arrive somewhere unexpected the panel says so in orange --
+       "Not yet: this step needs mode MINIMAL" -- rather than measuring the
+       wrong thing and calling it a pass.
  8. When it says finished, leave combat.
  9. /imitest runlab copy   -> select all, copy, send it back
 10. /imitest runlab stage2 release
