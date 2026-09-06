@@ -658,6 +658,49 @@ check("the presentation block reaches its frames in one hop", function()
     end
 end)
 
+-- Two consecutive live runs returned byte-identical counters, and there was no
+-- way to tell whether the fix between them had done nothing or had never been
+-- installed. Every status says which build produced it now.
+check("status reports the build that produced it", function()
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+    if not source:find('GetAddOnMetadata', 1, true) then
+        error("status never reports the self-test version")
+    end
+    if not source:find('say("self-test %s"', 1, true) then
+        error("the version is not the first line of the status")
+    end
+end)
+
+-- The A/B: the same two calls the flip cannot complete in combat, from a
+-- button that holds both frames directly and does nothing else first.
+check("the label probe does only the label swap", function()
+    S2.Command("setup")
+    if not _G.InomrahsMISelfTestS2LabelProbe then error("no label probe button") end
+
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+    local body = source:match("local LABEL_PROBE = %[==%[(.-)%]==%]")
+    if not body then error("could not find LABEL_PROBE") end
+    local code = body:gsub("%-%-[^\n]*", "")
+
+    -- Nothing may precede the swap except fetching the two frames: anything
+    -- else and a failure could be blamed on it instead.
+    for _, forbidden in ipairs({ "GetAttribute%(\"mode", "SetBindingClick",
+                                 "ClearBindings", "pageIndex" }) do
+        if code:find(forbidden) then
+            error("the probe does more than the swap: " .. forbidden)
+        end
+    end
+    if code:find("m:GetFrameRef") then
+        error("the probe fetches through another handle, which is the thing "
+            .. "being ruled out")
+    end
+    for _, stamp in ipairs({ "entered", "gotlabels", "hid", "ran" }) do
+        if not code:find('SetAttribute%("' .. stamp .. '"') then
+            error("the probe never stamps " .. stamp)
+        end
+    end
+end)
+
 -- Printed so a change in the sequence length is visible in the run output
 -- rather than counted by hand before every handoff.
 S2.Command("setup")

@@ -387,6 +387,36 @@ local RESCUE_SNIPPET = [==[
     self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
 ]==]
 
+--- Nothing but the label swap, from a button holding both frames directly.
+---
+--- The flip reaches this exact pair of calls and, in combat, does not complete
+--- them. The toggle does the same kind of thing to a plain frame in the same
+--- fight and works. Rather than reasoning about why, this does only the two
+--- calls, with nothing before them but the fetch: if the labels swap in combat
+--- the operation is permitted and the flip's problem lies elsewhere, and if
+--- they do not, these particular frames cannot be shown or hidden in combat at
+--- all. One click answers it.
+local LABEL_PROBE = [==[
+    self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
+
+    local id1 = self:GetFrameRef("pageId1")
+    local id2 = self:GetFrameRef("pageId2")
+    if not id1 or not id2 then return end
+    self:SetAttribute("gotlabels", (self:GetAttribute("gotlabels") or 0) + 1)
+
+    if id1:IsShown() then
+        id1:Hide()
+        self:SetAttribute("hid", (self:GetAttribute("hid") or 0) + 1)
+        id2:Show()
+    else
+        id2:Hide()
+        self:SetAttribute("hid", (self:GetAttribute("hid") or 0) + 1)
+        id1:Show()
+    end
+
+    self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
+]==]
+
 --- The deliberate collision. One owner, two keys, then ClearBindings and only
 --- one key re-applied. This is the constraint the three-owner architecture
 --- exists to route around, measured on purpose rather than tripped over.
@@ -634,7 +664,7 @@ function S2.Build()
     ----------------------------------------------------------------------------
     F.rescueBar = CreateFrame("Frame", "InomrahsMISelfTestS2RescueBar", UIParent)
     F.rescueBar:SetFrameStrata("FULLSCREEN")
-    F.rescueBar:SetSize(428, 82)
+    F.rescueBar:SetSize(512, 82)
     F.rescueBar:SetPoint("TOP", UIParent, "TOP", 0, -40)
 
     local rescueBg = F.rescueBar:CreateTexture(nil, "BACKGROUND")
@@ -645,7 +675,7 @@ function S2.Build()
     barTitle:SetPoint("BOTTOM", 0, 4)
 
     F.rescue = secureControl("Rescue", F.rescueBar, "SHOW RUN ROOT", RESCUE_SNIPPET,
-        { root = F.root }, 332, 22)
+        { root = F.root }, 500, 22)
     F.rescue:SetPoint("TOPLEFT", 6, -6)
 
     -- Stage 2's own PREFLIGHT and ARM.
@@ -707,6 +737,10 @@ function S2.Build()
     F.collideMode:SetAttribute("macrotext",
         '/run InomrahsMISelfTestS2Collision("mode")')
     F.collideMode:Hide()
+
+    F.labelProbe = secureControl("LabelProbe", F.rescueBar, "LABEL PROBE",
+        LABEL_PROBE, { pageId1 = F.pageId1, pageId2 = F.pageId2 }, 80, 20)
+    F.labelProbe:SetPoint("TOPLEFT", 6 + 5 * 84, -32)
 
     F.collideRun = secureControl("CollideRun", F.rescueBar, "COLLISION PROBE",
         COLLIDE_SNIPPET, { owner = F.collider }, 80, 20)
@@ -1711,6 +1745,9 @@ function S2.Command(arg)
 
     if arg == "status" then
         beginCapture()
+        local reader = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+        local okVer, version = pcall(reader, "InomrahsMISelfTest", "Version")
+        say("self-test %s", (okVer and version) or "unknown")
         say("combat: %s | %s", inCombat() and "yes" or "no", stateLine())
         say("page 1 fired %d (button clicked %d) | page 2 fired %d (clicked %d)",
             S2.fired[1] or 0, F.action1 and F.action1.clicks or 0,
@@ -1750,6 +1787,12 @@ function S2.Command(arg)
                 say("    |cffff8800the manager frame reference came back nil|r")
             end
         end
+        say("LABEL PROBE  clicks %s entered %s gotlabels %s hid %s ran %s",
+            tostring(F.labelProbe and F.labelProbe.clicks or 0),
+            tostring(attr(F.labelProbe, "entered") or 0),
+            tostring(attr(F.labelProbe, "gotlabels") or 0),
+            tostring(attr(F.labelProbe, "hid") or 0),
+            tostring(attr(F.labelProbe, "ran") or 0))
         say("pager cleared bindings: %s | bound the action %s times",
             tostring(attr(F.pager, "cleared") or 0),
             tostring(attr(F.pager, "boundAction") or 0))
