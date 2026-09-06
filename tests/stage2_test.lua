@@ -519,9 +519,14 @@ check("bindings are made by name, not by frame handle", function()
         error("an owner still binds to a frame handle")
     end
 
-    -- The report must ask the client, not the snippet.
+    -- The report must ask the client, not the snippet -- and must ask about
+    -- override bindings, which is the only kind Stage 2 makes. Without the
+    -- second argument the readout reports NOTHING for a key that is bound.
     if not source:find("GetBindingAction", 1, true) then
         error("status never asks the client what is bound")
+    end
+    if not source:find("pcall(GetBindingAction, entry.key, true)", 1, true) then
+        error("the readout never asks about override bindings")
     end
 end)
 

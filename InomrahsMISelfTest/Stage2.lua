@@ -1673,12 +1673,22 @@ function S2.Command(arg)
         -- What the client says is bound, rather than what the snippet believes
         -- it did. A SetBindingClick that completes and binds nothing has no
         -- error to notice; this is the only thing that catches it.
-        say("key                    what the client has bound to it")
+        say("key                    override binding / normal binding")
         for _, entry in ipairs(KEYS) do
-            local ok, action = pcall(GetBindingAction, entry.key)
-            local text = (ok and type(action) == "string" and action ~= "" and action)
-                or "|cffff8800NOTHING|r"
-            say("%-22s %s", entry.key, text)
+            -- The second argument is the whole point. Everything Stage 2 makes
+            -- is an override binding, and GetBindingAction does not report
+            -- those unless asked -- so the first version of this readout said
+            -- NOTHING for eight keys that may have been perfectly bound, which
+            -- is the same "measured nothing, reported as a result" mistake in
+            -- the instrument rather than the subject.
+            local okOver, override = pcall(GetBindingAction, entry.key, true)
+            local okPlain, plain = pcall(GetBindingAction, entry.key)
+            local function text(ok, value)
+                if ok and type(value) == "string" and value ~= "" then return value end
+                return "none"
+            end
+            say("%-22s %s / %s", entry.key,
+                text(okOver, override), text(okPlain, plain))
         end
         say("")
 
