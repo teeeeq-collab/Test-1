@@ -187,15 +187,27 @@ local BIND_BODY = [==[
     m:ClearBindings()
     m:SetAttribute("cleared", (m:GetAttribute("cleared") or 0) + 1)
 
-    local action = m:GetFrameRef("action" .. index)
+    -- By name, not by frame handle.
+    --
+    -- The handle form completed without throwing -- the counter at the end of
+    -- this body reached 3 -- and bound nothing: every Stage 2 key was dead
+    -- while every mouse control worked. A call that succeeds and does nothing
+    -- is the worst shape of all, because there is no error to notice.
+    --
+    -- The names are stored as attributes out of combat, since GetName is not
+    -- available in here.
+    local actionName = m:GetAttribute("action" .. index .. "Name")
     local actionKey = m:GetAttribute("actionKey")
-    if action and actionKey then m:SetBindingClick(true, actionKey, action) end
+    if actionName and actionKey then
+        m:SetBindingClick(true, actionKey, actionName)
+        m:SetAttribute("boundAction", (m:GetAttribute("boundAction") or 0) + 1)
+    end
 
-    local nextKey, nextButton = m:GetAttribute("nextKey"), m:GetFrameRef("nextButton")
-    if nextKey and nextButton then m:SetBindingClick(true, nextKey, nextButton) end
+    local nextKey, nextName = m:GetAttribute("nextKey"), m:GetAttribute("nextName")
+    if nextKey and nextName then m:SetBindingClick(true, nextKey, nextName) end
 
-    local prevKey, prevButton = m:GetAttribute("prevKey"), m:GetFrameRef("prevButton")
-    if prevKey and prevButton then m:SetBindingClick(true, prevKey, prevButton) end
+    local prevKey, prevName = m:GetAttribute("prevKey"), m:GetAttribute("prevName")
+    if prevKey and prevName then m:SetBindingClick(true, prevKey, prevName) end
 
     m:SetAttribute("bound", (m:GetAttribute("bound") or 0) + 1)
 ]==]
@@ -637,6 +649,10 @@ function S2.Build()
     F.pager:SetFrameRef("prevButton", F.prev)
     F.pager:SetFrameRef("moder", F.moder)
     F.pager:SetAttribute("pageIndex", 1)
+    F.pager:SetAttribute("action1Name", F.action1:GetName())
+    F.pager:SetAttribute("action2Name", F.action2:GetName())
+    F.pager:SetAttribute("nextName", F.next:GetName())
+    F.pager:SetAttribute("prevName", F.prev:GetName())
     F.pager:SetAttribute("actionKey", keyFor("action"))
     F.pager:SetAttribute("nextKey", keyFor("next"))
     F.pager:SetAttribute("prevKey", keyFor("prev"))
@@ -729,29 +745,28 @@ function S2.Arm()
     -- ever calls ClearBindings, so a page flip cannot cost it anything.
     local modeBind = ([==[
         self:ClearBindings()
-        self:SetBindingClick(true, "%s", self:GetFrameRef("btnFull"))
-        self:SetBindingClick(true, "%s", self:GetFrameRef("btnCompact"))
-        self:SetBindingClick(true, "%s", self:GetFrameRef("btnMinimal"))
-        self:SetBindingClick(true, "%s", self:GetFrameRef("btnCycle"))
-    ]==]):format(keyFor("full"), keyFor("compact"), keyFor("minimal"), keyFor("cycle"))
-
-    F.moder:SetFrameRef("btnFull", F.modeFull)
-    F.moder:SetFrameRef("btnCompact", F.modeCompact)
-    F.moder:SetFrameRef("btnMinimal", F.modeMinimal)
-    F.moder:SetFrameRef("btnCycle", F.modeCycle)
+        self:SetBindingClick(true, "%s", "%s")
+        self:SetBindingClick(true, "%s", "%s")
+        self:SetBindingClick(true, "%s", "%s")
+        self:SetBindingClick(true, "%s", "%s")
+    ]==]):format(keyFor("full"), F.modeFull:GetName(),
+                 keyFor("compact"), F.modeCompact:GetName(),
+                 keyFor("minimal"), F.modeMinimal:GetName(),
+                 keyFor("cycle"), F.modeCycle:GetName())
     if not runOn(F.moder, modeBind) then return false, "mode bind failed" end
 
     local toggleBind = ([==[
         self:ClearBindings()
-        self:SetBindingClick(true, "%s", self:GetFrameRef("toggleButton"))
-    ]==]):format(keyFor("toggle"))
+        self:SetBindingClick(true, "%s", "%s")
+    ]==]):format(keyFor("toggle"), F.toggle:GetName())
     if not runOn(F.toggler, toggleBind) then return false, "toggle bind failed" end
 
     local collideBind = ([==[
         self:ClearBindings()
-        self:SetBindingClick(true, "%s", self:GetFrameRef("pageButton"))
-        self:SetBindingClick(true, "%s", self:GetFrameRef("modeButton"))
-    ]==]):format(COLLIDE_PAGE_KEY, COLLIDE_MODE_KEY)
+        self:SetBindingClick(true, "%s", "%s")
+        self:SetBindingClick(true, "%s", "%s")
+    ]==]):format(COLLIDE_PAGE_KEY, F.collidePage:GetName(),
+                 COLLIDE_MODE_KEY, F.collideMode:GetName())
     runOn(F.collider, collideBind)
 
     armed = true
@@ -1650,7 +1665,21 @@ function S2.Command(arg)
                 say("    |cffff8800the manager frame reference came back nil|r")
             end
         end
-        say("pager cleared bindings: %s", tostring(attr(F.pager, "cleared") or 0))
+        say("pager cleared bindings: %s | bound the action %s times",
+            tostring(attr(F.pager, "cleared") or 0),
+            tostring(attr(F.pager, "boundAction") or 0))
+        say("")
+
+        -- What the client says is bound, rather than what the snippet believes
+        -- it did. A SetBindingClick that completes and binds nothing has no
+        -- error to notice; this is the only thing that catches it.
+        say("key                    what the client has bound to it")
+        for _, entry in ipairs(KEYS) do
+            local ok, action = pcall(GetBindingAction, entry.key)
+            local text = (ok and type(action) == "string" and action ~= "" and action)
+                or "|cffff8800NOTHING|r"
+            say("%-22s %s", entry.key, text)
+        end
         say("")
 
         say("control            clicks entered ran")

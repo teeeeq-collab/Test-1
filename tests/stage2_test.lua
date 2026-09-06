@@ -489,6 +489,42 @@ check("the flip stamps between each call, in order", function()
     end
 end)
 
+-- The handle form of SetBindingClick completed without throwing and bound
+-- nothing: the pager's own counter reached 3 while every Stage 2 key was dead
+-- and every mouse control worked. A call that succeeds and does nothing has no
+-- error to notice, so the binding target is a name now, and the report asks
+-- the client what is bound rather than trusting the snippet.
+check("bindings are made by name, not by frame handle", function()
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+
+    local bind = source:match("local BIND_BODY = %[==%[(.-)%]==%]")
+    if not bind then error("could not find BIND_BODY") end
+    if bind:find("SetBindingClick%(true, %w+Key, %w+Button%)") then
+        error("the bind body still passes a frame handle to SetBindingClick")
+    end
+    if not bind:find('GetAttribute("action" .. index .. "Name")', 1, true) then
+        error("the action is not bound by name")
+    end
+
+    -- The names have to be recorded out of combat; GetName does not exist in
+    -- the restricted environment.
+    for _, name in ipairs({ "action1Name", "action2Name", "nextName", "prevName" }) do
+        if not source:find('SetAttribute("' .. name .. '"', 1, true) then
+            error("the pager never records " .. name)
+        end
+    end
+
+    -- And the other two owners must not have been left on handles.
+    if source:find('SetBindingClick%(true, "%%s", self:GetFrameRef') then
+        error("an owner still binds to a frame handle")
+    end
+
+    -- The report must ask the client, not the snippet.
+    if not source:find("GetBindingAction", 1, true) then
+        error("status never asks the client what is bound")
+    end
+end)
+
 -- Printed so a change in the sequence length is visible in the run output
 -- rather than counted by hand before every handoff.
 S2.Command("setup")
