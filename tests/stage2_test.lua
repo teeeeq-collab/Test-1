@@ -805,6 +805,32 @@ check("the hidden phase sets its own starting state", function()
     if not found then error("the hidden phase never establishes its start state") end
 end)
 
+-- Every SecureActionButtonTemplate here must register both click edges. One
+-- pair was fixed and another was left behind, and the second pair cost the
+-- collision probe an entire run: its snippet ran and neither observer key
+-- registered a press. Checked by enumeration so a third pair cannot be missed.
+check("every action button registers both click edges", function()
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+    local single = 0
+    for _ in source:gmatch('RegisterForClicks%("AnyUp"%)') do single = single + 1 end
+    if single > 1 then
+        error(("%d frames still register a single click edge; only the secure "
+            .. "handler helper may"):format(single))
+    end
+
+    S2.Command("setup")
+    for _, name in ipairs({ "Action1", "Action2", "CollidePage", "CollideMode" }) do
+        local button = _G["InomrahsMISelfTestS2" .. name]
+        if not button then error("no " .. name) end
+        local edges = button.clickRegistrations or button.registeredClicks
+        -- The stub records the arguments; fall back to the source when it does
+        -- not, since the enumeration above already covers the file.
+        if edges and #edges < 2 then
+            error(name .. " registers only one click edge")
+        end
+    end
+end)
+
 -- Printed so a change in the sequence length is visible in the run output
 -- rather than counted by hand before every handoff.
 S2.Command("setup")

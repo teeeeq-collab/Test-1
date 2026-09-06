@@ -747,7 +747,10 @@ function S2.Build()
         UIParent, "SecureActionButtonTemplate")
     F.collidePage:SetSize(1, 1)
     F.collidePage:SetPoint("TOPLEFT")
-    F.collidePage:RegisterForClicks("AnyUp")
+    -- Both edges, like every other action button here. These were left on
+    -- AnyUp when the page actions were fixed, and it cost the collision probe:
+    -- the snippet ran, and neither observer key ever registered a press.
+    F.collidePage:RegisterForClicks("AnyUp", "AnyDown")
     F.collidePage:SetAttribute("type", "macro")
     F.collidePage:SetAttribute("macrotext",
         '/run InomrahsMISelfTestS2Collision("page")')
@@ -757,7 +760,7 @@ function S2.Build()
         UIParent, "SecureActionButtonTemplate")
     F.collideMode:SetSize(1, 1)
     F.collideMode:SetPoint("TOPLEFT")
-    F.collideMode:RegisterForClicks("AnyUp")
+    F.collideMode:RegisterForClicks("AnyUp", "AnyDown")
     F.collideMode:SetAttribute("type", "macro")
     F.collideMode:SetAttribute("macrotext",
         '/run InomrahsMISelfTestS2Collision("mode")')
