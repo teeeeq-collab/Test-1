@@ -576,12 +576,24 @@ check("the presentation block stamps each kind of frame separately", function()
     -- stamp covers both kinds of frame and names neither.
     local labelsAt = code:find('SetAttribute%("didlabels"')
     local actionsAt = code:find('SetAttribute%("didactions"')
-    local firstAction = code:find('GetFrameRef%("action"')
+    local firstAction = code:find('GetFrameRef%("action1"%)')
     if not (labelsAt < firstAction) then
         error("the action buttons are touched before the label stamp, so a "
             .. "failure on either reads the same")
     end
     if not (firstAction < actionsAt) then error("didactions is stamped too early") end
+
+    -- Fetching a reference and using it are stamped apart, and no frame ref
+    -- name is built by concatenation: that is what production's flip does and
+    -- it has never been verified in combat, so it cannot be assumed safe here.
+    for _, stamp in ipairs({ "gotlabels", "gotactions" }) do
+        if not code:find('SetAttribute%("' .. stamp .. '"') then
+            error("the fetch is not stamped apart from the use: " .. stamp)
+        end
+    end
+    if code:find('GetFrameRef%("%w+" %.%.') then
+        error("a frame reference name is still built by concatenation")
+    end
 end)
 
 -- Stage 2 is meant to mirror production closely enough for a result to mean

@@ -226,22 +226,44 @@ local PAGE_PRESENT = [==[
     self:SetAttribute("readmode", (self:GetAttribute("readmode") or 0) + 1)
 
     -- The page labels: plain frames.
-    for i = 1, 2 do
-        local id = m:GetFrameRef("pageId" .. i)
-        if id then
-            if i == index then id:Show() else id:Hide() end
+    --
+    -- Fetched by literal name rather than "pageId" .. i. Building a ref name by
+    -- concatenation is what production's flip does and it has never run in a
+    -- fight; the two presses that reached this point differ only in whether
+    -- combat was up, and the fetch and the Show are stamped apart so the one
+    -- that is refused is named rather than inferred.
+    local id1 = m:GetFrameRef("pageId1")
+    local id2 = m:GetFrameRef("pageId2")
+    self:SetAttribute("gotlabels", (self:GetAttribute("gotlabels") or 0) + 1)
+
+    if id1 and id2 then
+        if index == 1 then
+            id1:Show()
+            id2:Hide()
+        else
+            id2:Show()
+            id1:Hide()
         end
     end
     self:SetAttribute("didlabels", (self:GetAttribute("didlabels") or 0) + 1)
 
-    -- The action buttons: protected frames, inside a plain parent. Separated
+    -- The action buttons: protected frames under a secure header. Separated
     -- from the labels on purpose -- showing a plain frame and showing a
-    -- protected one are not the same operation, and out of combat both worked,
-    -- so whichever of them combat refuses has to be named rather than guessed.
-    for i = 1, 2 do
-        local act = m:GetFrameRef("action" .. i)
-        if act then
-            if i == index and mode ~= 3 then act:Show() else act:Hide() end
+    -- protected one are not the same operation.
+    local act1 = m:GetFrameRef("action1")
+    local act2 = m:GetFrameRef("action2")
+    self:SetAttribute("gotactions", (self:GetAttribute("gotactions") or 0) + 1)
+
+    if act1 and act2 then
+        if mode == 3 then
+            act1:Hide()
+            act2:Hide()
+        elseif index == 1 then
+            act1:Show()
+            act2:Hide()
+        else
+            act2:Show()
+            act1:Hide()
         end
     end
     self:SetAttribute("didactions", (self:GetAttribute("didactions") or 0) + 1)
@@ -1700,11 +1722,13 @@ function S2.Command(arg)
                 tostring(attr(b, "gotmanager") or 0),
                 tostring(attr(b, "readindex") or 0),
                 tostring(attr(b, "wroteindex") or 0))
-            say("        gotmoder %s readmode %s didlabels %s didactions %s "
-                .. "presented %s ran %s",
+            say("        gotmoder %s readmode %s gotlabels %s didlabels %s",
                 tostring(attr(b, "gotmoder") or 0),
                 tostring(attr(b, "readmode") or 0),
-                tostring(attr(b, "didlabels") or 0),
+                tostring(attr(b, "gotlabels") or 0),
+                tostring(attr(b, "didlabels") or 0))
+            say("        gotactions %s didactions %s presented %s ran %s",
+                tostring(attr(b, "gotactions") or 0),
                 tostring(attr(b, "didactions") or 0),
                 tostring(attr(b, "presented") or 0),
                 tostring(attr(b, "ran") or 0))
