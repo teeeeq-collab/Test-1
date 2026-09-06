@@ -367,6 +367,52 @@ check("no step asks for two actions, and action steps declare their state", func
     end
 end)
 
+-- The first live run of Stage 2 armed Stage 1's keys, because both bars carry
+-- buttons called PREFLIGHT and ARM and the instructions pointed at the wrong
+-- one. Nine steps failed for want of a binding that was never made.
+check("Stage 2 has its own preflight and arm, and Stage 1's bar is put away", function()
+    S2.Command("setup")
+    local bar = _G.InomrahsMISelfTestS2RescueBar
+    if not bar then error("no Stage 2 bar") end
+
+    local wanted = { PREFLIGHT = false, ARM = false, STATUS = false, RESET = false }
+    for _, child in ipairs(bar.children or {}) do
+        local text = child.label and child.label.text
+        if text and wanted[text] ~= nil then
+            wanted[text] = true
+            if not child.scripts or not child.scripts.OnClick then
+                error(("the %s button on the Stage 2 bar does nothing"):format(text))
+            end
+        end
+    end
+    for text, found in pairs(wanted) do
+        if not found then error("no " .. text .. " button on the Stage 2 bar") end
+    end
+
+    local labBar = _G.InomrahsMISelfTestRunLabRescueBar
+    if labBar then
+        local ok, isShown = pcall(labBar.IsShown, labBar)
+        if ok and isShown == true then
+            error("Stage 1's bar is still up; its ARM would arm the wrong stage")
+        end
+    end
+
+    S2.Command("release")
+    if labBar then
+        local ok, isShown = pcall(labBar.IsShown, labBar)
+        if ok and isShown ~= true then error("release did not restore Stage 1's bar") end
+    end
+end)
+
+-- And the step that waits for arming must point at the right bar.
+check("the arming step names the Stage 2 bar", function()
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+    local build = source:match("local function buildSequence%b()(.-)\nend\n")
+    if not build:find("STAGE 2", 1, true) then
+        error("the arming step does not say which bar to use")
+    end
+end)
+
 -- Printed so a change in the sequence length is visible in the run output
 -- rather than counted by hand before every handoff.
 S2.Command("setup")

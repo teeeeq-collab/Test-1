@@ -963,7 +963,17 @@ local hibernating = false
 
 function Lab.Hibernate(on)
     hibernating = on and true or false
-    if hibernating and F.root then pcall(function() F.root:Hide() end) end
+    -- The bar goes too. Its PREFLIGHT and ARM belong to Stage 1, and leaving
+    -- them on screen while Stage 2 is running is an invitation to arm the
+    -- wrong stage -- which is exactly what happened the first time this ran.
+    for _, key in ipairs({ "root", "rescueBar" }) do
+        local frame = F[key]
+        if frame then
+            pcall(function()
+                if hibernating then frame:Hide() else frame:Show() end
+            end)
+        end
+    end
     return hibernating
 end
 
@@ -975,7 +985,9 @@ local function restoreBaseline()
         local frame = F[key]
         if frame then
             pcall(function()
-                if not (hibernating and key == "root") then frame:Show() end
+                if not (hibernating and (key == "root" or key == "rescueBar")) then
+                    frame:Show()
+                end
                 frame:SetAlpha(1)
                 frame:EnableMouse(true)
             end)
@@ -2362,7 +2374,10 @@ function Lab.Drive(list, restore)
     stepIndex = 0
     advance()
     if F.step then F.step:Show() end
-    if F.rescueBar then F.rescueBar:Show() end
+    -- The panel comes back, the bar does not: while a later stage is driving,
+    -- its own bar is the one on screen and Stage 1's would sit beside it with
+    -- identically named buttons.
+    if F.rescueBar and not hibernating then F.rescueBar:Show() end
     return true
 end
 

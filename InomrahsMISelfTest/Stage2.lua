@@ -505,16 +505,50 @@ function S2.Build()
     ----------------------------------------------------------------------------
     F.rescueBar = CreateFrame("Frame", "InomrahsMISelfTestS2RescueBar", UIParent)
     F.rescueBar:SetFrameStrata("FULLSCREEN")
-    F.rescueBar:SetSize(200, 34)
-    F.rescueBar:SetPoint("TOP", UIParent, "TOP", 0, -122)
+    F.rescueBar:SetSize(428, 82)
+    F.rescueBar:SetPoint("TOP", UIParent, "TOP", 0, -40)
 
     local rescueBg = F.rescueBar:CreateTexture(nil, "BACKGROUND")
     rescueBg:SetAllPoints()
     rescueBg:SetColorTexture(0.35, 0.05, 0.05, 0.95)
 
+    local barTitle = label(F.rescueBar, "|cffffaaaaSTAGE 2|r")
+    barTitle:SetPoint("BOTTOM", 0, 4)
+
     F.rescue = secureControl("Rescue", F.rescueBar, "SHOW RUN ROOT", RESCUE_SNIPPET,
-        { root = F.root }, 188, 22)
-    F.rescue:SetPoint("TOP", 0, -6)
+        { root = F.root }, 332, 22)
+    F.rescue:SetPoint("TOPLEFT", 6, -6)
+
+    -- Stage 2's own PREFLIGHT and ARM.
+    --
+    -- Stage 1's bar has buttons by the same names that arm Stage 1's keys. With
+    -- both bars on screen there was nothing to tell them apart, and the first
+    -- live run armed the wrong stage and then failed every step for want of a
+    -- binding. Stage 1's bar is hidden while this one is up, and these buttons
+    -- go to Stage 2.
+    F.commands = {}
+    local commands = {
+        { text = "PREFLIGHT", cmd = "preflight" },
+        { text = "ARM",       cmd = "arm" },
+        { text = "STATUS",    cmd = "status" },
+        { text = "RESET",     cmd = "reset" },
+    }
+    for index, entry in ipairs(commands) do
+        local b = CreateFrame("Button", nil, F.rescueBar)
+        b:SetSize(80, 20)
+        b:SetPoint("TOPLEFT", 6 + (index - 1) * 84, -32)
+
+        local bg = b:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.16, 0.16, 0.22, 0.95)
+        b.label = label(b, entry.text)
+        b.label:SetAllPoints()
+
+        b:SetScript("OnEnter", function() bg:SetColorTexture(0.26, 0.26, 0.34, 0.95) end)
+        b:SetScript("OnLeave", function() bg:SetColorTexture(0.16, 0.16, 0.22, 0.95) end)
+        b:SetScript("OnClick", function() S2.Command(entry.cmd) end)
+        F.commands[index] = b
+    end
 
     ----------------------------------------------------------------------------
     -- The disposable collision owner, with two harmless observers.
@@ -546,10 +580,9 @@ function S2.Build()
     F.collideMode:Hide()
 
     F.collideRun = secureControl("CollideRun", F.rescueBar, "COLLISION PROBE",
-        COLLIDE_SNIPPET, { owner = F.collider }, 188, 0)
-    F.collideRun:SetPoint("BOTTOM", 0, 2)
-    F.collideRun:SetHeight(0)
-    F.collideRun:Hide()
+        COLLIDE_SNIPPET, { owner = F.collider }, 80, 20)
+    F.collideRun:SetPoint("TOPLEFT", 6 + 4 * 84, -32)
+    F.collideRun:SetSize(80, 20)
 
     ----------------------------------------------------------------------------
     -- Wiring. Every ref is set here, out of combat, once.
@@ -892,7 +925,10 @@ local function buildSequence()
 
     add({
         phase = "stage 2 setup",
-        text = "Press |cffffd200PREFLIGHT|r then |cffffd200ARM|r on the red bar.\n"
+        text = "On the |cffffd200STAGE 2|r bar at the top, press "
+            .. "|cffffd200PREFLIGHT|r then |cffffd200ARM|r.\n"
+            .. "Those are Stage 2's own buttons. Stage 1's bar is put away while "
+            .. "this runs, so there is only one of each on screen.\n"
             .. "This step moves on by itself once the Stage 2 keys are live.",
         timeout = 3600,
         observe = function()

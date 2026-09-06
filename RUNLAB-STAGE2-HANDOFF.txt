@@ -12,10 +12,19 @@ A. WHAT TO DO IN GAME
  3. /imitest runlab stage2
        Builds it. Stage 1's window is put away and its test keys released;
        its results are kept, so one report carries both stages.
- 4. Press PREFLIGHT on the red bar   (or /imitest runlab stage2 preflight)
+ 4. Press PREFLIGHT on the STAGE 2 bar
+       (or /imitest runlab stage2 preflight)
+
+       Stage 1's bar has buttons by the same names that arm Stage 1's keys.
+       It is hidden while Stage 2 runs, so there is only one PREFLIGHT and one
+       ARM on screen -- but if you ever see two bars, the one labelled
+       STAGE 2 is the one to use.
+
        Read the key list. If any chord says "currently bound to" in orange,
        stop and say so -- that is one of your real abilities.
- 5. Press ARM                        (or /imitest runlab stage2 arm)
+ 5. Press ARM on the same bar        (or /imitest runlab stage2 arm)
+       Step 1 of the panel will not advance until this is done, because
+       nothing after it can work without the keys.
  6. Go to a TRAINING DUMMY. Not a real key.
  7. Follow the panel. 53 steps, one action each.
        Skip is on every step from the moment it opens.
@@ -124,6 +133,9 @@ which insecure code could not do during combat anyway.
 ===============================================================================
 E. IF SOMETHING GETS STUCK
 ===============================================================================
+
+The STAGE 2 bar carries: SHOW RUN ROOT, PREFLIGHT, ARM, STATUS, RESET and
+the COLLISION PROBE the sequence asks you to click near the end.
 
 SHOW RUN ROOT   red bar, outside the root, works during combat. It only shows
                 the root -- it never changes page or mode, so it cannot be
