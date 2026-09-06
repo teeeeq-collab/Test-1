@@ -701,6 +701,29 @@ check("the label probe does only the label swap", function()
     end
 end)
 
+-- Every frame a snippet shows or hides in combat must be a secure frame. The
+-- label probe measured a plain one being refused at Hide while every secure
+-- one this project has tried has worked, and production builds its pages the
+-- same way.
+check("every frame the snippets show or hide is a secure frame", function()
+    S2.Command("setup")
+    for _, name in ipairs({ "Root", "PageId1", "PageId2",
+                            "VisFull", "VisCompact", "VisMinimal",
+                            "Action1", "Action2", "ActionArea" }) do
+        local frame = _G["InomrahsMISelfTestS2" .. name]
+        if not frame then error("no " .. name) end
+        if not (frame.template and frame.template:find("Secure")) then
+            error(("%s is a plain frame; a snippet cannot hide it in combat")
+                :format(name))
+        end
+    end
+
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+    if source:find('CreateFrame%("Frame", "InomrahsMISelfTestS2Root", UIParent%)') then
+        error("the root is created without a secure template")
+    end
+end)
+
 -- Printed so a change in the sequence length is visible in the run output
 -- rather than counted by hand before every handoff.
 S2.Command("setup")

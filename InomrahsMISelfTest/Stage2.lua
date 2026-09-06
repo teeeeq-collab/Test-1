@@ -467,8 +467,20 @@ local function panelFrame(parent, w, h, r, g, b)
     return f
 end
 
+--- A prebuilt visual the snippets show and hide.
+---
+--- SecureHandlerBaseTemplate, not a plain Frame. The label probe settled it:
+--- two clicks, both entered, both fetched the frames, and only the one out of
+--- combat got past Hide. Every plain frame a snippet has been asked to hide in
+--- combat in this project has failed; every secure one has worked, including
+--- Stage 1's root, its ancestor and its action button.
+---
+--- Production is built the same way -- its pages are SecureHandlerBaseTemplate
+--- and their titles are font strings drawn on them -- so this is what the real
+--- thing would do anyway.
 local function namedPanel(name, parent, w, h, r, g, b, text)
-    local f = CreateFrame("Frame", "InomrahsMISelfTestS2" .. name, parent)
+    local f = CreateFrame("Frame", "InomrahsMISelfTestS2" .. name, parent,
+        "SecureHandlerBaseTemplate")
     f:SetSize(w, h)
     local bg = f:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
@@ -562,7 +574,10 @@ function S2.Build()
     ----------------------------------------------------------------------------
     -- The Run root under test. Everything inside it may be hidden.
     ----------------------------------------------------------------------------
-    F.root = CreateFrame("Frame", "InomrahsMISelfTestS2Root", UIParent)
+    -- The root too: the toggle hides it in combat, and a plain frame is now a
+    -- known-refused target for that.
+    F.root = CreateFrame("Frame", "InomrahsMISelfTestS2Root", UIParent,
+        "SecureHandlerBaseTemplate")
     F.root:SetFrameStrata("MEDIUM")
     F.root:SetSize(ROOT_W, ROOT_H)
     F.root:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
