@@ -413,6 +413,48 @@ check("the arming step names the Stage 2 bar", function()
     end
 end)
 
+-- A snippet is a string the client compiles at click time. A syntax error in
+-- one is completely silent: the button looks fine and does nothing, which is
+-- indistinguishable from the operation being refused.
+check("every snippet compiles, as assembled", function()
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+    local function body(name)
+        local b = source:match("local " .. name .. " = %[==%[(.-)%]==%]")
+        if not b then error("could not find " .. name) end
+        return b
+    end
+    local function substituted(text)
+        return (text:gsub("FULL_W_VALUE", "240"):gsub("FULL_H_VALUE", "32")
+                    :gsub("FULL_SCALE_VALUE", "1.0"):gsub("COMPACT_W_VALUE", "160")
+                    :gsub("COMPACT_H_VALUE", "24"):gsub("COMPACT_SCALE_VALUE", "0.85"))
+    end
+
+    local bind, present = body("BIND_BODY"), body("PAGE_PRESENT")
+    local assembled = {
+        flip = body("FLIP_SNIPPET") .. present .. bind,
+        rebind = body("REBIND_SNIPPET") .. present .. bind,
+        mode = "local moder = x\nlocal wanted = 1\n" .. body("MODE_APPLY"),
+        toggle = body("TOGGLE_SNIPPET"),
+        rescue = body("RESCUE_SNIPPET"),
+        collide = body("COLLIDE_SNIPPET"),
+    }
+    for name, text in pairs(assembled) do
+        local chunk, err = loadstring(substituted(text), name)
+        if not chunk then
+            error(("the %s snippet does not compile: %s"):format(name, tostring(err)))
+        end
+    end
+
+    -- And no placeholder may survive substitution, or the snippet compiles
+    -- with a nil global where a number should be.
+    for name, text in pairs(assembled) do
+        if substituted(text):find("_VALUE") then
+            error(("the %s snippet still contains an unsubstituted placeholder")
+                :format(name))
+        end
+    end
+end)
+
 -- Printed so a change in the sequence length is visible in the run output
 -- rather than counted by hand before every handoff.
 S2.Command("setup")

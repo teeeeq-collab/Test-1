@@ -30,7 +30,31 @@ InomrahsMISelfTestStage2 = {}
 local S2 = InomrahsMISelfTestStage2
 
 local PREFIX = "|cff8f7fe8MI Stage2|r "
-local function say(...) print(PREFIX .. string.format(...)) end
+
+-- Chat and, when asked, the report window. A dozen lines of diagnostic scroll
+-- past in chat; the window keeps them where they can be copied.
+local capture = nil
+
+local function say(...)
+    local text = string.format(...)
+    print(PREFIX .. text)
+    if capture then
+        capture[#capture + 1] = (text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+    end
+end
+
+local function beginCapture() capture = {} end
+
+local function endCapture(title)
+    local lines = capture
+    capture = nil
+    if not lines or #lines == 0 then return end
+    if InCombatLockdown() then return end
+    local API = _G.InomrahsMISelfTestAPI
+    local text = ("%s\n%s\n\n%s\n"):format(title, ("="):rep(52),
+        table.concat(lines, "\n"))
+    if API and API.Report then API.Report(text) else print(text) end
+end
 
 --------------------------------------------------------------------------------
 -- Guarded reads. Every frame read in this file goes through one of these: a
@@ -1578,10 +1602,34 @@ function S2.Command(arg)
     end
 
     if arg == "status" then
+        beginCapture()
         say("combat: %s | %s", inCombat() and "yes" or "no", stateLine())
         say("page 1 fired %d | page 2 fired %d", S2.fired[1] or 0, S2.fired[2] or 0)
         say("armed: %s | action size %s x %s scale %s", armed and "yes" or "no",
             fmt(width(F.action1)), fmt(height(F.action1)), fmt(scale(F.action1)))
+        say("pager rebinds: %s", tostring(attr(F.pager, "bound") or 0))
+        say("")
+
+        -- Per control, the three facts that were one number in Stage 1:
+        --   clicks   the insecure hook fired, so nothing threw
+        --   entered  the snippet began, stamped before anything can fail
+        --   ran      the snippet reached its end
+        -- entered 0 means the key or click never arrived at all, which is a
+        -- binding problem. entered 1 with ran 0 means the snippet threw.
+        say("control            clicks entered ran")
+        for _, entry in ipairs({
+            { "< PREV", F.prev }, { "NEXT >", F.next },
+            { "FULL", F.modeFull }, { "COMPACT", F.modeCompact },
+            { "MINIMAL", F.modeMinimal }, { "CYCLE", F.modeCycle },
+            { "HIDE / SHOW", F.toggle }, { "SHOW RUN ROOT", F.rescue },
+        }) do
+            local b = entry[2]
+            say("%-18s %-6s %-7s %s", entry[1],
+                tostring(b and b.clicks or 0),
+                tostring(attr(b, "entered") or 0),
+                tostring(attr(b, "ran") or 0))
+        end
+        endCapture("Stage 2 status")
         return
     end
 
