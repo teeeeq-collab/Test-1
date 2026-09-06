@@ -217,8 +217,18 @@ local BIND_BODY = [==[
 --- The flip reads the mode rather than assuming Full: a page change while
 --- Minimal must not put the action body back on screen, or the visible state
 --- would stop matching the mode and the report would call it stale.
+--- Fetched from `self`, not through the manager.
+---
+--- The flip was fetching these with two hops: self gives the manager handle,
+--- the manager handle gives the label handle. Stage 1's toggle -- which works
+--- in combat -- only ever did one, from the button to its own reference.
+--- Production's flip does the two-hop version and has never run in a fight.
+---
+--- Both the buttons and the pager carry these references, so this line works
+--- whether `self` is the arrow running a flip or the pager running its own
+--- rebind out of combat.
 local PAGE_PRESENT = [==[
-    local moder = m:GetFrameRef("moder")
+    local moder = self:GetFrameRef("moder")
     self:SetAttribute("gotmoder", (self:GetAttribute("gotmoder") or 0) + 1)
 
     local mode = 1
@@ -232,8 +242,8 @@ local PAGE_PRESENT = [==[
     -- fight; the two presses that reached this point differ only in whether
     -- combat was up, and the fetch and the Show are stamped apart so the one
     -- that is refused is named rather than inferred.
-    local id1 = m:GetFrameRef("pageId1")
-    local id2 = m:GetFrameRef("pageId2")
+    local id1 = self:GetFrameRef("pageId1")
+    local id2 = self:GetFrameRef("pageId2")
     self:SetAttribute("gotlabels", (self:GetAttribute("gotlabels") or 0) + 1)
 
     if id1 and id2 then
@@ -250,8 +260,8 @@ local PAGE_PRESENT = [==[
     -- The action buttons: protected frames under a secure header. Separated
     -- from the labels on purpose -- showing a plain frame and showing a
     -- protected one are not the same operation.
-    local act1 = m:GetFrameRef("action1")
-    local act2 = m:GetFrameRef("action2")
+    local act1 = self:GetFrameRef("action1")
+    local act2 = self:GetFrameRef("action2")
     self:SetAttribute("gotactions", (self:GetAttribute("gotactions") or 0) + 1)
 
     if act1 and act2 then
@@ -579,13 +589,17 @@ function S2.Build()
     -- Controls. All children of the root, so the hidden-root tests measure the
     -- production-like case rather than an always-visible duplicate.
     ----------------------------------------------------------------------------
-    F.prev = secureControl("Prev", F.root, "< PREV", FLIP_SNIPPET,
-        { manager = F.pager })
+    local flipRefs = {
+        manager = F.pager, moder = F.moder,
+        pageId1 = F.pageId1, pageId2 = F.pageId2,
+        action1 = F.action1, action2 = F.action2,
+    }
+
+    F.prev = secureControl("Prev", F.root, "< PREV", FLIP_SNIPPET, flipRefs)
     F.prev:SetPoint("TOPLEFT", 10, -104)
     F.prev:SetAttribute("delta", -1)
 
-    F.next = secureControl("Next", F.root, "NEXT >", FLIP_SNIPPET,
-        { manager = F.pager })
+    F.next = secureControl("Next", F.root, "NEXT >", FLIP_SNIPPET, flipRefs)
     F.next:SetPoint("TOPLEFT", 90, -104)
     F.next:SetAttribute("delta", 1)
 

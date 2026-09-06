@@ -625,6 +625,39 @@ check("the action buttons live under a secure header, as in production", functio
     end
 end)
 
+-- The presentation block must reach its frames in one hop, from whichever
+-- frame is running it. Two hops -- self gives the manager, the manager gives
+-- the label -- is what production does and what has never worked in combat
+-- here, and both the arrows and the pager carry the references so one hop is
+-- always available.
+check("the presentation block reaches its frames in one hop", function()
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+    local body = source:match("local PAGE_PRESENT = %[==%[(.-)%]==%]")
+    if not body then error("could not find PAGE_PRESENT") end
+    local code = body:gsub("%-%-[^\n]*", "")
+
+    if code:find("m:GetFrameRef") then
+        error("the presentation block still fetches a handle through the manager")
+    end
+    for _, ref in ipairs({ "moder", "pageId1", "pageId2", "action1", "action2" }) do
+        if not code:find('self:GetFrameRef%("' .. ref .. '"%)') then
+            error("the block does not fetch " .. ref .. " from self")
+        end
+    end
+
+    -- And the arrows must actually carry them, or the flip fetches nil.
+    S2.Command("setup")
+    for _, name in ipairs({ "Prev", "Next" }) do
+        local button = _G["InomrahsMISelfTestS2" .. name]
+        if not button then error("no " .. name) end
+        for _, ref in ipairs({ "moder", "pageId1", "pageId2", "action1", "action2" }) do
+            if not (button.attributes and button.attributes["ref:" .. ref]) then
+                error(("%s does not carry a reference to %s"):format(name, ref))
+            end
+        end
+    end
+end)
+
 -- Printed so a change in the sequence length is visible in the run output
 -- rather than counted by hand before every handoff.
 S2.Command("setup")
