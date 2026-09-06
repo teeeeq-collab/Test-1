@@ -584,6 +584,35 @@ check("the presentation block stamps each kind of frame separately", function()
     if not (firstAction < actionsAt) then error("didactions is stamped too early") end
 end)
 
+-- Stage 2 is meant to mirror production closely enough for a result to mean
+-- something. Production's pages are secure headers holding the callout
+-- buttons; hanging the actions off a plain frame was a deviation, and it is
+-- the only structural difference between the protected frames a snippet can
+-- show in combat and the ones it apparently cannot.
+check("the action buttons live under a secure header, as in production", function()
+    S2.Command("setup")
+    local area = _G.InomrahsMISelfTestS2ActionArea
+    if not area then error("the action area is not a named frame") end
+    for _, name in ipairs({ "Action1", "Action2" }) do
+        local button = _G["InomrahsMISelfTestS2" .. name]
+        if not button then error("no " .. name) end
+        if button:GetParent() ~= area then
+            error(name .. " is not a child of the action area")
+        end
+    end
+
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+    if not source:find('"InomrahsMISelfTestS2ActionArea", F.root,\n        "SecureHandlerBaseTemplate"', 1, true) then
+        error("the action area is not a SecureHandlerBaseTemplate")
+    end
+
+    -- Production sets this explicitly for the same reason.
+    local body = source:match("local function actionButton%b()(.-)\nend\n")
+    if not body:find("EnableMouse(true)", 1, true) then
+        error("the action buttons do not enable the mouse explicitly")
+    end
+end)
+
 -- Printed so a change in the sequence length is visible in the run output
 -- rather than counted by hand before every handoff.
 S2.Command("setup")

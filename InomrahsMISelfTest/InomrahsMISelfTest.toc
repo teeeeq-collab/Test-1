@@ -2,7 +2,7 @@
 ## Title: Inomrah's MI Self-Test
 ## Notes: Checks Inomrah's Mythic Instructions against the live client. Not needed to play.
 ## Author: Inomrah
-## Version: 0.10.8
+## Version: 0.10.9
 ## Dependencies: InomrahsMythicInstructions
 ## SavedVariables: InomrahsMISelfTestDB
 

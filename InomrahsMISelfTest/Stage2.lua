@@ -450,6 +450,9 @@ local function actionButton(name, parent, page, text)
     -- are fine on AnyUp. The two arrows in production use AnyUp deliberately,
     -- to avoid firing a page flip twice; an action button is a different case.
     b:RegisterForClicks("AnyUp", "AnyDown")
+    -- Explicit, as production does it: a button that never receives the click
+    -- is indistinguishable from one whose action is refused.
+    b:EnableMouse(true)
     b:SetAttribute("type", "macro")
     b:SetAttribute("macrotext",
         ("/run InomrahsMISelfTestS2Fired(%d)"):format(page))
@@ -528,9 +531,21 @@ function S2.Build()
     F.visMinimal:SetPoint("TOPRIGHT", -10, -28)
     F.visMinimal:Hide()
 
-    -- The action area and the two page actions, stacked at one anchor.
-    F.actionArea = panelFrame(F.root, FULL_W, FULL_H + 8, 0.12, 0.12, 0.18)
+    -- The action area is a secure header, not a plain frame.
+    --
+    -- Production's pages are SecureHandlerBaseTemplate and its callout buttons
+    -- are their children; Stage 1's action button, which fired in every hidden
+    -- state, sat under a secure header too. Stage 2 hung its actions off a
+    -- plain frame -- a deviation I introduced, and the only structural
+    -- difference between the buttons a snippet can show in combat and the ones
+    -- it apparently cannot.
+    F.actionArea = CreateFrame("Frame", "InomrahsMISelfTestS2ActionArea", F.root,
+        "SecureHandlerBaseTemplate")
+    F.actionArea:SetSize(FULL_W, FULL_H + 8)
     F.actionArea:SetPoint("TOP", 0, -54)
+    local areaBg = F.actionArea:CreateTexture(nil, "BACKGROUND")
+    areaBg:SetAllPoints()
+    areaBg:SetColorTexture(0.12, 0.12, 0.18, 0.95)
 
     F.action1 = actionButton("Action1", F.actionArea, 1, "ACTION - PAGE 1")
     F.action1:SetPoint("CENTER")
