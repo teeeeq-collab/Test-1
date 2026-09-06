@@ -12,6 +12,7 @@ lua5.1 tests/history_test.lua
 lua5.1 tests/core_test.lua
 lua5.1 tests/export_test.lua
 lua5.1 tests/sheet_test.lua
+lua5.1 tests/pagecompose_test.lua
 lua5.1 tests/starter_test.lua
 lua5.1 tests/binds_test.lua
 lua5.1 tests/ui_test.lua

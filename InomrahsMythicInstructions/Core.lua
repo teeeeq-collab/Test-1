@@ -413,6 +413,9 @@ end
 --- Deep copy, because a variant that shared tables with the one it came from
 --- would not be a separate strategy at all: editing either would change both.
 local function copyVariantContents(source, target)
+    -- Old line id -> new line id, for remapping the pages afterwards.
+    local lineCopies = {}
+
     for _, enemy in ipairs(source.enemies) do
         local copy = {
             id     = Util.NewId("enemy"),
@@ -421,11 +424,13 @@ local function copyVariantContents(source, target)
             lines  = {},
         }
         for _, line in ipairs(enemy.lines) do
-            copy.lines[#copy.lines + 1] = {
+            local newLine = {
                 id      = Util.NewId("line"),
                 caption = line.caption,
                 body    = line.body,
             }
+            copy.lines[#copy.lines + 1] = newLine
+            lineCopies[line.id] = newLine.id
         end
         target.enemies[#target.enemies + 1] = copy
         -- Remember which new enemy each old one became, so page references can
@@ -441,6 +446,49 @@ local function copyVariantContents(source, target)
                 copy.enemyIds[#copy.enemyIds + 1] = old.__copyId
             end
         end
+
+        -- The composition comes too, remapped onto the new ids. Copying the
+        -- old ids straight across would leave every entry pointing into the
+        -- variant it was copied from: silently inert, and impossible to see.
+        if page.lineDisabled then
+            for oldLineId in pairs(page.lineDisabled) do
+                local newId = lineCopies[oldLineId]
+                if newId then
+                    copy.lineDisabled = copy.lineDisabled or {}
+                    copy.lineDisabled[newId] = true
+                end
+            end
+        end
+
+        if page.lineOverrides then
+            for oldLineId, entry in pairs(page.lineOverrides) do
+                local newId = lineCopies[oldLineId]
+                if newId then
+                    copy.lineOverrides = copy.lineOverrides or {}
+                    copy.lineOverrides[newId] = {
+                        caption = entry.caption, body = entry.body,
+                    }
+                end
+            end
+        end
+
+        if page.lineOrder then
+            for oldEnemyId, ids in pairs(page.lineOrder) do
+                local old = Util.FindById(source.enemies, oldEnemyId)
+                if old and old.__copyId then
+                    local mapped = {}
+                    for _, oldLineId in ipairs(ids) do
+                        local newId = lineCopies[oldLineId]
+                        if newId then mapped[#mapped + 1] = newId end
+                    end
+                    if #mapped > 0 then
+                        copy.lineOrder = copy.lineOrder or {}
+                        copy.lineOrder[old.__copyId] = mapped
+                    end
+                end
+            end
+        end
+
         target.pages[#target.pages + 1] = copy
     end
 
@@ -626,6 +674,13 @@ function Core.DeleteEnemy(catId, enemyId)
     local enemies = Core.Enemies(catId)
     local index = Util.IndexById(enemies, enemyId)
     if not index then return false end
+
+    -- The enemy's lines have to be forgotten before the enemy goes, because
+    -- afterwards there is nothing left to ask which lines were its.
+    local enemy = enemies[index]
+    for _, line in ipairs(enemy.lines or {}) do
+        Core.ForgetLineOnPages(catId, line.id)
+    end
     table.remove(enemies, index)
 
     for _, page in ipairs(Core.Pages(catId)) do
@@ -633,6 +688,10 @@ function Core.DeleteEnemy(catId, enemyId)
             if page.enemyIds[i] == enemyId then
                 table.remove(page.enemyIds, i)
             end
+        end
+        if page.lineOrder then
+            page.lineOrder[enemyId] = nil
+            if not next(page.lineOrder) then page.lineOrder = nil end
         end
     end
 
@@ -762,6 +821,7 @@ function Core.DeleteLine(catId, enemyId, lineId)
     if not index then return false end
 
     table.remove(enemy.lines, index)
+    Core.ForgetLineOnPages(catId, lineId)
     edited()
     return true
 end
@@ -951,6 +1011,26 @@ function Core.RemoveEnemyFromPage(catId, pageId, enemyId)
     for i = #page.enemyIds, 1, -1 do
         if page.enemyIds[i] == enemyId then
             table.remove(page.enemyIds, i)
+
+            -- The page's composition of that enemy goes with it. Keeping it
+            -- would quietly restore a months-old arrangement if the enemy were
+            -- ever added back, which is not what "add" means.
+            if page.lineOrder then
+                page.lineOrder[enemyId] = nil
+                if not next(page.lineOrder) then page.lineOrder = nil end
+            end
+            local enemy = Core.GetEnemy(catId, enemyId)
+            for _, line in ipairs(enemy and enemy.lines or {}) do
+                if page.lineDisabled then page.lineDisabled[line.id] = nil end
+                if page.lineOverrides then page.lineOverrides[line.id] = nil end
+            end
+            if page.lineDisabled and not next(page.lineDisabled) then
+                page.lineDisabled = nil
+            end
+            if page.lineOverrides and not next(page.lineOverrides) then
+                page.lineOverrides = nil
+            end
+
             edited()
             return true
         end
@@ -988,6 +1068,302 @@ function Core.PageEnemies(catId, pageId)
     end
     return out
 end
+
+--------------------------------------------------------------------------------
+-- Page composition: what a page does with the lines it inherits
+--
+-- A page holds enemies by id and, until now, nothing else: every enemy brought
+-- all of its lines, in the enemy's own order, with the enemy's own wording. A
+-- page could therefore only ever be a subset of enemies, never a composition.
+--
+-- Three sparse tables change that, and sparse is the point. Absence means
+-- inherit, so a page that has never been composed stores nothing at all and
+-- reads exactly as it did before:
+--
+--     page.lineDisabled  = { [lineId] = true }
+--     page.lineOrder     = { [enemyId] = { lineId, lineId, ... } }
+--     page.lineOverrides = { [lineId] = { caption = ..., body = ... } }
+--
+-- Overrides are per field. A page that renames a callout keeps inheriting its
+-- body, so fixing a typo in the enemy's wording still reaches every page that
+-- did not deliberately rewrite it. That means presence has to be tested rather
+-- than truth: an override of "" is a deliberate empty caption, not an absent
+-- one, and `overrides.caption or line.caption` would silently discard it.
+--------------------------------------------------------------------------------
+
+--- The disabled set for a page, created on demand.
+local function disabledSet(page, create)
+    if not page.lineDisabled and create then page.lineDisabled = {} end
+    return page.lineDisabled
+end
+
+function Core.IsLineEnabledOnPage(catId, pageId, lineId)
+    local page = Core.GetPage(catId, pageId)
+    if not page or not page.lineDisabled then return true end
+    return page.lineDisabled[lineId] ~= true
+end
+
+function Core.SetLineEnabledOnPage(catId, pageId, lineId, enabled)
+    local page = Core.GetPage(catId, pageId)
+    if not page then return false end
+
+    if enabled then
+        if page.lineDisabled then
+            page.lineDisabled[lineId] = nil
+            if not next(page.lineDisabled) then page.lineDisabled = nil end
+        end
+    else
+        disabledSet(page, true)[lineId] = true
+    end
+    edited()
+    return true
+end
+
+--- The order a page shows one enemy's lines in, as line tables.
+---
+--- Resolution, in this order: the ids the page listed that still exist, then
+--- every source line the page has not listed, in the enemy's own order. So a
+--- line added to the enemy after the page was composed appears at the end
+--- rather than vanishing, and a line deleted from the enemy leaves no hole.
+function Core.PageLineOrder(catId, pageId, enemyId)
+    local enemy = Core.GetEnemy(catId, enemyId)
+    if not enemy then return {} end
+
+    local page = Core.GetPage(catId, pageId)
+    local order = page and page.lineOrder and page.lineOrder[enemyId]
+    if not order then return enemy.lines end
+
+    local out, seen = {}, {}
+    for _, id in ipairs(order) do
+        local line = Util.FindById(enemy.lines, id)
+        if line and not seen[id] then
+            out[#out + 1] = line
+            seen[id] = true
+        end
+    end
+    for _, line in ipairs(enemy.lines) do
+        if not seen[line.id] then out[#out + 1] = line end
+    end
+    return out
+end
+
+function Core.HasPageLineOrder(catId, pageId, enemyId)
+    local page = Core.GetPage(catId, pageId)
+    return (page and page.lineOrder and page.lineOrder[enemyId]) ~= nil
+end
+
+--- Move a line to an absolute position within its enemy, on this page only.
+---
+--- Writes the full resolved order rather than a delta, so the stored list is
+--- always complete and the next reader does not have to merge anything.
+function Core.MoveLineOnPageTo(catId, pageId, enemyId, lineId, target)
+    local page = Core.GetPage(catId, pageId)
+    if not page then return nil end
+
+    local lines = Core.PageLineOrder(catId, pageId, enemyId)
+    local from
+    for i, line in ipairs(lines) do
+        if line.id == lineId then from = i break end
+    end
+    if not from then return nil end
+
+    target = math.max(1, math.min(#lines, target or from))
+    if target == from then return from end
+
+    local ids = {}
+    for _, line in ipairs(lines) do ids[#ids + 1] = line.id end
+    table.remove(ids, from)
+    table.insert(ids, target, lineId)
+
+    page.lineOrder = page.lineOrder or {}
+    page.lineOrder[enemyId] = ids
+    edited()
+    return target
+end
+
+function Core.ResetPageLineOrder(catId, pageId, enemyId)
+    local page = Core.GetPage(catId, pageId)
+    if not page or not page.lineOrder then return false end
+
+    page.lineOrder[enemyId] = nil
+    if not next(page.lineOrder) then page.lineOrder = nil end
+    edited()
+    return true
+end
+
+--- Move an enemy to an absolute position on the page.
+function Core.MoveEnemyOnPageTo(catId, pageId, enemyId, target)
+    local page = Core.GetPage(catId, pageId)
+    if not page then return nil end
+
+    local from
+    for i, id in ipairs(page.enemyIds) do
+        if id == enemyId then from = i break end
+    end
+    if not from then return nil end
+
+    target = math.max(1, math.min(#page.enemyIds, target or from))
+    if target == from then return from end
+
+    table.remove(page.enemyIds, from)
+    table.insert(page.enemyIds, target, enemyId)
+    edited()
+    return target
+end
+
+--------------------------------------------------------------------------------
+-- Overrides
+--------------------------------------------------------------------------------
+
+function Core.HasLineOverride(catId, pageId, lineId, field)
+    local page = Core.GetPage(catId, pageId)
+    local entry = page and page.lineOverrides and page.lineOverrides[lineId]
+    if not entry then return false end
+    if field then return entry[field] ~= nil end
+    return entry.caption ~= nil or entry.body ~= nil
+end
+
+--- Set or clear one field of a page-specific override.
+---
+--- `nil` clears the field and lets it inherit again; the empty string is a
+--- value, not a clear.
+function Core.SetLineOverride(catId, pageId, lineId, field, value)
+    if field ~= "caption" and field ~= "body" then return false end
+
+    local page = Core.GetPage(catId, pageId)
+    if not page then return false end
+
+    if value == nil then
+        local entry = page.lineOverrides and page.lineOverrides[lineId]
+        if not entry then return false end
+        entry[field] = nil
+        if not next(entry) then page.lineOverrides[lineId] = nil end
+        if not next(page.lineOverrides) then page.lineOverrides = nil end
+    else
+        if field == "body" then value = Util.TrimToChars(value) end
+        page.lineOverrides = page.lineOverrides or {}
+        page.lineOverrides[lineId] = page.lineOverrides[lineId] or {}
+        page.lineOverrides[lineId][field] = value
+    end
+    edited()
+    return true
+end
+
+function Core.ResetLineOverride(catId, pageId, lineId)
+    local page = Core.GetPage(catId, pageId)
+    if not page or not page.lineOverrides then return false end
+    if not page.lineOverrides[lineId] then return false end
+
+    page.lineOverrides[lineId] = nil
+    if not next(page.lineOverrides) then page.lineOverrides = nil end
+    edited()
+    return true
+end
+
+--- One line as a given page sees it.
+---
+--- Returns a fresh table rather than the stored line, so a caller that writes
+--- to what it is handed cannot accidentally edit the source through a page.
+function Core.ResolveLine(catId, pageId, enemyId, lineId)
+    local line = Core.GetLine(catId, enemyId, lineId)
+    if not line then return nil end
+
+    local page = Core.GetPage(catId, pageId)
+    local entry = page and page.lineOverrides and page.lineOverrides[lineId]
+
+    local caption = line.caption
+    local body    = line.body
+    if entry then
+        if entry.caption ~= nil then caption = entry.caption end
+        if entry.body ~= nil then body = entry.body end
+    end
+
+    return {
+        id           = line.id,
+        caption      = caption,
+        body         = body,
+        isMacro      = Util.IsMacroLine(body),
+        enabled      = Core.IsLineEnabledOnPage(catId, pageId, lineId),
+        bind         = Core.LineBind(catId, pageId, lineId),
+        captionLocal = entry ~= nil and entry.caption ~= nil,
+        bodyLocal    = entry ~= nil and entry.body ~= nil,
+    }
+end
+
+--- Every line the page shows for one enemy, resolved and in page order,
+--- including the disabled ones. This is what the Page Builder draws: a disabled
+--- callout stays visible and reorderable, it simply does not reach Run.
+function Core.PageEditorLines(catId, pageId, enemyId)
+    local out = {}
+    for _, line in ipairs(Core.PageLineOrder(catId, pageId, enemyId)) do
+        out[#out + 1] = Core.ResolveLine(catId, pageId, enemyId, line.id)
+    end
+    return out
+end
+
+--- The same list, enabled only. This is what Run builds buttons from, what
+--- Preview draws and what the fit calculation measures -- one resolved truth,
+--- so a page cannot look different in the three places that show it.
+function Core.PageRunLines(catId, pageId, enemyId)
+    local out = {}
+    for _, resolved in ipairs(Core.PageEditorLines(catId, pageId, enemyId)) do
+        if resolved.enabled then out[#out + 1] = resolved end
+    end
+    return out
+end
+
+--- How many of an enemy's lines on this page are active, and how many exist.
+function Core.PageLineCounts(catId, pageId, enemyId)
+    local total, active = 0, 0
+    for _, resolved in ipairs(Core.PageEditorLines(catId, pageId, enemyId)) do
+        total = total + 1
+        if resolved.enabled then active = active + 1 end
+    end
+    return active, total
+end
+
+--- Chat callouts and macros for one enemy, for the navigator's two badges.
+function Core.EnemyLineCounts(catId, enemyId)
+    local enemy = Core.GetEnemy(catId, enemyId)
+    if not enemy then return 0, 0 end
+
+    local chat, macro = 0, 0
+    for _, line in ipairs(enemy.lines) do
+        if Util.IsMacroLine(line.body) then macro = macro + 1 else chat = chat + 1 end
+    end
+    return chat, macro
+end
+
+--------------------------------------------------------------------------------
+
+--- Forget everything every page recorded about a line.
+---
+--- Called wherever a line stops existing. A stale disabled flag is invisible
+--- until an id is reused; a stale override would then apply someone else's
+--- wording to an unrelated callout.
+local function forgetLine(catId, lineId)
+    for _, page in ipairs(Core.Pages(catId)) do
+        if page.lineDisabled then
+            page.lineDisabled[lineId] = nil
+            if not next(page.lineDisabled) then page.lineDisabled = nil end
+        end
+        if page.lineOverrides then
+            page.lineOverrides[lineId] = nil
+            if not next(page.lineOverrides) then page.lineOverrides = nil end
+        end
+        if page.lineOrder then
+            for enemyId, ids in pairs(page.lineOrder) do
+                for i = #ids, 1, -1 do
+                    if ids[i] == lineId then table.remove(ids, i) end
+                end
+                if #ids == 0 then page.lineOrder[enemyId] = nil end
+            end
+            if not next(page.lineOrder) then page.lineOrder = nil end
+        end
+    end
+end
+
+Core.ForgetLineOnPages = forgetLine
 
 --- Every line the category needs buttons for. Used when a category is selected
 --- and its buttons are built, which is the only moment they can be written.

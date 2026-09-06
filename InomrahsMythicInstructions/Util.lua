@@ -90,8 +90,22 @@ Util.DEFAULT_CHANNEL = "/p"
 Util.CHANNELS = { "/p", "/i", "/raid", "/say", "/rw", "/y" }
 
 --- True if the body already carries its own command.
+---
+--- The one classifier. Every part of the addon that needs to know whether a
+--- line is an explicit macro asks here -- the composer, the character limit,
+--- the editor's macro accent, the counters, Run. A second implementation that
+--- trimmed whitespace differently would disagree with this one only for the
+--- lines nobody thought to test.
 function Util.HasCommand(body)
     return (body or ""):match("^%s*/") ~= nil
+end
+
+--- The product-facing name for the same question.
+---
+--- The spec asks for Util.IsMacroLine; this is that name, delegating rather
+--- than repeating, so there is still exactly one place that decides.
+function Util.IsMacroLine(body)
+    return Util.HasCommand(body)
 end
 
 --- The text actually written to the button.

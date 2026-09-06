@@ -210,12 +210,17 @@ local function adoptCategory(source)
 
         Core.SetActiveVariant(cat.id, target.id)
 
-        local idMap = {}
+        -- Ids are minted fresh on the way in, so everything that refers to one
+        -- has to be translated. Lines need this as much as enemies do now that
+        -- a page can disable, reorder and reword them: an untranslated id is
+        -- not an error, it is a silently inert entry, which is worse.
+        local idMap, lineMap = {}, {}
         for _, enemy in ipairs(sourceVariant.enemies or {}) do
             local new = Core.AddEnemy(cat.id, enemy.name, enemy.perRow)
             idMap[enemy.id or ""] = new.id
             for _, line in ipairs(enemy.lines or {}) do
-                Core.AddLine(cat.id, new.id, line.caption, line.body)
+                local newLine = Core.AddLine(cat.id, new.id, line.caption, line.body)
+                if line.id and newLine then lineMap[line.id] = newLine.id end
             end
         end
 
@@ -227,6 +232,45 @@ local function adoptCategory(source)
             for _, oldId in ipairs(page.enemyIds or {}) do
                 local newId = idMap[oldId]
                 if newId then Core.AddEnemyToPage(cat.id, newPage.id, newId) end
+            end
+
+            -- Through the setters, so a page composed by a newer build cannot
+            -- write a shape this one does not understand.
+            for oldLineId in pairs(page.lineDisabled or {}) do
+                local newId = lineMap[oldLineId]
+                if newId then
+                    Core.SetLineEnabledOnPage(cat.id, newPage.id, newId, false)
+                end
+            end
+
+            for oldLineId, entry in pairs(page.lineOverrides or {}) do
+                local newId = lineMap[oldLineId]
+                if newId and type(entry) == "table" then
+                    if entry.caption ~= nil then
+                        Core.SetLineOverride(cat.id, newPage.id, newId,
+                            "caption", tostring(entry.caption))
+                    end
+                    if entry.body ~= nil then
+                        Core.SetLineOverride(cat.id, newPage.id, newId,
+                            "body", tostring(entry.body))
+                    end
+                end
+            end
+
+            for oldEnemyId, order in pairs(page.lineOrder or {}) do
+                local newEnemyId = idMap[oldEnemyId]
+                if newEnemyId and type(order) == "table" then
+                    local mapped = {}
+                    for _, oldLineId in ipairs(order) do
+                        local newId = lineMap[oldLineId]
+                        if newId then mapped[#mapped + 1] = newId end
+                    end
+                    if #mapped > 0 then
+                        local target = Core.GetPage(cat.id, newPage.id)
+                        target.lineOrder = target.lineOrder or {}
+                        target.lineOrder[newEnemyId] = mapped
+                    end
+                end
             end
         end
     end
