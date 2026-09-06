@@ -455,6 +455,40 @@ check("every snippet compiles, as assembled", function()
     end
 end)
 
+-- The flip is the one snippet that does several things before it touches
+-- anything visible, so "the page did not change" covers five different causes.
+-- It stamps between every call, and each stamp must follow the call it vouches
+-- for: a stamp before its call proves nothing.
+check("the flip stamps between each call, in order", function()
+    local source = io.open("InomrahsMISelfTest/Stage2.lua"):read("*a")
+    local body = source:match("local FLIP_SNIPPET = %[==%[(.-)%]==%]")
+    if not body then error("could not find FLIP_SNIPPET") end
+    body = body:gsub("%-%-[^\n]*", "")
+
+    local order = { "entered", "gotmanager", "readindex", "wroteindex" }
+    local at = {}
+    for _, name in ipairs(order) do
+        at[name] = body:find('SetAttribute%("' .. name .. '"')
+        if not at[name] then error("the flip never stamps " .. name) end
+    end
+    for i = 2, #order do
+        if at[order[i]] < at[order[i - 1]] then
+            error(("%s is stamped before %s"):format(order[i], order[i - 1]))
+        end
+    end
+
+    -- gotmanager must come after the ref is fetched, wroteindex after the write.
+    local getRef = body:find('GetFrameRef%("manager"%)')
+    local setIndex = body:find('SetAttribute%("pageIndex"')
+    if not (getRef < at.gotmanager) then error("gotmanager is stamped too early") end
+    if not (setIndex < at.wroteindex) then error("wroteindex is stamped too early") end
+
+    -- And a nil manager must be distinguishable from a manager that worked.
+    if not body:find("nomanager", 1, true) then
+        error("a nil manager reference is silent")
+    end
+end)
+
 -- Printed so a change in the sequence length is visible in the run output
 -- rather than counted by hand before every handoff.
 S2.Command("setup")

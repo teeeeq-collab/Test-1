@@ -185,6 +185,7 @@ local MODE_NAME = { [1] = "FULL", [2] = "COMPACT", [3] = "MINIMAL" }
 --- are live" is the pair that drifts.
 local BIND_BODY = [==[
     m:ClearBindings()
+    m:SetAttribute("cleared", (m:GetAttribute("cleared") or 0) + 1)
 
     local action = m:GetFrameRef("action" .. index)
     local actionKey = m:GetAttribute("actionKey")
@@ -221,15 +222,32 @@ local PAGE_PRESENT = [==[
     end
 ]==]
 
+--- Stamped between every call, for the same reason the Stage 1 anchor probe
+--- was: a snippet stops dead where it throws, so everything after that point is
+--- silent and one "it did nothing" covers five different causes. The toggle
+--- works and this does not, and the difference is what this snippet does before
+--- it touches anything visible.
 local FLIP_SNIPPET = [==[
     self:SetAttribute("entered", (self:GetAttribute("entered") or 0) + 1)
-    local m = self:GetFrameRef("manager")
-    if not m then return end
 
-    local index = (m:GetAttribute("pageIndex") or 1) + (self:GetAttribute("delta") or 1)
+    local m = self:GetFrameRef("manager")
+    if not m then
+        self:SetAttribute("nomanager", (self:GetAttribute("nomanager") or 0) + 1)
+        return
+    end
+    self:SetAttribute("gotmanager", (self:GetAttribute("gotmanager") or 0) + 1)
+
+    local current = m:GetAttribute("pageIndex") or 1
+    self:SetAttribute("readindex", (self:GetAttribute("readindex") or 0) + 1)
+
+    local index = current + (self:GetAttribute("delta") or 1)
     if index < 1 then index = 2 elseif index > 2 then index = 1 end
+
     m:SetAttribute("pageIndex", index)
-]==] .. PAGE_PRESENT .. BIND_BODY .. [==[
+    self:SetAttribute("wroteindex", (self:GetAttribute("wroteindex") or 0) + 1)
+]==] .. PAGE_PRESENT .. [==[
+    self:SetAttribute("presented", (self:GetAttribute("presented") or 0) + 1)
+]==] .. BIND_BODY .. [==[
     self:SetAttribute("ran", (self:GetAttribute("ran") or 0) + 1)
 ]==]
 
@@ -1616,6 +1634,25 @@ function S2.Command(arg)
         --   ran      the snippet reached its end
         -- entered 0 means the key or click never arrived at all, which is a
         -- binding problem. entered 1 with ran 0 means the snippet threw.
+        -- The flip is stamped between every call, so one run says which one
+        -- stops it rather than "the page did not change".
+        for _, entry in ipairs({ { "< PREV", F.prev }, { "NEXT >", F.next } }) do
+            local b = entry[2]
+            say("%s  entered %s gotmanager %s readindex %s wroteindex %s "
+                .. "presented %s ran %s", entry[1],
+                tostring(attr(b, "entered") or 0),
+                tostring(attr(b, "gotmanager") or 0),
+                tostring(attr(b, "readindex") or 0),
+                tostring(attr(b, "wroteindex") or 0),
+                tostring(attr(b, "presented") or 0),
+                tostring(attr(b, "ran") or 0))
+            if (attr(b, "nomanager") or 0) > 0 then
+                say("    |cffff8800the manager frame reference came back nil|r")
+            end
+        end
+        say("pager cleared bindings: %s", tostring(attr(F.pager, "cleared") or 0))
+        say("")
+
         say("control            clicks entered ran")
         for _, entry in ipairs({
             { "< PREV", F.prev }, { "NEXT >", F.next },
