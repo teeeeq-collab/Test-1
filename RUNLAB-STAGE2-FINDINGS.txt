@@ -1,0 +1,193 @@
+RUN CAPABILITY LAB — STAGE 2 FINDINGS
+Contextual page bindings x presentation mode x fully hidden operation
+WoW Midnight 12.1, client build 120100
+Inomrah's Mythic Instructions v0.41, self-test 0.10.x
+
+Measured across three live runs on a training dummy. Everything below was
+observed; where a conclusion is inferred it says so. The corrections section
+at the end matters as much as the results, because several of these lines read
+the opposite way in an earlier run of the same code on the same client.
+
+===============================================================================
+1. THE ANSWER
+===============================================================================
+
+Every question Stage 2 was built to ask came back YES.
+
+    one physical callout key, following the page, in combat        YES
+    Full / Compact / Minimal by mouse, in combat                   YES
+    the same three by direct key, in combat                        YES
+    a cycle key, three transitions, ending where it should         YES
+    Minimal with the callout body gone and keys still working      YES
+    page navigation still usable by mouse in Minimal               YES
+    the Run root fully hidden, with action, page and mode keys live YES
+    the same toggle key reopening it, in combat                    YES
+    reopening into the page and mode reached while invisible       YES
+    three binding owners coexisting without erasing each other     YES
+
+===============================================================================
+2. CONTEXTUAL PAGE BINDING
+===============================================================================
+
+The central assertion, and the one with a correctness cost if it fails: one
+key, two pages, and it must fire the active page every time.
+
+Measured across two full rounds -- page 1, next, page 2, previous, page 1,
+and again -- with the counters read per page rather than in total:
+
+    ACTION key -> page 1 before any flip                YES
+    page NEXT flips to page 2 in combat                 YES
+    ACTION key -> page 2 after NEXT                     YES
+    page PREVIOUS flips back                            YES
+    ACTION key -> page 1 after PREVIOUS                 YES
+    still correct on the second round                   YES
+    one press ever fired both pages                     NO
+
+That last line is the important one. A press that fires both would send two
+callouts in production, and it never happened.
+
+Page identity followed the secure page index every time, using prebuilt PAGE 1
+and PAGE 2 frames shown and hidden by the flip snippet. No text was mutated
+from restricted code, which was never measured as safe and is not needed.
+
+===============================================================================
+3. PRESENTATION MODE
+===============================================================================
+
+By mouse click, in combat:      Full -> Compact -> Minimal -> Full   all YES
+By direct key, in combat:       Full, Compact, Minimal               all YES
+By cycle key:                   three transitions, landing exactly   YES
+
+The action target stayed correct after every mode change, and the page was
+never disturbed by one.
+
+Minimal hid the action body while the page identity stayed visible, the page
+arrows stayed usable by mouse, and the action key kept firing the right page
+with nothing on screen to click.
+
+Modes differ by size, scale and visibility only:
+
+    Full     240 x 32, scale 1.00
+    Compact  160 x 24, scale 0.85
+    Minimal  action body hidden
+
+No snippet re-anchors anything, because Stage 1 measured restricted SetPoint
+as accepting exactly one argument.
+
+===============================================================================
+4. FULLY HIDDEN BACKGROUND OPERATION
+===============================================================================
+
+The Run root hidden by its own toggle key, in combat, then:
+
+    ACTION key fires the correct page                   YES
+    page NEXT advances to page 2                        YES
+    ACTION key then fires page 2                        YES
+    MINIMAL key changes the mode                        YES
+    cycle key changes it again                          YES
+    page PREVIOUS goes back to page 1                   YES
+    ACTION key then fires page 1                        YES
+    the same toggle key reopens the root                YES
+    it comes back on the page and mode reached hidden   YES
+
+Hide and show preserved Compact, and preserved Minimal on page 2, rather than
+resetting to a default.
+
+This works because the prebuilt page and mode frames are shown and hidden by
+the snippets while their ancestor is hidden. IsShown reports a frame's own
+flag rather than its inherited visibility, so the state is maintained through
+the hidden period rather than reconstructed on show -- which insecure code
+could not do during combat anyway.
+
+The mode and page controls the keys drive are children of the hidden root.
+They were not moved outside to make the test pass.
+
+===============================================================================
+5. BINDING OWNER SEPARATION
+===============================================================================
+
+Three owners, three disjoint key sets:
+
+    Pager     action, next, previous       the only owner that clears
+    Moder     Full, Compact, Minimal, Cycle
+    Toggler   show / hide root
+
+Observed:
+
+    mode keys survive the pager's ClearBindings and rebind     YES
+    page keys survive a mode change                            YES
+    no binding set was disturbed by hiding or showing the root  YES
+
+And the constraint that makes the separation necessary, measured deliberately
+on a disposable fourth owner:
+
+    two keys on one owner, both working                        YES
+    then ClearBindings, re-applying only the first:
+        the re-applied key still works                         YES
+        the untouched key is gone                              YES
+
+So ClearBindings removes everything its header owns, not merely what it is
+about to replace. A pager that also owned the mode keys would delete them on
+every page flip. Production already gives its open/close key a separate owner
+for this reason; the rule extends to modes.
+
+===============================================================================
+6. WHAT THIS MEANS FOR THE ADDON
+===============================================================================
+
+Full / Compact / Minimal are all viable as combat-time states, driven either by
+mouse or by key, without disturbing page context or callout bindings.
+
+A closed Run UI can keep working. "Close the window" and "turn the feature off"
+are genuinely separate states, and the first can leave every key live.
+
+Anything that changes mid-fight must be expressible as size, scale, alpha or
+visibility on frames whose anchors were set beforehand. That is enough for all
+three modes.
+
+Every frame a snippet shows or hides must be a secure frame. A plain frame is
+refused in combat -- measured directly, and the single most expensive thing in
+this whole exercise. Production's pages already are secure frames.
+
+Page overflow during combat must be paged, not scrolled. Stage 1 settled that.
+
+===============================================================================
+7. CORRECTIONS
+===============================================================================
+
+An earlier run of the same code on the same client reported the hidden phase
+as almost entirely NO. Nothing about the client changed between then and the
+YES results above. Two faults in the tester produced that:
+
+A three-modifier chord that never arrived. The toggle was CTRL-ALT-SHIFT-F12
+and the collision keys were F10 and F11 of the same family. All three were
+bound -- GetBindingAction reported them -- and not one delivered a single
+press across an entire session, while every CTRL-SHIFT chord worked every
+time. A key that is bound and never arrives is indistinguishable from a
+refused operation.
+
+Steps asserting state they were not testing. Each hidden-phase step carried
+the page and mode it happened to inherit as well as the thing it measured, so
+one early drift made every later step fail on an unrelated precondition. The
+report said "page NEXT key works with the root hidden: NO" directly above an
+after field showing the page going from 1 to 2.
+
+Both are fixed, and both are now covered by offline checks. The general
+lesson, which cost this project more time than any client restriction: a
+missing measurement reported as a result is worse than no result, because
+nothing downstream questions it.
+
+===============================================================================
+8. STILL UNMEASURED
+===============================================================================
+
+  - more than two pages, and a page count that changes mid-fight
+  - more than one callout key per page
+  - this architecture built on production's own frames rather than a
+    synthetic copy of them
+  - a dungeon change while Run is hidden
+  - whether keeping the mode controls inside the hidden root is the right
+    production choice, as opposed to merely a testable one
+
+Stage 2 implements no production UI. It establishes that the state machine is
+buildable, and nothing more.
