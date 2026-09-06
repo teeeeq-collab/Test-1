@@ -1480,12 +1480,19 @@ local function buildSequence(mode)
     -- so its steps are literally the same objects. A second hand-written list
     -- would be a second thing to keep right, and the first time it drifted the
     -- report would still look convincing.
-    if mode == "followup" then
+    local KEEP = {
+        followup = FOLLOWUP_PHASES,
+        -- Everything but the collision probe has passed. Running the whole
+        -- hidden phase again to reach it would be twenty minutes to re-prove
+        -- what is proven.
+        collision = { ["stage 2 setup"] = true, ["combat"] = true,
+                      ["collision probe"] = true, ["done"] = true },
+    }
+    local wanted = KEEP[mode]
+    if wanted then
         local keep = {}
         for _, step in ipairs(steps) do
-            if step.phase and FOLLOWUP_PHASES[step.phase] then
-                keep[#keep + 1] = step
-            end
+            if step.phase and wanted[step.phase] then keep[#keep + 1] = step end
         end
         steps = keep
     end
@@ -1801,12 +1808,13 @@ function S2.Command(arg)
 
     -- Only what the first run left open: the hidden phase, the preserve phase
     -- and the collision probe. Results already recorded are kept.
-    if arg == "followup" then
+    if arg == "followup" or arg == "collision" then
         if inCombat() then say("|cffff4444out of combat only.|r") return end
         S2.Restore()
-        Lab.Drive(buildSequence("followup"), S2.Restore)
-        say("follow-up sequence: |cffffd200%d steps|r. anything already "
-            .. "recorded is kept.", #buildSequence("followup"))
+        local list = buildSequence(arg)
+        Lab.Drive(list, S2.Restore)
+        say("%s sequence: |cffffd200%d steps|r. anything already recorded "
+            .. "is kept.", arg, #list)
         return
     end
 
@@ -1945,7 +1953,8 @@ function S2.Command(arg)
         return
     end
 
-    say("stage2 commands: setup, followup, preflight, arm, status, reset, release")
+    say("stage2 commands: setup, followup, collision, preflight, arm, status, "
+        .. "reset, release")
 end
 
 S2.KEYS = KEYS
